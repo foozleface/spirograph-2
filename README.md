@@ -2,7 +2,7 @@
 
 A modular system for creating complex mathematical art through composed transformations. Think of it as a digital spirograph toy, but one where you can stack multiple effects on top of each other to create patterns that would be impossible with physical tools.
 
-![Harmonograph Example](https://raw.githubusercontent.com/foozleface/spirograph-2/main/output/joe_fun/examples/harmonograph_blue_complex.png)
+![Harmonograph Example](https://raw.githubusercontent.com/foozleface/spirograph-2/main/joe_fun/examples/harmonograph_blue_complex.png)
 
 ## What Is This?
 
@@ -65,7 +65,7 @@ The output of each module feeds into the next. A simple gear pattern becomes som
 
 | Single Module | Two Modules Composed |
 |--------------|---------------------|
-| ![Gear Only](https://raw.githubusercontent.com/foozleface/spirograph-2/main/output/joe_fun/examples/spirograph_gear_simple.png) | ![Gear + Rotation](https://raw.githubusercontent.com/foozleface/spirograph-2/main/output/joe_fun/examples/spirograph_gear_rotated.png) |
+| ![Gear Only](https://raw.githubusercontent.com/foozleface/spirograph-2/main/joe_fun/examples/spirograph_gear_simple.png) | ![Gear + Rotation](https://raw.githubusercontent.com/foozleface/spirograph-2/main/joe_fun/examples/spirograph_gear_rotated.png) |
 | `spirograph_gear` | `spirograph_gear` → `rotation` |
 
 ### Additive Complexity
@@ -89,7 +89,7 @@ modules = circle, translation, bend    # circles along a curved line
 modules = spirograph_gear, arc, rotation   # gear pattern along rotating arc
 ```
 
-![Triple Gear Cascade](https://raw.githubusercontent.com/foozleface/spirograph-2/main/output/joe_fun/compositions/triple_gear_cascade.png)
+![Triple Gear Cascade](https://raw.githubusercontent.com/foozleface/spirograph-2/main/joe_fun/compositions/triple_gear_cascade.png)
 
 *Three spirograph gears composed together, each adding detail at a different scale*
 
@@ -99,12 +99,12 @@ modules = spirograph_gear, arc, rotation   # gear pattern along rotating arc
 
 | Module | Description | Example |
 |--------|-------------|---------|
-| `spirograph_gear` | Classic two-gear spirograph | ![](https://raw.githubusercontent.com/foozleface/spirograph-2/main/output/joe_fun/examples/spirograph_gear_dense.png) |
-| `harmonograph` | Pendulum drawing simulator | ![](https://raw.githubusercontent.com/foozleface/spirograph-2/main/output/joe_fun/examples/harmonograph_complex.png) |
-| `lissajous` | Figure-8s and pretzel curves | ![](https://raw.githubusercontent.com/foozleface/spirograph-2/main/output/joe_fun/examples/lissajous_dense.png) |
-| `rose` | Flower petal patterns | ![](https://raw.githubusercontent.com/foozleface/spirograph-2/main/output/joe_fun/examples/rose_complex.png) |
-| `polygon` | Regular polygons | ![](https://raw.githubusercontent.com/foozleface/spirograph-2/main/output/joe_fun/examples/polygon_complex.png) |
-| `star_shape` | Pointed stars | ![](https://raw.githubusercontent.com/foozleface/spirograph-2/main/output/joe_fun/examples/star_shape_complex.png) |
+| `spirograph_gear` | Classic two-gear spirograph | ![](https://raw.githubusercontent.com/foozleface/spirograph-2/main/joe_fun/examples/spirograph_gear_dense.png) |
+| `harmonograph` | Pendulum drawing simulator | ![](https://raw.githubusercontent.com/foozleface/spirograph-2/main/joe_fun/examples/harmonograph_complex.png) |
+| `lissajous` | Figure-8s and pretzel curves | ![](https://raw.githubusercontent.com/foozleface/spirograph-2/main/joe_fun/examples/lissajous_dense.png) |
+| `rose` | Flower petal patterns | ![](https://raw.githubusercontent.com/foozleface/spirograph-2/main/joe_fun/examples/rose_complex.png) |
+| `polygon` | Regular polygons | ![](https://raw.githubusercontent.com/foozleface/spirograph-2/main/joe_fun/examples/polygon_complex.png) |
+| `star_shape` | Pointed stars | ![](https://raw.githubusercontent.com/foozleface/spirograph-2/main/joe_fun/examples/star_shape_complex.png) |
 
 ### Transforms (Modify Patterns)
 
@@ -122,7 +122,7 @@ modules = spirograph_gear, arc, rotation   # gear pattern along rotating arc
 
 The harmonograph module simulates a 19th-century drawing machine that uses swinging pendulums. By combining 2-4 pendulums with slightly different frequencies, you get organic, almost hand-drawn looking curves.
 
-![Harmonograph Black 3-Lobe](https://raw.githubusercontent.com/foozleface/spirograph-2/main/output/joe_fun/examples/harmonograph_black_3lobe.png)
+![Harmonograph Black 3-Lobe](https://raw.githubusercontent.com/foozleface/spirograph-2/main/joe_fun/examples/harmonograph_black_3lobe.png)
 
 ```ini
 [harmonograph]
@@ -139,7 +139,7 @@ The `decay` parameter simulates friction—the pattern spirals inward as the pen
 
 Setting `cycles` greater than 1 redraws the pattern multiple times. Combined with rotation, this creates moiré interference patterns:
 
-![Spirograph Moiré](https://raw.githubusercontent.com/foozleface/spirograph-2/main/output/joe_fun/examples/spirograph_moire.png)
+![Spirograph Moiré](https://raw.githubusercontent.com/foozleface/spirograph-2/main/joe_fun/examples/spirograph_moire.png)
 
 ```ini
 [spirograph_gear]
@@ -155,7 +155,7 @@ These two transforms both create curved results, but work very differently:
 
 | Arc (Sliding) | Bend (Warping) |
 |---------------|----------------|
-| ![Arc](https://raw.githubusercontent.com/foozleface/spirograph-2/main/output/joe_fun/examples/arc_vs_bend_arc.png) | ![Bend](https://raw.githubusercontent.com/foozleface/spirograph-2/main/output/joe_fun/examples/arc_vs_bend_bend.png) |
+| ![Arc](https://raw.githubusercontent.com/foozleface/spirograph-2/main/joe_fun/examples/arc_vs_bend_arc.png) | ![Bend](https://raw.githubusercontent.com/foozleface/spirograph-2/main/joe_fun/examples/arc_vs_bend_bend.png) |
 | Pattern slides along a curved path | Pattern itself is bent into a curve |
 
 **Arc**: The pattern keeps its shape but follows a curved trajectory. Like carrying a stamp along a curved rail.
@@ -166,8 +166,8 @@ These two transforms both create curved results, but work very differently:
 
 The `examples/karl_sims/` directory contains recreations of patterns from Karl Sims' harmonograph work:
 
-![Gold Pattern](https://raw.githubusercontent.com/foozleface/spirograph-2/main/output/joe_fun/examples/karl_sims/gold_pattern.png)
-![Silver Pattern](https://raw.githubusercontent.com/foozleface/spirograph-2/main/output/joe_fun/examples/karl_sims/silver_pattern.png)
+![Gold Pattern](https://raw.githubusercontent.com/foozleface/spirograph-2/main/joe_fun/examples/karl_sims/gold_pattern.png)
+![Silver Pattern](https://raw.githubusercontent.com/foozleface/spirograph-2/main/joe_fun/examples/karl_sims/silver_pattern.png)
 
 These use 3-4 pendulums with very close frequencies (like 1.0 and 1.002) to create slowly evolving interference patterns.
 
@@ -233,8 +233,8 @@ More examples from the `joe_fun` output:
 
 | | |
 |---|---|
-| ![Ellipse Flower](https://raw.githubusercontent.com/foozleface/spirograph-2/main/output/joe_fun/compositions/ellipse_flower.png) | ![Star Galaxy](https://raw.githubusercontent.com/foozleface/spirograph-2/main/output/joe_fun/compositions/star_galaxy.png) |
-| ![Spiraling Gear](https://raw.githubusercontent.com/foozleface/spirograph-2/main/output/joe_fun/compositions/spiraling_gear.png) | ![Circle in Circle](https://raw.githubusercontent.com/foozleface/spirograph-2/main/output/joe_fun/compositions/circle_in_circle.png) |
+| ![Ellipse Flower](https://raw.githubusercontent.com/foozleface/spirograph-2/main/joe_fun/compositions/ellipse_flower.png) | ![Star Galaxy](https://raw.githubusercontent.com/foozleface/spirograph-2/main/joe_fun/compositions/star_galaxy.png) |
+| ![Spiraling Gear](https://raw.githubusercontent.com/foozleface/spirograph-2/main/joe_fun/compositions/spiraling_gear.png) | ![Circle in Circle](https://raw.githubusercontent.com/foozleface/spirograph-2/main/joe_fun/compositions/circle_in_circle.png) |
 
 ## License
 
