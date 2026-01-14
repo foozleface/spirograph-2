@@ -483,6 +483,14 @@ if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description='Modular Spirograph Generator')
     parser.add_argument('config', help='Configuration INI file')
+    parser.add_argument('--svg', metavar='FILE', 
+                        help='Output SVG file (overrides config filename)')
+    parser.add_argument('--png', metavar='FILE',
+                        help='Output PNG file (requires cairosvg)')
+    parser.add_argument('--png-width', type=int, default=800,
+                        help='PNG output width in pixels (default: 800)')
+    parser.add_argument('--png-height', type=int, default=None,
+                        help='PNG output height in pixels (default: same as width)')
     parser.add_argument('--no-preview', action='store_true', 
                         help='Disable preview window (default: show preview on Mac)')
     parser.add_argument('--preview', action='store_true',
@@ -492,7 +500,46 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     
-    main(args.config)
+    # If --svg specified, temporarily modify config before running
+    config = configparser.ConfigParser()
+    config.read(args.config)
+    
+    # Override output filename if --svg specified
+    if args.svg:
+        if not config.has_section('output'):
+            config.add_section('output')
+        config.set('output', 'filename', args.svg)
+        # Write to temp file and use that
+        import tempfile
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.ini', delete=False) as tmp:
+            config.write(tmp)
+            tmp_path = tmp.name
+        main(tmp_path)
+        import os
+        os.unlink(tmp_path)
+        svg_filename = args.svg
+    else:
+        main(args.config)
+        svg_filename = config.get('output', 'filename', fallback='output.svg')
+    
+    # Generate PNG if requested
+    if args.png:
+        try:
+            import cairosvg
+            png_height = args.png_height if args.png_height else args.png_width
+            cairosvg.svg2png(
+                url=svg_filename, 
+                write_to=args.png,
+                output_width=args.png_width,
+                output_height=png_height
+            )
+            print(f"PNG written to: {args.png}")
+        except ImportError:
+            print("Error: cairosvg not installed. Run: pip install cairosvg")
+            sys.exit(1)
+        except Exception as e:
+            print(f"Error generating PNG: {e}")
+            sys.exit(1)
     
     # Preview on Mac if not disabled
     import platform
@@ -501,12 +548,9 @@ if __name__ == "__main__":
     if show_preview:
         try:
             import subprocess
-            config = configparser.ConfigParser()
-            config.read(args.config)
-            output_filename = config.get('output', 'filename', fallback='output.svg')
             if args.viewer.lower() == 'default':
-                subprocess.run(['open', output_filename], check=False)
+                subprocess.run(['open', svg_filename], check=False)
             else:
-                subprocess.run(['open', '-a', args.viewer, output_filename], check=False)
+                subprocess.run(['open', '-a', args.viewer, svg_filename], check=False)
         except Exception as e:
             print(f"Could not open preview: {e}")
