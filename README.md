@@ -86,9 +86,9 @@ modules = circle, rotation
 
 **Three+ modules** — compositions create intricate results:
 
-![Triple Gear Cascade](https://raw.githubusercontent.com/foozleface/spirograph-2/refs/heads/main/output/compositions/triple_gear_cascade.png)
+![Harmono Shell](https://raw.githubusercontent.com/foozleface/spirograph-2/refs/heads/main/output/joe_fun/harmono_shell_2.png)
 
-*Three spirograph gears composed together, each adding detail at a different scale*
+*Multiple modules composed together create organic, intricate patterns*
 
 ## Module Types
 
