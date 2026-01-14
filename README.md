@@ -1,3 +1,8 @@
+# AI toy problem test  
+
+100% of this code was generated on anthropic's Claude Opus 4.5. Chat transcript [here](./complete_transcript.md) (not including the chats to generate this README or `generate_all.sh`).
+
+
 # Spirograph Generator
 
 A modular system for creating complex mathematical art through composed transformations. Think of it as a digital spirograph toy, but one where you can stack multiple effects on top of each other to create patterns that would be impossible with physical tools.
