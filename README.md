@@ -8,7 +8,7 @@ examples other than "joe_fun" were automatically generated.
 
 A modular system for creating complex mathematical art through composed transformations. Think of it as a digital spirograph toy, but one where you can stack multiple effects on top of each other to create patterns that would be impossible with physical tools.
 
-![Harmonograph Example](https://raw.githubusercontent.com/foozleface/spirograph-2/refs/heads/main/output/examples/harmonograph_blue_complex.png)
+![Harmonograph Example](https://raw.githubusercontent.com/foozleface/spirograph-2/refs/heads/main/output/joe_fun/lumpy_spiral.png)
 
 ## What Is This?
 
