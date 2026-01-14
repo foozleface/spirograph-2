@@ -1,6 +1,8 @@
 # AI toy problem test  
 
-100% of this code was generated on anthropic's Claude Opus 4.5. Chat transcript [here](./complete_transcript.md) (not including the chats to generate this README or `generate_all.sh`).
+100% of this code was generated on anthropic's Claude Opus 4.5. Chat transcript [here](.
+/complete_transcript.md) (not including the chats to generate this README or `generate_all.sh`). All input 
+examples other than "joe_fun" were automatically generated.
 
 
 # Spirograph Generator
