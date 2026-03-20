@@ -204,16 +204,14 @@ MODULE_DEFS = {
             "normalize":    {"type": "bool",  "default": True,   "desc": "Normalize timing"},
         },
     },
-    "surface": {
+    "torus": {
         "category": "generator",
-        "label": "Surface",
-        "desc": "3D parametric surfaces (torus, Mobius, sphere, Klein bottle, etc.)",
+        "label": "Torus",
+        "desc": "3D torus (donut shape)",
         "params": {
-            "surface":      {"type": "str", "default": "torus", "desc": "Type: torus, mobius, ribbon, sphere, klein, helix_ribbon, figure8"},
-            "major_radius": {"type": "float", "default": 100.0, "min": 10, "max": 300, "desc": "Major radius"},
-            "minor_radius": {"type": "float", "default": 40.0,  "min": 5,  "max": 150, "desc": "Minor radius"},
-            "width":        {"type": "float", "default": 60.0,  "min": 5,  "max": 200, "desc": "Width (ribbon/mobius)"},
-            "twists":       {"type": "float", "default": 0.0,   "min": 0,  "max": 8, "step": 0.5, "desc": "Half-twists"},
+            "surface":      {"type": "str", "default": "torus", "hidden": True},
+            "major_radius": {"type": "float", "default": 100.0, "min": 10, "max": 300, "desc": "Ring radius"},
+            "minor_radius": {"type": "float", "default": 40.0,  "min": 5,  "max": 150, "desc": "Tube radius"},
             "v_lines":      {"type": "int",   "default": 40,    "min": 5,  "max": 200, "desc": "Line density"},
             "view_angle_x": {"type": "float", "default": 20.0,  "min": -90, "max": 90, "desc": "View tilt X"},
             "view_angle_y": {"type": "float", "default": 0.0,   "min": -90, "max": 90, "desc": "View tilt Y"},
@@ -221,6 +219,107 @@ MODULE_DEFS = {
             "scale":        {"type": "float", "default": 1.0,   "min": 0.1, "max": 5, "step": 0.1, "desc": "Scale"},
             "cycles":       {"type": "float", "default": 1.0,   "min": 1,  "max": 10, "step": 1, "desc": "Cycles"},
         },
+        "_module": "surface",
+    },
+    "mobius": {
+        "category": "generator",
+        "label": "Mobius Strip",
+        "desc": "Single-sided twisted strip",
+        "params": {
+            "surface":      {"type": "str", "default": "mobius", "hidden": True},
+            "major_radius": {"type": "float", "default": 100.0, "min": 10, "max": 300, "desc": "Ring radius"},
+            "width":        {"type": "float", "default": 60.0,  "min": 5,  "max": 200, "desc": "Strip width"},
+            "v_lines":      {"type": "int",   "default": 40,    "min": 5,  "max": 200, "desc": "Line density"},
+            "view_angle_x": {"type": "float", "default": 30.0,  "min": -90, "max": 90, "desc": "View tilt X"},
+            "view_angle_y": {"type": "float", "default": 15.0,  "min": -90, "max": 90, "desc": "View tilt Y"},
+            "view_angle_z": {"type": "float", "default": 0.0,   "min": -90, "max": 90, "desc": "View tilt Z"},
+            "scale":        {"type": "float", "default": 1.0,   "min": 0.1, "max": 5, "step": 0.1, "desc": "Scale"},
+            "cycles":       {"type": "float", "default": 1.0,   "min": 1,  "max": 10, "step": 1, "desc": "Cycles"},
+        },
+        "_module": "surface",
+    },
+    "klein_bottle": {
+        "category": "generator",
+        "label": "Klein Bottle",
+        "desc": "Non-orientable surface (self-intersecting)",
+        "params": {
+            "surface":      {"type": "str", "default": "klein", "hidden": True},
+            "major_radius": {"type": "float", "default": 100.0, "min": 10, "max": 300, "desc": "Body radius"},
+            "minor_radius": {"type": "float", "default": 40.0,  "min": 5,  "max": 150, "desc": "Neck radius"},
+            "v_lines":      {"type": "int",   "default": 40,    "min": 5,  "max": 200, "desc": "Line density"},
+            "view_angle_x": {"type": "float", "default": 30.0,  "min": -90, "max": 90, "desc": "View tilt X"},
+            "view_angle_y": {"type": "float", "default": 20.0,  "min": -90, "max": 90, "desc": "View tilt Y"},
+            "view_angle_z": {"type": "float", "default": 0.0,   "min": -90, "max": 90, "desc": "View tilt Z"},
+            "scale":        {"type": "float", "default": 1.0,   "min": 0.1, "max": 5, "step": 0.1, "desc": "Scale"},
+            "cycles":       {"type": "float", "default": 1.0,   "min": 1,  "max": 10, "step": 1, "desc": "Cycles"},
+        },
+        "_module": "surface",
+    },
+    "sphere": {
+        "category": "generator",
+        "label": "Sphere",
+        "desc": "3D sphere wireframe",
+        "params": {
+            "surface":      {"type": "str", "default": "sphere", "hidden": True},
+            "major_radius": {"type": "float", "default": 100.0, "min": 10, "max": 300, "desc": "Radius"},
+            "v_lines":      {"type": "int",   "default": 40,    "min": 5,  "max": 200, "desc": "Line density"},
+            "scale":        {"type": "float", "default": 1.0,   "min": 0.1, "max": 5, "step": 0.1, "desc": "Scale"},
+            "cycles":       {"type": "float", "default": 1.0,   "min": 1,  "max": 10, "step": 1, "desc": "Cycles"},
+        },
+        "_module": "surface",
+    },
+    "figure8": {
+        "category": "generator",
+        "label": "Figure-8 Torus",
+        "desc": "Self-intersecting figure-8 torus",
+        "params": {
+            "surface":      {"type": "str", "default": "figure8", "hidden": True},
+            "major_radius": {"type": "float", "default": 100.0, "min": 10, "max": 300, "desc": "Ring radius"},
+            "minor_radius": {"type": "float", "default": 40.0,  "min": 5,  "max": 150, "desc": "Tube radius"},
+            "v_lines":      {"type": "int",   "default": 40,    "min": 5,  "max": 200, "desc": "Line density"},
+            "view_angle_x": {"type": "float", "default": 20.0,  "min": -90, "max": 90, "desc": "View tilt X"},
+            "view_angle_y": {"type": "float", "default": 0.0,   "min": -90, "max": 90, "desc": "View tilt Y"},
+            "view_angle_z": {"type": "float", "default": 0.0,   "min": -90, "max": 90, "desc": "View tilt Z"},
+            "scale":        {"type": "float", "default": 1.0,   "min": 0.1, "max": 5, "step": 0.1, "desc": "Scale"},
+            "cycles":       {"type": "float", "default": 1.0,   "min": 1,  "max": 10, "step": 1, "desc": "Cycles"},
+        },
+        "_module": "surface",
+    },
+    "ribbon": {
+        "category": "generator",
+        "label": "Twisted Ribbon",
+        "desc": "Ribbon with configurable twists",
+        "params": {
+            "surface":      {"type": "str", "default": "ribbon", "hidden": True},
+            "major_radius": {"type": "float", "default": 100.0, "min": 10, "max": 300, "desc": "Ring radius"},
+            "width":        {"type": "float", "default": 60.0,  "min": 5,  "max": 200, "desc": "Ribbon width"},
+            "twists":       {"type": "float", "default": 2.0,   "min": 0,  "max": 8, "step": 0.5, "desc": "Half-twists"},
+            "v_lines":      {"type": "int",   "default": 40,    "min": 5,  "max": 200, "desc": "Line density"},
+            "view_angle_x": {"type": "float", "default": 25.0,  "min": -90, "max": 90, "desc": "View tilt X"},
+            "view_angle_y": {"type": "float", "default": 10.0,  "min": -90, "max": 90, "desc": "View tilt Y"},
+            "view_angle_z": {"type": "float", "default": 0.0,   "min": -90, "max": 90, "desc": "View tilt Z"},
+            "scale":        {"type": "float", "default": 1.0,   "min": 0.1, "max": 5, "step": 0.1, "desc": "Scale"},
+            "cycles":       {"type": "float", "default": 1.0,   "min": 1,  "max": 10, "step": 1, "desc": "Cycles"},
+        },
+        "_module": "surface",
+    },
+    "helix_ribbon": {
+        "category": "generator",
+        "label": "Helix Ribbon",
+        "desc": "Rising helical ribbon",
+        "params": {
+            "surface":      {"type": "str", "default": "helix_ribbon", "hidden": True},
+            "major_radius": {"type": "float", "default": 100.0, "min": 10, "max": 300, "desc": "Helix radius"},
+            "width":        {"type": "float", "default": 40.0,  "min": 5,  "max": 200, "desc": "Ribbon width"},
+            "twists":       {"type": "float", "default": 1.0,   "min": 0,  "max": 8, "step": 0.5, "desc": "Half-twists"},
+            "v_lines":      {"type": "int",   "default": 40,    "min": 5,  "max": 200, "desc": "Line density"},
+            "view_angle_x": {"type": "float", "default": 30.0,  "min": -90, "max": 90, "desc": "View tilt X"},
+            "view_angle_y": {"type": "float", "default": 15.0,  "min": -90, "max": 90, "desc": "View tilt Y"},
+            "view_angle_z": {"type": "float", "default": 0.0,   "min": -90, "max": 90, "desc": "View tilt Z"},
+            "scale":        {"type": "float", "default": 1.0,   "min": 0.1, "max": 5, "step": 0.1, "desc": "Scale"},
+            "cycles":       {"type": "float", "default": 1.0,   "min": 1,  "max": 10, "step": 1, "desc": "Cycles"},
+        },
+        "_module": "surface",
     },
     "line": {
         "category": "generator",
@@ -480,6 +579,11 @@ def api_load_ini(path: str):
                             params[k] = float(v)
                         except ValueError:
                             params[k] = v
+        # Map surface module to specific UI type based on 'surface' param
+        if mod_type == "surface" and "surface" in params:
+            surface_to_ui = {"torus":"torus","mobius":"mobius","klein":"klein_bottle",
+                             "sphere":"sphere","figure8":"figure8","ribbon":"ribbon","helix_ribbon":"helix_ribbon"}
+            mod_type = surface_to_ui.get(params["surface"], "torus")
         return {"section_name": name, "type": mod_type, "params": params}
 
     pipeline_modules = []
@@ -829,11 +933,19 @@ def api_delete_ini(path: str = Query(...)):
     return {"deleted": path}
 
 
+# Map UI type names to Python module names where they differ
+_TYPE_TO_MODULE = {
+    "torus": "surface", "mobius": "surface", "klein_bottle": "surface",
+    "sphere": "surface", "figure8": "surface", "ribbon": "surface", "helix_ribbon": "surface",
+}
+
 def _emit_mod(lines, section_name, mod_params):
     """Emit a single module's INI section."""
     lines.append(f"[{section_name}]")
     for k, v in mod_params.items():
-        if isinstance(v, bool):
+        if k == "type" and v in _TYPE_TO_MODULE:
+            lines.append(f"type = {_TYPE_TO_MODULE[v]}")
+        elif isinstance(v, bool):
             lines.append(f"{k} = {'true' if v else 'false'}")
         else:
             lines.append(f"{k} = {v}")
@@ -1830,205 +1942,190 @@ function App() {
     const rf = (lo, hi) => Math.round((lo + R() * (hi - lo)) * 100) / 100;
     const rint = (lo, hi) => Math.round(lo + R() * (hi - lo));
     const gcd = (a, b) => { while (b) { [a, b] = [b, a % b]; } return a; };
-
     const mm = (type, params) => ({ id: ++idCounter.current, type, params: { type, ...params } });
+    // Zero-fill unused harmonograph pendulums
+    const hz = {freq3:0,amp3:0,phase3:0,decay3:0,freq4:0,amp4:0,phase4:0,decay4:0};
 
-    // Proven recipes — each is a complete pipeline that produces good results,
-    // based on analysis of 32 working INI files and mathematical aesthetics research.
     const recipes = [
 
-      // --- HARMONOGRAPH FAMILY (the most reliably beautiful) ---
+      // ── HARMONOGRAPH: Slow Decay 4-Frequency (top experiment result, path 575K) ──
       () => {
-        // Classic 2:3 harmonograph — the "quintessential" pattern
-        const [a, b] = pick([[2,3],[3,2],[3,4],[4,3],[5,4],[5,3]]);
-        const detune = (R()-0.5) * 0.015;
-        const decay = rf(0.003, 0.012);
-        const steps = [{ kind:'single', mod: mm('harmonograph', {
-          freq1:a, amp1:rf(90,130), phase1:0, decay1:decay,
-          freq2:b+detune, amp2:rf(90,130), phase2:90, decay2:decay,
-          freq3:0, amp3:0, phase3:0, decay3:0, freq4:0, amp4:0, phase4:0, decay4:0,
-          duration:rf(60,100), cycles:rint(3,5),
-        })}];
-        if (R()>0.5) steps.push({ kind:'single', mod: mm('damping', { decay_rate:rf(0.01,0.025), duration:rf(40,70) }) });
-        return { steps, sw: 0.2 };
+        const [a,b] = pick([[3,2],[2,3],[5,4],[4,3]]);
+        const [c,d] = pick([[5,4],[4,3],[7,5],[3,2]]);
+        return { steps: [{ kind:'single', mod: mm('harmonograph', {
+          freq1:a, freq2:b+(R()-0.5)*0.006, freq3:c, freq4:d+(R()-0.5)*0.004,
+          amp1:100, amp2:rf(70,90), amp3:rf(40,60), amp4:rf(30,50),
+          phase1:0, phase2:rf(0.5,1.57), phase3:rf(1.0,2.0), phase4:rf(1.5,2.5),
+          decay1:rf(0.001,0.004), decay2:rf(0.001,0.004), decay3:rf(0.001,0.004), decay4:rf(0.001,0.004),
+          duration:rf(100,150), cycles:1,
+        })}], sw: 0.1 };
       },
 
+      // ── HARMONOGRAPH: 7:5 Complex (experiment path 397K) ──
       () => {
-        // 4-pendulum harmonograph — dense organic pattern
-        const [a,b] = pick([[2,3],[3,2],[1,1]]);
-        const detune1 = (R()-0.5)*0.01, detune2 = (R()-0.5)*0.01;
-        const d = rf(0.002, 0.008);
+        const [a,b] = pick([[7,5],[5,7],[7,4],[4,7]]);
         return { steps: [{ kind:'single', mod: mm('harmonograph', {
-          freq1:a, amp1:rf(90,120), phase1:0, decay1:d,
-          freq2:b+detune1, amp2:rf(90,120), phase2:90, decay2:d,
-          freq3:1+detune2, amp3:rf(30,60), phase3:rf(0,180), decay3:d,
-          freq4:pick([1,2,3]), amp4:rf(20,45), phase4:rf(0,180), decay4:d,
-          duration:rf(80,140), cycles:rint(3,6),
+          freq1:a, freq2:b+(R()-0.5)*0.006, freq3:pick([3,2]), freq4:pick([4,5])+(R()-0.5)*0.01,
+          amp1:100, amp2:80, amp3:60, amp4:50,
+          phase1:0, phase2:1.5708, phase3:rf(0.3,0.7), phase4:rf(1.5,2.5),
+          decay1:rf(0.003,0.005), decay2:rf(0.002,0.004), decay3:rf(0.004,0.006), decay4:rf(0.003,0.005),
+          duration:rf(50,80), cycles:1,
+        })}], sw: 0.1 };
+      },
+
+      // ── HARMONOGRAPH: Prime Harmonics 2:3:5:7 (experiment path 258K) ──
+      () => ({
+        steps: [{ kind:'single', mod: mm('harmonograph', {
+          freq1:2, freq2:3+(R()-0.5)*0.01, freq3:5, freq4:7+(R()-0.5)*0.006,
+          amp1:100, amp2:80, amp3:60, amp4:50,
+          phase1:0, phase2:1.5708, phase3:rf(0.3,0.7), phase4:rf(1.5,2.5),
+          decay1:rf(0.003,0.005), decay2:rf(0.002,0.004), decay3:rf(0.004,0.006), decay4:rf(0.003,0.005),
+          duration:60, cycles:1,
+        })}], sw: 0.1,
+      }),
+
+      // ── HARMONOGRAPH: Beat Pattern — extreme detuning (experiment path 273K) ──
+      () => {
+        const base = pick([2,3]);
+        return { steps: [{ kind:'single', mod: mm('harmonograph', {
+          freq1:base, freq2:base+rf(0.03,0.07), freq3:base+1, freq4:base+1+rf(0.04,0.08),
+          amp1:100, amp2:80, amp3:60, amp4:40,
+          phase1:0, phase2:1.5708, phase3:rf(0.5,1.5), phase4:rf(2.0,3.0),
+          decay1:rf(0.001,0.003), decay2:rf(0.002,0.004), decay3:rf(0.001,0.002), decay4:rf(0.001,0.003),
+          duration:rf(80,120), cycles:1,
+        })}], sw: 0.1 };
+      },
+
+      // ── HARMONOGRAPH: Fast Decay spiral-in (experiment path 86K) ──
+      () => {
+        const [a,b] = pick([[3,2],[5,4],[7,5]]);
+        return { steps: [{ kind:'single', mod: mm('harmonograph', {
+          freq1:a, freq2:b+0.005, freq3:pick([5,3]), freq4:pick([7,4])+0.003,
+          amp1:120, amp2:100, amp3:80, amp4:60,
+          phase1:0, phase2:1.5708, phase3:0.5, phase4:2.0,
+          decay1:rf(0.015,0.025), decay2:rf(0.012,0.02), decay3:rf(0.02,0.03), decay4:rf(0.015,0.025),
+          duration:rf(15,30), cycles:1,
         })}], sw: 0.15 };
       },
 
+      // ── HARMONOGRAPH: Amplitude Drift "Butterfly" ──
       () => {
-        // Harmonograph + rotation — swooping arcs
         const [a,b] = pick([[2,3],[3,4],[5,4]]);
+        const d = rf(0.002,0.005);
+        return { steps: [{ kind:'single', mod: mm('harmonograph', {
+          freq1:a, amp1:rf(100,130), end_amp1:rf(20,40), phase1:0, decay1:d,
+          freq2:b+(R()-0.5)*0.008, amp2:rf(100,130), end_amp2:rf(40,70), phase2:90, decay2:d,
+          freq3:1+(R()-0.5)*0.005, amp3:rf(30,55), end_amp3:rf(5,15), phase3:rf(20,60), decay3:d,
+          freq4:0, amp4:0, phase4:0, decay4:0,
+          duration:rf(80,110), cycles:rint(3,5),
+        })}], sw: 0.12 };
+      },
+
+      // ── HARMONOGRAPH + ROTATION ──
+      () => {
+        const [a,b] = pick([[2,3],[3,4],[5,4],[5,3]]);
+        const d = rf(0.004,0.01);
         return { steps: [
           { kind:'single', mod: mm('harmonograph', {
-            freq1:a, amp1:100, phase1:0, decay1:rf(0.005,0.01),
-            freq2:b+(R()-0.5)*0.01, amp2:100, phase2:90, decay2:rf(0.005,0.01),
-            freq3:0, amp3:0, phase3:0, decay3:0, freq4:0, amp4:0, phase4:0, decay4:0,
-            duration:80, cycles:3,
+            freq1:a, amp1:100, phase1:0, decay1:d,
+            freq2:b+(R()-0.5)*0.01, amp2:100, phase2:90, decay2:d, ...hz,
+            duration:rf(60,90), cycles:rint(3,5),
           })},
           { kind:'single', mod: mm('rotation', { total_degrees:pick([90,120,180]), origin_x:0, origin_y:0, normalize:true }) },
-        ], sw: 0.2 };
-      },
-
-      // --- SPIROGRAPH GEAR FAMILY ---
-      () => {
-        // Classic spirograph — proven tooth combos
-        const fixed = pick([96, 105, 120, 144]);
-        const goodRolling = [24,30,32,36,40,45,48,52,56,60,63,72].filter(r => {
-          if (r >= fixed) return false;
-          const g = gcd(fixed, r);
-          return g >= 3 && g <= 12;
-        });
-        const rolling = goodRolling.length ? pick(goodRolling) : 36;
-        return { steps: [{ kind:'single', mod: mm('spirograph_gear', {
-          fixed_teeth:fixed, rolling_teeth:rolling,
-          tooth_pitch:rf(4,9), hole_position:rf(0.55,0.75),
-          inside:true, cycles:1,
-        })}], sw: 0.15 };
-      },
-
-      () => {
-        // Gear + rotation — the "nautilus shell" family
-        const fixed = pick([96, 105]);
-        const rolling = pick([36, 40, 45, 52]);
-        return { steps: [
-          { kind:'single', mod: mm('spirograph_gear', {
-            fixed_teeth:fixed, rolling_teeth:rolling,
-            tooth_pitch:rf(5,9), hole_position:rf(0.55,0.70),
-            inside:true, cycles:1,
-          })},
-          { kind:'single', mod: mm('arc', { arc_radius:rf(120,250), sweep_angle:pick([90,120,180]), start_angle:0, cycles:1 }) },
-          { kind:'single', mod: mm('rotation', { total_degrees:pick([90,180,270,360]), origin_x:0, origin_y:0, normalize:true }) },
-        ], sw: 0.12 };
-      },
-
-      () => {
-        // Gear + translation + spiral + bend — the "scroll" archetype
-        const fixed = 105, rolling = 52;
-        return { steps: [
-          { kind:'single', mod: mm('spirograph_gear', {
-            fixed_teeth:fixed, rolling_teeth:rolling,
-            tooth_pitch:rf(5,8), hole_position:0.65,
-            inside:true, cycles:rint(10,20),
-          })},
-          { kind:'single', mod: mm('translation', { start_x:0, end_x:rf(150,250), start_y:0, end_y:0, normalize:true }) },
-          { kind:'single', mod: mm('rotation', { total_degrees:pick([90,180,360,540]), origin_x:0, origin_y:0, normalize:true }) },
-          { kind:'single', mod: mm('spiral_shape', { start_radius:5, end_radius:rf(120,170), turns:rf(4,6), cycles:1 }) },
-        ], sw: 0.1 };
-      },
-
-      // --- LISSAJOUS ---
-      () => {
-        const [a,b] = pick([[3,2],[5,4],[4,3],[7,4]]);
-        return { steps: [
-          { kind:'single', mod: mm('lissajous', {
-            freq_x:a, freq_y:b,
-            amp_x:rf(90,130), amp_y:rf(90,130),
-            phase:rf(40,85), cycles:rint(2,4),
-          })},
-          { kind:'single', mod: mm('rotation', { total_degrees:pick([72,90,120]), origin_x:0, origin_y:0, normalize:true }) },
-        ], sw: 0.2 };
-      },
-
-      // --- ELLIPSE PETAL FAMILY ---
-      () => {
-        return { steps: [
-          { kind:'single', mod: mm('ellipse', {
-            radius_x:rf(120,180), radius_y:rf(80,130),
-            end_radius_x:rf(30,60), end_radius_y:rf(20,45),
-            cycles:rint(80,200), rotation:rf(0,90),
-          })},
-          { kind:'single', mod: mm('bend', { radius:rf(180,280), sweep_angle:pick([120,180,200]) }) },
-          { kind:'single', mod: mm('rotation', { total_degrees:pick([120,180,270]), origin_x:0, origin_y:0, normalize:true }) },
-        ], sw: 0.1 };
-      },
-
-      // --- SIMULTANEOUS ARMS ---
-      () => {
-        // Two harmonographs with different ratios, summed
-        const [a1,b1] = pick([[2,3],[3,4]]);
-        const [a2,b2] = pick([[5,4],[3,2]]);
-        return { steps: [
-          { kind:'group', branches: [
-            [mm('harmonograph', {
-              freq1:a1, amp1:100, phase1:0, decay1:rf(0.004,0.01),
-              freq2:b1+(R()-0.5)*0.01, amp2:100, phase2:90, decay2:rf(0.004,0.01),
-              freq3:0, amp3:0, phase3:0, decay3:0, freq4:0, amp4:0, phase4:0, decay4:0,
-              duration:80, cycles:3,
-            })],
-            [mm('harmonograph', {
-              freq1:a2, amp1:rf(50,80), phase1:0, decay1:rf(0.004,0.01),
-              freq2:b2+(R()-0.5)*0.01, amp2:rf(50,80), phase2:90, decay2:rf(0.004,0.01),
-              freq3:0, amp3:0, phase3:0, decay3:0, freq4:0, amp4:0, phase4:0, decay4:0,
-              duration:80, cycles:3,
-            })],
-          ]},
-          { kind:'single', mod: mm('rotation', { total_degrees:pick([60,90,120]), origin_x:0, origin_y:0, normalize:true }) },
         ], sw: 0.15 };
       },
 
+      // ── HARMONOGRAPH + CIRCLE GROUP (experiment: fuzzy orbits) ──
       () => {
-        // Harmonograph + circle + translation (the decay_shell_joe recipe)
+        const [a,b] = pick([[2,3],[3,4],[5,4]]);
+        const cRad = pick([15, 20, 25, 30]);
+        const cCycles = cRad < 20 ? rint(15,25) : rint(4,8);
+        return { steps: [
+          { kind:'group', branches: [
+            [mm('harmonograph', {
+              freq1:a, amp1:100, phase1:0, decay1:rf(0.004,0.008),
+              freq2:b+0.005, amp2:80, phase2:1.5708, decay2:rf(0.003,0.006), ...hz,
+              duration:rf(35,50), cycles:1,
+            })],
+            [mm('circle', { radius:cRad, cycles:cCycles })],
+          ]},
+        ], sw: 0.12 };
+      },
+
+      // ── DUAL HARMONOGRAPH GROUP (experiment: path 186K) ──
+      () => {
+        const [a1,b1] = pick([[2,3],[3,4]]);
+        const [a2,b2] = pick([[5,4],[7,5],[3,2]]);
+        const d = rf(0.003,0.007);
+        return { steps: [
+          { kind:'group', branches: [
+            [mm('harmonograph', {
+              freq1:a1, amp1:100, phase1:0, decay1:d,
+              freq2:b1+0.003, amp2:100, phase2:90, decay2:d, ...hz,
+              duration:80, cycles:rint(3,5),
+            })],
+            [mm('harmonograph', {
+              freq1:a2, amp1:rf(50,75), phase1:0, decay1:d,
+              freq2:b2+0.004, amp2:rf(50,75), phase2:90, decay2:d, ...hz,
+              duration:80, cycles:rint(3,5),
+            })],
+          ]},
+          { kind:'single', mod: mm('damping', { decay_rate:rf(0.008,0.015), duration:rf(40,60) }) },
+        ], sw: 0.12 };
+      },
+
+      // ── HARMONOGRAPH + CIRCLE + TRANSLATION (decay_shell_joe archetype) ──
+      () => {
         const [a,b] = pick([[2,3],[3,2],[3,4]]);
         return { steps: [
           { kind:'group', branches: [
             [mm('harmonograph', {
               freq1:a, amp1:100, phase1:0, decay1:0,
-              freq2:b, amp2:100, end_amp2:rf(50,80), phase2:90, decay2:0,
-              freq3:0, amp3:0, phase3:0, decay3:0, freq4:0, amp4:0, phase4:0, decay4:0,
+              freq2:b, amp2:100, end_amp2:rf(50,80), phase2:90, decay2:0, ...hz,
               duration:60, cycles:3,
             })],
-            [mm('circle', { radius:rf(30,60), cycles:1 })],
+            [mm('circle', { radius:rf(30,55), cycles:1 })],
             [mm('translation', { start_x:0, end_x:rf(60,120), start_y:0, end_y:0, normalize:true })],
           ]},
           { kind:'single', mod: mm('rotation', { total_degrees:rf(50,120), origin_x:0, origin_y:0, normalize:true }) },
-        ], sw: 0.15 };
+        ], sw: 0.12 };
       },
 
-      // --- ROSE + SYMMETRY ---
+      // ── GEAR: Fibonacci ratios (experiment: dense fill, path 155K) ──
       () => {
-        const k = pick([3,5,7]);
+        const [f,r] = pick([[233,144],[144,89],[89,55]]);
+        return { steps: [{ kind:'single', mod: mm('spirograph_gear', {
+          fixed_teeth:f, rolling_teeth:r, tooth_pitch:rf(0.8,1.5),
+          hole_position:rf(0.7,0.9), inside:true, cycles:1,
+        })}], sw: 0.12 };
+      },
+
+      // ── GEAR: Classic with good GCD ──
+      () => {
+        const fixed = pick([96, 105, 120, 144]);
+        const candidates = [24,30,32,36,40,45,48,52,56,60,63,72].filter(r => r < fixed && gcd(fixed,r) >= 3 && gcd(fixed,r) <= 12);
+        const rolling = candidates.length ? pick(candidates) : 36;
+        return { steps: [{ kind:'single', mod: mm('spirograph_gear', {
+          fixed_teeth:fixed, rolling_teeth:rolling,
+          tooth_pitch:rf(4,9), hole_position:rf(0.55,0.75), inside:true, cycles:1,
+        })}], sw: 0.12 };
+      },
+
+      // ── GEAR + ROTATION + SCALE (experiment: concentric rings) ──
+      () => {
+        const fixed = pick([100,96,120]);
+        const rolling = pick([37,41,43,47].filter(r => r < fixed));
         return { steps: [
-          { kind:'single', mod: mm('rose', { petals:k, denom:1, radius:rf(90,140), cycles:1 }) },
-          { kind:'single', mod: mm('rotation', { total_degrees:pick([45,60,72,90]), origin_x:0, origin_y:0, normalize:true }) },
-        ], sw: 0.2, sym: pick([3,5,6]) };
+          { kind:'single', mod: mm('spirograph_gear', {
+            fixed_teeth:fixed, rolling_teeth:rolling, tooth_pitch:rf(1.5,3),
+            hole_position:rf(0.7,0.9), inside:true, cycles:1,
+          })},
+          { kind:'single', mod: mm('scale', { start_scale:1.0, end_scale:rf(0.4,0.6) }) },
+          { kind:'single', mod: mm('rotation', { total_degrees:pick([90,120,180]), origin_x:0, origin_y:0, normalize:true }) },
+        ], sw: 0.12 };
       },
 
-      // --- NEW DISCOVERIES ---
-
-      // Harmonograph amplitude drift — "Butterfly"
-      () => {
-        const [a,b] = pick([[2,3],[3,4],[5,4]]);
-        const d = rf(0.002,0.006);
-        return { steps: [{ kind:'single', mod: mm('harmonograph', {
-          freq1:a, amp1:rf(100,140), end_amp1:rf(30,50), phase1:0, decay1:d,
-          freq2:b+(R()-0.5)*0.01, amp2:rf(100,140), end_amp2:rf(40,70), phase2:90, decay2:d,
-          freq3:1+(R()-0.5)*0.005, amp3:rf(30,60), end_amp3:rf(5,15), phase3:rf(20,60), decay3:d,
-          freq4:0, amp4:0, phase4:0, decay4:0,
-          duration:rf(80,120), cycles:rint(3,5),
-        })}], sw: 0.15 };
-      },
-
-      // Torus + rotation — "Trefoil Knot"
-      () => {
-        return { steps: [
-          { kind:'single', mod: mm('surface', { surface:pick(['torus','figure8','mobius','klein']), major_radius:rf(100,150), minor_radius:rf(35,65), u_lines:rint(60,100), v_lines:rint(25,50), view_angle_x:rf(20,50), view_angle_y:rf(10,40), view_angle_z:rf(-20,20) }) },
-          { kind:'single', mod: mm('rotation', { total_degrees:360, origin_x:0, origin_y:0, normalize:true }) },
-        ], sw: 0.1 };
-      },
-
-      // Gear drift + bend — "Wreath"
+      // ── GEAR DRIFT + BEND "Wreath" ──
       () => {
         const fixed = pick([96,105,120]);
         const rolling = pick([36,40,45,52].filter(r => r < fixed));
@@ -2037,37 +2134,65 @@ function App() {
           { kind:'single', mod: mm('translation', { start_x:0, end_x:rf(150,250), start_y:0, end_y:0, normalize:true }) },
           { kind:'single', mod: mm('bend', { radius:rf(170,260), sweep_angle:pick([180,200,240]) }) },
           { kind:'single', mod: mm('rotation', { total_degrees:pick([180,270,360]), origin_x:0, origin_y:0, normalize:true }) },
-        ], sw: 0.08 };
+        ], sw: 0.1 };
       },
 
-      // Lissajous + scale decay — "Nautilus Mesh"
+      // ── GEAR SCROLL archetype ──
+      () => ({
+        steps: [
+          { kind:'single', mod: mm('spirograph_gear', { fixed_teeth:105, rolling_teeth:52, tooth_pitch:rf(5,8), hole_position:0.65, inside:true, cycles:rint(10,20) }) },
+          { kind:'single', mod: mm('translation', { start_x:0, end_x:rf(150,250), start_y:0, end_y:0, normalize:true }) },
+          { kind:'single', mod: mm('rotation', { total_degrees:pick([90,180,360,540]), origin_x:0, origin_y:0, normalize:true }) },
+          { kind:'single', mod: mm('spiral_shape', { start_radius:5, end_radius:rf(120,170), turns:rf(4,6), cycles:1 }) },
+        ], sw: 0.12,
+      }),
+
+      // ── LISSAJOUS + SCALE "Nautilus Mesh" ──
       () => {
-        const [a,b] = pick([[5,6],[7,8],[9,8],[7,6]]);
+        const [a,b] = pick([[5,6],[7,8],[9,8],[7,6],[5,4]]);
         return { steps: [
           { kind:'single', mod: mm('lissajous', { freq_x:a, freq_y:b, amp_x:rf(100,140), amp_y:rf(100,140), phase:rf(40,80), cycles:rint(2,4) }) },
           { kind:'single', mod: mm('scale', { start_scale:1.0, end_scale:rf(0.2,0.4) }) },
           { kind:'single', mod: mm('rotation', { total_degrees:pick([120,180,270]), origin_x:0, origin_y:0, normalize:true }) },
-        ], sw: 0.12 };
+        ], sw: 0.1 };
       },
 
-      // Ellipse axis swap + damping — "Lens"
+      // ── ELLIPSE AXIS SWAP "Lens" ──
       () => {
         const rx = rf(140,200), ry = rf(20,40);
         return { steps: [
           { kind:'single', mod: mm('ellipse', { radius_x:rx, radius_y:ry, end_radius_x:ry, end_radius_y:rx, cycles:rint(100,180), rotation:rf(0,90) }) },
           { kind:'single', mod: mm('damping', { decay_rate:rf(0.01,0.02), duration:rf(40,70) }) },
           { kind:'single', mod: mm('rotation', { total_degrees:pick([120,180,270]), origin_x:0, origin_y:0, normalize:true }) },
-        ], sw: 0.1 };
+        ], sw: 0.12 };
+      },
+
+      // ── SURFACE + ROTATION "Trefoil" ──
+      () => {
+        const stype = pick(['torus','figure8','mobius','klein']);
+        return { steps: [
+          { kind:'single', mod: mm(stype === 'klein' ? 'klein_bottle' : stype, { surface:stype, major_radius:rf(100,150), minor_radius:rf(35,65), width:rf(40,80), v_lines:rint(30,60), view_angle_x:rf(20,50), view_angle_y:rf(10,40), view_angle_z:rf(-15,15) }) },
+          { kind:'single', mod: mm('rotation', { total_degrees:360, origin_x:0, origin_y:0, normalize:true }) },
+        ], sw: 0.12 };
+      },
+
+      // ── ROSE with interesting ratios ──
+      () => {
+        const [p,d] = pick([[5,3],[7,3],[7,4],[8,3],[5,2]]);
+        return { steps: [
+          { kind:'single', mod: mm('rose', { petals:p, denom:d, radius:rf(100,140), cycles:1 }) },
+          { kind:'single', mod: mm('rotation', { total_degrees:pick([36,45,60,72]), origin_x:0, origin_y:0, normalize:true }) },
+        ], sw: 0.15, sym: pick([0,0,3,5]) || undefined };
       },
     ];
 
     const recipe = pick(recipes)();
     setSteps(recipe.steps);
     setSel({ step: 0 });
-    const sym = recipe.sym || (R() > 0.8 ? pick([3,5,6,8]) : 1);
+    const sym = recipe.sym || (R() > 0.85 ? pick([3,5,6,8]) : 1);
     setSymmetry({ n_fold: sym, mirror: sym > 1 && R() > 0.6 });
     setSampling({ initial_samples: 300000, output_samples: 40000, scroll_repeats: 1 });
-    setOutput(prev => ({ ...prev, stroke_width: recipe.sw || 0.15 }));
+    setOutput(prev => ({ ...prev, stroke_width: recipe.sw || 0.12 }));
     regenFlag.current = true;
   };
 
@@ -2293,6 +2418,7 @@ function App() {
             const rows = [];
             for (const [key, spec] of Object.entries(params)) {
               if (driftKeys.has(key)) continue;  // rendered as child of base param
+              if (spec.hidden) continue;  // hidden params (e.g. surface type selector)
               const val = activeMod.params[key];
               const hasDrift = !!driftMap[key];
               if (spec.type === 'bool') {
