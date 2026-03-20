@@ -12,8 +12,8 @@ The interactive frontend runs as a single-file FastAPI + React app — no build 
 
 ```bash
 pip install fastapi uvicorn numpy
-python server.py
-# Open http://127.0.0.1:8890/
+./launch.sh          # http://127.0.0.1:8890/
+./launch.sh 9000     # http://127.0.0.1:9000/
 ```
 
 ### Features
