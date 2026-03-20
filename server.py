@@ -413,6 +413,25 @@ def api_generate_ini(req: GenerateIniRequest):
         raise HTTPException(500, str(e))
 
 
+@app.post("/api/generate-points")
+def api_generate_points(req: GenerateRequest):
+    """Generate point arrays as JSON for canvas rendering."""
+    try:
+        ini = _build_ini(req)
+        normalized, cfg = _run_pipeline_points(ini)
+        # Convert complex arrays to [[x,y], ...] lists
+        paths = []
+        for pts in normalized:
+            paths.append([[round(float(p.real), 2), round(float(p.imag), 2)] for p in pts])
+        return {
+            "paths": paths,
+            "config": cfg,
+        }
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(500, str(e))
+
+
 @app.get("/api/ini-files")
 def api_ini_files():
     """List all .ini files in the project directory and subdirectories."""
@@ -566,6 +585,237 @@ def api_save(req: SaveRequest):
     return {"saved": name}
 
 
+# --------------------------------------------------------------------------- #
+# AxiDraw Plotter
+# --------------------------------------------------------------------------- #
+
+# AxiDraw model definitions: model_id -> (label, width_inches, height_inches)
+AXIDRAW_MODELS = {
+    1: {"label": "AxiDraw V3/SE A4", "width": 11.81, "height": 8.58},
+    2: {"label": "AxiDraw V3/A3", "width": 16.93, "height": 11.69},
+    3: {"label": "AxiDraw V3 XLX", "width": 23.42, "height": 8.58},
+    4: {"label": "AxiDraw SE/A2", "width": 23.39, "height": 17.01},
+    5: {"label": "AxiDraw SE/A1", "width": 34.02, "height": 23.39},
+}
+
+_plotter_status = {"plotting": False, "progress": 0.0, "message": "", "error": ""}
+
+
+class PlotRequest(BaseModel):
+    steps: list[dict[str, Any]] = []
+    pipeline: list[dict[str, Any]] = []
+    arms: list[list[dict[str, Any]]] = []
+    global_mods: list[dict[str, Any]] = []
+    output: dict[str, Any] = {}
+    sampling: dict[str, Any] = {}
+    symmetry: dict[str, Any] = {}
+    moire: dict[str, Any] = {}
+    # AxiDraw settings
+    model: int = 3
+    port: str = ""
+    penDownSpeed: int = 25
+    penUpSpeed: int = 75
+    accelFactor: int = 75
+    constSpeed: bool = False
+    penUpPosition: int = 60
+    penDownPosition: int = 30
+    penLiftRate: int = 150
+    penLowerRate: int = 150
+    penLiftDelay: int = 0
+    penLowerDelay: int = 0
+    resolution: int = 1
+    margin: float = 0.0
+    autoRotate: bool = True
+    copies: int = 1
+    copyDelay: int = 15
+    preview: bool = False
+    # Canvas transforms
+    cv_offset_x: float = 0.0
+    cv_offset_y: float = 0.0
+    cv_rotation: float = 0.0
+    cv_scale: float = 1.0
+
+
+@app.get("/api/plotter-models")
+def api_plotter_models():
+    return AXIDRAW_MODELS
+
+
+@app.get("/api/plotter-status")
+def api_plotter_status():
+    return _plotter_status
+
+
+@app.post("/api/plot")
+def api_plot(req: PlotRequest):
+    """Generate points and plot directly on AxiDraw."""
+    if _plotter_status["plotting"]:
+        raise HTTPException(409, "Plotter is already running")
+
+    model_info = AXIDRAW_MODELS.get(req.model)
+    if not model_info:
+        raise HTTPException(400, f"Unknown model: {req.model}")
+
+    # Compute drawable area in inches
+    draw_w = model_info["width"] - 2 * req.margin
+    draw_h = model_info["height"] - 2 * req.margin
+
+    # Build INI and get normalized points in plotter coordinates (inches)
+    gen_req = GenerateRequest(
+        steps=req.steps, pipeline=req.pipeline, arms=req.arms,
+        global_mods=req.global_mods, output=req.output, sampling=req.sampling,
+        symmetry=req.symmetry, moire=req.moire,
+    )
+    ini_text = _build_ini(gen_req)
+
+    try:
+        normalized, cfg = _run_pipeline_points(ini_text, target_width=draw_w, target_height=draw_h)
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(500, f"Pipeline error: {e}")
+
+    # Apply canvas transforms (rotation, scale, offset) then convert to inch coordinates
+    import numpy as np
+    cx_draw, cy_draw = draw_w / 2, draw_h / 2  # center of drawable area
+    rot_rad = np.radians(req.cv_rotation)
+    cos_r, sin_r = np.cos(rot_rad), np.sin(rot_rad)
+    sc = req.cv_scale
+    off_x = req.cv_offset_x * draw_w  # offset as inches
+    off_y = req.cv_offset_y * draw_h
+
+    segments = []
+    for pts in normalized:
+        # Translate to center, scale+rotate, translate back, apply offset
+        centered = pts - complex(cx_draw, cy_draw)
+        rotated = (centered.real * cos_r - centered.imag * sin_r) + 1j * (centered.real * sin_r + centered.imag * cos_r)
+        scaled = rotated * sc
+        final = scaled + complex(cx_draw + off_x, cy_draw + off_y)
+        coords = [(float(p.real) + req.margin,
+                    float(p.imag) + req.margin) for p in final]
+        segments.append(coords)
+
+    total_points = sum(len(s) for s in segments)
+    if total_points == 0:
+        raise HTTPException(400, "No points generated")
+
+    # Plot in a background thread
+    import threading
+
+    def _plot_thread():
+        _plotter_status.update(plotting=True, progress=0.0, message="Connecting...", error="")
+        try:
+            from pyaxidraw import axidraw
+            ad = axidraw.AxiDraw()
+            ad.interactive()
+            ad.options.model = req.model
+            ad.options.speed_pendown = req.penDownSpeed
+            ad.options.speed_penup = req.penUpSpeed
+            ad.options.pen_pos_up = req.penUpPosition
+            ad.options.pen_pos_down = req.penDownPosition
+            ad.options.accel = req.accelFactor
+            ad.options.const_speed = req.constSpeed
+            ad.options.auto_rotate = req.autoRotate
+            if req.port:
+                ad.options.port = req.port
+
+            if not ad.connect():
+                _plotter_status.update(plotting=False, error="Failed to connect to AxiDraw")
+                return
+
+            _plotter_status["message"] = f"Plotting {total_points} points in {len(segments)} segments..."
+            points_done = 0
+
+            for seg_idx, seg in enumerate(segments):
+                if len(seg) < 2:
+                    continue
+                # Move to start of segment (pen up)
+                ad.moveto(seg[0][0], seg[0][1])
+                # Draw segment (pen down via lineto)
+                for x, y in seg[1:]:
+                    ad.lineto(x, y)
+                    points_done += 1
+                    if points_done % 500 == 0:
+                        _plotter_status["progress"] = points_done / total_points
+                        _plotter_status["message"] = f"Segment {seg_idx+1}/{len(segments)} — {int(100*points_done/total_points)}%"
+                # Pen up after segment
+                ad.penup()
+
+            # Return home
+            _plotter_status["message"] = "Returning home..."
+            ad.moveto(0, 0)
+            ad.disconnect()
+            _plotter_status.update(plotting=False, progress=1.0, message="Done!", error="")
+
+        except ImportError:
+            _plotter_status.update(plotting=False, error="pyaxidraw not installed. Run: pip install https://cdn.evilmadscientist.com/dl/ad/public/AxiDraw_API.zip")
+        except Exception as e:
+            traceback.print_exc()
+            _plotter_status.update(plotting=False, error=str(e))
+
+    threading.Thread(target=_plot_thread, daemon=True).start()
+    return {"status": "started", "total_points": total_points, "segments": len(segments)}
+
+
+@app.post("/api/plot-stop")
+def api_plot_stop():
+    """Emergency stop."""
+    _plotter_status.update(plotting=False, message="Stopped", error="Stop requested")
+    return {"status": "stopped"}
+
+
+class ManualCommand(BaseModel):
+    command: str
+    model: int = 3
+    port: str = ""
+    penUpPosition: int = 60
+    penDownPosition: int = 30
+    walkDistance: float = 1.0
+
+
+@app.post("/api/plot-manual")
+def api_plot_manual(cmd: ManualCommand):
+    """Send a manual command to the AxiDraw."""
+    if _plotter_status["plotting"]:
+        raise HTTPException(409, "Plotter is busy")
+    try:
+        from pyaxidraw import axidraw
+        ad = axidraw.AxiDraw()
+        ad.interactive()
+        ad.options.model = cmd.model
+        ad.options.pen_pos_up = cmd.penUpPosition
+        ad.options.pen_pos_down = cmd.penDownPosition
+        if cmd.port:
+            ad.options.port = cmd.port
+        if not ad.connect():
+            raise HTTPException(503, "Failed to connect to AxiDraw")
+        if cmd.command == "pen_up":
+            ad.penup()
+        elif cmd.command == "pen_down":
+            ad.pendown()
+        elif cmd.command == "toggle_pen":
+            # Toggle: try lowering; if already down, raise
+            ad.pendown()
+        elif cmd.command == "home":
+            ad.penup()
+            ad.moveto(0, 0)
+        elif cmd.command == "enable_motors":
+            ad.moveto(0, 0)  # moveto enables motors
+        elif cmd.command == "disable_motors":
+            pass  # disconnect below releases motors
+        elif cmd.command == "walk_x":
+            ad.move(cmd.walkDistance, 0)
+        elif cmd.command == "walk_y":
+            ad.move(0, cmd.walkDistance)
+        ad.disconnect()
+        return {"status": "ok", "command": cmd.command}
+    except ImportError:
+        raise HTTPException(500, "pyaxidraw not installed")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
 @app.delete("/api/delete-ini")
 def api_delete_ini(path: str = Query(...)):
     """Delete an .ini file and its associated .svg if present."""
@@ -692,10 +942,15 @@ def _build_ini(req: GenerateRequest) -> str:
     return "\n".join(lines)
 
 
-def _run_pipeline(ini_text: str) -> str:
-    """Run the spirograph pipeline from INI text and return SVG."""
+def _run_pipeline_points(ini_text: str, target_width: float = None, target_height: float = None):
+    """Run the spirograph pipeline from INI text and return normalized point arrays + config.
+
+    If target_width/target_height are given, normalization uses those dimensions instead of
+    the INI's output width/height (useful for plotter output in physical units).
+
+    Returns (normalized_point_arrays, config_dict) where config_dict has output settings.
+    """
     import importlib
-    # Re-import main fresh to avoid stale state
     if "main" in sys.modules:
         importlib.reload(sys.modules["main"])
     from main import (
@@ -767,11 +1022,24 @@ def _run_pipeline(ini_text: str) -> str:
             expanded.extend(apply_symmetry(pts, n_fold, mirror, cx, cy))
         all_path_arrays = expanded
 
-    normalized = normalize_all_for_svg(all_path_arrays, width, height, margin)
+    norm_w = target_width if target_width else width
+    norm_h = target_height if target_height else height
+    normalized = normalize_all_for_svg(all_path_arrays, norm_w, norm_h, margin)
+
+    cfg = dict(width=width, height=height, margin=margin, stroke_width=stroke_width,
+               stroke_color=stroke_color, bg_color=bg_color, close_path=close_path)
+    return normalized, cfg
+
+
+def _run_pipeline(ini_text: str) -> str:
+    """Run the spirograph pipeline from INI text and return SVG."""
+    from main import generate_svg
+    normalized, cfg = _run_pipeline_points(ini_text)
 
     svg = generate_svg(
-        normalized[0], width, height, stroke_width, stroke_color, bg_color,
-        close_path=close_path,
+        normalized[0], cfg['width'], cfg['height'], cfg['stroke_width'],
+        cfg['stroke_color'], cfg['bg_color'],
+        close_path=cfg['close_path'],
         extra_paths=normalized[1:] if len(normalized) > 1 else None,
         config_text=ini_text,
     )
@@ -932,14 +1200,34 @@ body { background:var(--bg); color:var(--text); font-family:'Inter',system-ui,sa
 /* Main area */
 #main { flex:1; display:flex; flex-direction:column; overflow:hidden; }
 #content-area { flex:1; display:flex; overflow:hidden; position:relative; }
-#filebrowser-mount { display:flex; position:relative; flex-shrink:0; }
+#right-panel-mount { display:flex; position:relative; flex-shrink:0; }
+.plotter-content { flex:1; overflow-y:auto; padding:20px; font-size:0.82rem; }
+.plotter-content h3 { margin:0 0 16px; font-size:1.1rem; font-weight:700; color:var(--text); }
+.plotter-content .pg { margin-bottom:18px; padding-bottom:14px; border-bottom:1px solid var(--border); }
+.plotter-content .pg:last-child { border-bottom:none; }
+.plotter-content .pg-title { font-weight:700; color:var(--accent); margin-bottom:8px; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.8px; }
+.plotter-content label { display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; color:var(--muted); font-size:0.82rem; }
+.plotter-content label span { font-size:0.8rem; color:var(--text); }
+.plotter-content input[type=number], .plotter-content input[type=text], .plotter-content select {
+  background:var(--bg); color:var(--text); border:1px solid var(--border); border-radius:5px;
+  padding:6px 10px; font-size:0.85rem; width:80px; text-align:right; }
+.plotter-content input[type=number]:focus, .plotter-content input[type=text]:focus, .plotter-content select:focus {
+  border-color:var(--accent); outline:none; }
+.plotter-content select { width:100%; text-align:left; padding:8px 10px; }
+.plotter-content input[type=checkbox] { width:18px; height:18px; accent-color:var(--accent); }
+.plotter-content .p-btn { padding:8px 16px; border-radius:6px; border:1px solid var(--border);
+  background:var(--bg); color:var(--text); font-size:0.82rem; cursor:pointer; font-weight:600; transition:all 0.15s; }
+.plotter-content .p-btn:hover { background:rgba(124,92,252,0.15); border-color:var(--accent); }
+.plotter-content .p-btn.primary { background:var(--accent); color:#fff; border-color:var(--accent); padding:10px 24px; font-size:0.9rem; }
+.plotter-content .p-btn.primary:hover { opacity:0.9; }
+.plotter-content .p-btn.danger { background:#c0392b; color:#fff; border-color:#c0392b; padding:10px 24px; font-size:0.9rem; }
+.plotter-content .device-info { color:var(--muted); font-size:0.75rem; margin-top:6px; padding:6px 10px; background:var(--bg); border-radius:4px; }
 #toolbar { display:flex; gap:8px; padding:6px 16px; border-bottom:1px solid var(--border); align-items:center; }
 #toolbar .spacer { flex:1; }
 #toolbar .status { font-size:0.72rem; color:var(--muted); }
 
-#canvas-area { flex:1; display:flex; align-items:center; justify-content:center; padding:20px; overflow:auto; position:relative; min-width:0; }
-#canvas-area svg, #canvas-area img { max-width:100%; max-height:100%; border-radius:8px;
-                                      box-shadow:0 4px 24px rgba(0,0,0,0.4); }
+#canvas-area { flex:1; display:flex; align-items:center; justify-content:center; padding:20px; overflow:hidden; position:relative; min-width:0; }
+/* No max-width/max-height on canvas — JS computes exact size to prevent distortion */
 #canvas-area .placeholder { color:var(--muted); font-size:0.9rem; text-align:center; }
 #canvas-area .spinner-overlay { position:absolute; inset:0; display:flex; flex-direction:column;
   align-items:center; justify-content:center; background:rgba(15,15,23,0.75); z-index:10; border-radius:8px; }
@@ -949,19 +1237,19 @@ body { background:var(--bg); color:var(--text); font-family:'Inter',system-ui,sa
 .spinner-label { margin-top:12px; font-size:0.8rem; color:var(--muted); }
 
 
-/* File browser panel — collapsible right edge */
-.fb-tab { position:absolute; right:0; top:50%; transform:translateY(-50%); z-index:20;
-          writing-mode:vertical-rl; text-orientation:mixed;
+/* Right panel — tabs + collapsible content */
+.right-tabs { position:absolute; right:0; top:50%; transform:translateY(-50%); z-index:20;
+              display:flex; flex-direction:column; gap:4px; }
+.right-tab { writing-mode:vertical-rl; text-orientation:mixed;
           background:var(--card); border:1px solid var(--border); border-right:none;
           border-radius:6px 0 0 6px; padding:12px 6px; cursor:pointer;
           font-size:0.72rem; font-weight:600; color:var(--muted); letter-spacing:0.04em;
           display:flex; align-items:center; gap:6px; transition:all 0.15s; }
-.fb-tab:hover { color:var(--text); background:var(--sidebar); }
-.fb-tab .caret { font-size:0.6rem; transition:transform 0.2s; }
-.fb-tab.open .caret { transform:rotate(180deg); }
-.filebrowser { width:340px; min-width:340px; background:var(--sidebar);
+.right-tab:hover { color:var(--text); background:var(--sidebar); }
+.right-tab.active { color:var(--text); background:var(--sidebar); border-right-color:var(--sidebar); }
+.filebrowser { width:380px; min-width:380px; background:var(--sidebar);
                border-left:1px solid var(--border); display:flex; flex-direction:column;
-               transition:width 0.2s, min-width 0.2s; overflow:hidden; }
+               overflow:hidden; }
 .filebrowser.collapsed { width:0; min-width:0; border-left:none; }
 .fb-header { padding:14px 16px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:10px; }
 .fb-header h2 { font-size:1rem; font-weight:600; flex:1; }
@@ -1006,8 +1294,8 @@ body { background:var(--bg); color:var(--text); font-family:'Inter',system-ui,sa
 <div id="main">
   <div id="toolbar"></div>
   <div id="content-area">
-    <div id="canvas-area"></div>
-    <div id="filebrowser-mount"></div>
+    <div id="canvas-area"><div id="canvas-sizer" style="position:absolute;inset:20px;pointer-events:none;"></div></div>
+    <div id="right-panel-mount"></div>
   </div>
 </div>
 
@@ -1042,7 +1330,8 @@ function App() {
   const [symmetry, setSymmetry] = useState({ n_fold: 1, mirror: false });
   const [sampling, setSampling] = useState({ scroll_repeats: 1.0, initial_samples: 80000, output_samples: 12000 });
   const [moire, setMoire] = useState({ enabled: false, module_idx: 0, param: '', copies: 5, range: 2.0 });
-  const [svgHtml, setSvgHtml] = useState('');
+  const [pointData, setPointData] = useState(null); // {paths:[[x,y],...], config:{...}}
+  const canvasRef = useRef(null);
   const [generating, setGenerating] = useState(false);
   const [status, setStatus] = useState('');
   const idCounter = useRef(0);
@@ -1056,6 +1345,29 @@ function App() {
   const [foldersOpen, setFoldersOpen] = useState({'/': true});
   const regenFlag = useRef(false);
   const [driftOpen, setDriftOpen] = useState({});
+  const [showPlotter, setShowPlotter] = useState(false);
+  const [plotterModels, setPlotterModels] = useState({});
+  const [plotterStatus, setPlotterStatus] = useState(null);
+  const plotPollRef = useRef(null);
+  const [pOpts, setPOpts] = useState({
+    model: 3, port: '',
+    penDownSpeed: 25, penUpSpeed: 75, accelFactor: 75, constSpeed: false,
+    penUpPosition: 60, penDownPosition: 30,
+    penLiftRate: 150, penLowerRate: 150,
+    penLiftDelay: 0, penLowerDelay: 0,
+    resolution: 1, margin: 0,
+    autoRotate: true, copies: 1, copyDelay: 15,
+    reportTime: false, preview: false,
+  });
+  const pSet = (k, v) => setPOpts(p => ({...p, [k]: v}));
+  // Canvas transform state
+  const [cvOff, setCvOff] = useState({x:0, y:0}); // offset in px
+  const [cvRot, setCvRot] = useState(0); // degrees
+  const [cvScale, setCvScale] = useState(1);
+  const cvDrag = useRef(null); // {startX, startY, origX, origY, mode:'move'|'rotate', origRot}
+  const cvRef = useRef(null);
+
+  useEffect(() => { fetch('/api/plotter-models').then(r=>r.json()).then(setPlotterModels); }, []);
 
   const totalModules = steps.reduce((n, s) => s.kind === 'group' ? n + s.branches.reduce((m, b) => m + b.length, 0) : n + (s.mod ? 1 : 0), 0);
 
@@ -1295,15 +1607,16 @@ function App() {
         symmetry: symmetry.n_fold > 1 || symmetry.mirror ? symmetry : {},
         moire: moire.enabled ? { module_idx: moire.module_idx, param: moire.param, copies: moire.copies, range: moire.range } : {},
       };
-      const res = await fetch('/api/generate', {
+      const res = await fetch('/api/generate-points', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
       if (!res.ok) { const e = await res.json(); throw new Error(e.detail || 'Generation failed'); }
-      const svg = await res.text();
-      setSvgHtml(svg);
+      const data = await res.json();
+      setPointData(data);
 
-      setStatus(`Done in ${((Date.now()-t0)/1000).toFixed(1)}s`);
+      const totalPts = data.paths.reduce((n, p) => n + p.length, 0);
+      setStatus(`Done in ${((Date.now()-t0)/1000).toFixed(1)}s — ${totalPts} points`);
     } catch (e) {
       setStatus('Error: ' + e.message);
     } finally {
@@ -1311,6 +1624,183 @@ function App() {
     }
   };
 
+
+  const plotToAxidraw = async () => {
+    if (totalModules === 0) return;
+    const stepsData = steps
+      .filter(s => s.kind === 'single' ? s.mod !== null : s.branches.some(b => b.some(m => m !== null)))
+      .map(s => {
+        if (s.kind === 'single') return { kind: 'single', params: s.mod.params };
+        return { kind: 'group', branches: s.branches.map(b => b.filter(m => m !== null).map(m => m.params)).filter(b => b.length > 0) };
+      });
+    const body = {
+      steps: stepsData, output, sampling,
+      symmetry: symmetry.n_fold > 1 || symmetry.mirror ? symmetry : {},
+      moire: moire.enabled ? { module_idx: moire.module_idx, param: moire.param, copies: moire.copies, range: moire.range } : {},
+      ...pOpts,
+      cv_offset_x: canvasRef.current ? cvOff.x / canvasRef.current.clientWidth : 0,
+      cv_offset_y: canvasRef.current ? cvOff.y / canvasRef.current.clientHeight : 0,
+      cv_rotation: cvRot, cv_scale: cvScale,
+    };
+    try {
+      setStatus('Sending to AxiDraw...');
+      const res = await fetch('/api/plot', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.detail || 'Plot failed'); }
+      const data = await res.json();
+      setStatus(`Plotting ${data.total_points} points in ${data.segments} segments...`);
+      // Poll for progress
+      if (plotPollRef.current) clearInterval(plotPollRef.current);
+      plotPollRef.current = setInterval(async () => {
+        const sr = await fetch('/api/plotter-status');
+        const st = await sr.json();
+        setPlotterStatus(st);
+        if (st.error) setStatus('Plotter error: ' + st.error);
+        else if (st.message) setStatus(st.message);
+        if (!st.plotting) { clearInterval(plotPollRef.current); plotPollRef.current = null; }
+      }, 1000);
+    } catch (e) {
+      setStatus('Plot error: ' + e.message);
+    }
+  };
+
+  const plotStop = async () => {
+    await fetch('/api/plot-stop', { method: 'POST' });
+    if (plotPollRef.current) { clearInterval(plotPollRef.current); plotPollRef.current = null; }
+    setStatus('Plot stopped');
+  };
+
+  // Canvas interaction: drag to move, shift+drag to rotate
+  // cvOff is stored in SVG viewBox units (not pixels) for stability
+  const cvOffRef = useRef(cvOff);
+  const cvRotRef = useRef(cvRot);
+  cvOffRef.current = cvOff;
+  cvRotRef.current = cvRot;
+
+  const cvMouseDown = (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.shiftKey) {
+      const rect = cvRef.current.getBoundingClientRect();
+      const cx = rect.left + rect.width/2, cy = rect.top + rect.height/2;
+      const startAngle = Math.atan2(e.clientY - cy, e.clientX - cx) * 180 / Math.PI;
+      cvDrag.current = {mode:'rotate', startAngle, origRot: cvRotRef.current};
+    } else {
+      cvDrag.current = {mode:'move', startX: e.clientX, startY: e.clientY,
+        origX: cvOffRef.current.x, origY: cvOffRef.current.y};
+    }
+    document.body.style.cursor = e.shiftKey ? 'crosshair' : 'grabbing';
+  };
+  const cvReset = () => { setCvOff({x:0,y:0}); setCvRot(0); setCvScale(1); };
+
+  useEffect(() => {
+    const onMove = (e) => {
+      if (!cvDrag.current) return;
+      e.preventDefault();
+      if (cvDrag.current.mode === 'move') {
+        setCvOff({x: cvDrag.current.origX + e.clientX - cvDrag.current.startX,
+                  y: cvDrag.current.origY + e.clientY - cvDrag.current.startY});
+      } else if (cvDrag.current.mode === 'rotate' && cvRef.current) {
+        const rect = cvRef.current.getBoundingClientRect();
+        const cx = rect.left + rect.width/2, cy = rect.top + rect.height/2;
+        const angle = Math.atan2(e.clientY - cy, e.clientX - cx) * 180 / Math.PI;
+        setCvRot(cvDrag.current.origRot + angle - cvDrag.current.startAngle);
+      }
+    };
+    const onUp = () => { cvDrag.current = null; document.body.style.cursor = ''; };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    return () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+  }, []);
+
+  // Canvas rendering
+  const drawCanvas = useCallback(() => {
+    const cvs = canvasRef.current;
+    if (!cvs || !pointData) return;
+    const ctx = cvs.getContext('2d');
+    const cfg = pointData.config;
+    const dpr = window.devicePixelRatio || 1;
+
+    // Measure available space from the sizer div (position:absolute, always in DOM).
+    const sizer = document.getElementById('canvas-sizer');
+    if (!sizer) return;
+    const cw = sizer.clientWidth, ch = sizer.clientHeight;
+    if (cw === 0 || ch === 0) return;
+
+    const pm = showPlotter && plotterModels[pOpts.model];
+    const canvasAR = pm ? pm.width / pm.height : cfg.width / cfg.height;
+
+    let drawW, drawH;
+    if (cw / ch > canvasAR) { drawH = ch; drawW = ch * canvasAR; }
+    else { drawW = cw; drawH = cw / canvasAR; }
+
+    cvs.style.width = drawW + 'px';
+    cvs.style.height = drawH + 'px';
+    cvs.width = Math.round(drawW * dpr);
+    cvs.height = Math.round(drawH * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    // Background
+    ctx.fillStyle = cfg.bg_color || '#ffffff';
+    ctx.fillRect(0, 0, drawW, drawH);
+
+    // Scale drawing to fit within canvas, preserving the pattern's own aspect ratio
+    const svgW = cfg.width, svgH = cfg.height;
+    const patternAR = svgW / svgH;
+    // Fit pattern inside canvas without distortion
+    let pxW, pxH;
+    if (drawW / drawH > patternAR) {
+      pxH = drawH; pxW = drawH * patternAR;
+    } else {
+      pxW = drawW; pxH = drawW / patternAR;
+    }
+    const sc = pxW / svgW; // uniform scale from SVG coords to canvas pixels
+    const offX = (drawW - pxW) / 2;
+    const offY = (drawH - pxH) / 2;
+
+    // Drawing center in canvas pixel coords
+    const cxC = offX + pxW / 2;
+    const cyC = offY + pxH / 2;
+
+    ctx.save();
+    // User transforms: pivot around drawing center
+    ctx.translate(cxC + cvOff.x, cyC + cvOff.y);
+    ctx.rotate(cvRot * Math.PI / 180);
+    ctx.scale(cvScale, cvScale);
+    ctx.translate(-cxC, -cyC);
+    // Offset to center pattern in canvas
+    ctx.translate(offX, offY);
+
+    // Draw paths
+    ctx.strokeStyle = cfg.stroke_color || '#000000';
+    ctx.lineWidth = (cfg.stroke_width || 0.3) * sc;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    for (const path of pointData.paths) {
+      if (path.length < 2) continue;
+      ctx.beginPath();
+      ctx.moveTo(path[0][0] * sc, path[0][1] * sc);
+      for (let i = 1; i < path.length; i++) {
+        ctx.lineTo(path[i][0] * sc, path[i][1] * sc);
+      }
+      ctx.stroke();
+    }
+    ctx.restore();
+  }, [pointData, cvOff, cvRot, cvScale, showPlotter, pOpts.model, plotterModels]);
+
+  useEffect(() => { drawCanvas(); }, [drawCanvas]);
+  useEffect(() => {
+    const onResize = () => drawCanvas();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [drawCanvas]);
 
   const saveConfig = async () => {
     if (!saveName.trim()) return;
@@ -1749,15 +2239,32 @@ function App() {
         h('button', {className:'btn btn-generate', onClick:generate, disabled:generating || totalModules===0},
           generating ? 'Generating...' : 'Generate'),
         h('button', {className:'btn btn-secondary', onClick:() => { setShowSave(!showSave); setSaveName(loadedFile.replace('.ini','') || ''); }}, 'Save'),
-        h('button', {className:'btn btn-secondary', disabled:!svgHtml, onClick:() => {
-          const blob = new Blob([svgHtml], {type:'image/svg+xml'});
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url; a.download = (loadedFile || 'spirograph').replace('.ini','') + '.svg';
-          a.click(); URL.revokeObjectURL(url);
+        h('button', {className:'btn btn-secondary', disabled:!pointData, onClick: async () => {
+          // Generate SVG on demand from current pipeline
+          const stepsData = steps
+            .filter(s => s.kind === 'single' ? s.mod !== null : s.branches.some(b => b.some(m => m !== null)))
+            .map(s => {
+              if (s.kind === 'single') return { kind: 'single', params: s.mod.params };
+              return { kind: 'group', branches: s.branches.map(b => b.filter(m => m !== null).map(m => m.params)).filter(b => b.length > 0) };
+            });
+          try {
+            const res = await fetch('/api/generate', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ steps: stepsData, output, sampling,
+                symmetry: symmetry.n_fold > 1 || symmetry.mirror ? symmetry : {},
+                moire: moire.enabled ? { module_idx: moire.module_idx, param: moire.param, copies: moire.copies, range: moire.range } : {} }),
+            });
+            const svg = await res.text();
+            const blob = new Blob([svg], {type:'image/svg+xml'});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = (loadedFile || 'spirograph').replace('.ini','') + '.svg';
+            a.click(); URL.revokeObjectURL(url);
+          } catch(e) { setStatus('Export error: ' + e.message); }
         }}, 'Export SVG'),
         h('button', {className:'btn btn-secondary', onClick:randomize}, 'Random'),
       ),
+      // Plotter panel is a right flyout (rendered below in portal)
       showSave ? h('div', {style:{padding:'4px 16px 8px',display:'flex',gap:'6px',alignItems:'center'}},
         h('input', {type:'text', value:saveName, placeholder:'filename',
           style:{flex:1,background:'var(--bg)',border:'1px solid var(--border)',color:'var(--text)',
@@ -1774,52 +2281,184 @@ function App() {
         'Loaded: ', loadedFile) : null,
     ), document.getElementById('sidebar')),
 
-    // ---- File Browser (right edge panel) ----
+    // ---- Right panel: tabs (Files / Plotter) + content ----
     ReactDOM.createPortal(h(React.Fragment, null,
-      h('div', {className:'fb-tab' + (showFileBrowser ? ' open' : ''),
-        onClick:() => { const opening = !showFileBrowser; setShowFileBrowser(opening); if (opening) refreshIniFiles(); }},
-        h('span', {className:'caret'}, showFileBrowser ? '\u25b6' : '\u25c0'),
-        'Files',
+      // Vertical tabs on the edge
+      h('div', {className:'right-tabs'},
+        h('div', {className:'right-tab' + (showFileBrowser ? ' active' : ''),
+          onClick:() => {
+            if (showFileBrowser) { setShowFileBrowser(false); }
+            else { setShowFileBrowser(true); setShowPlotter(false); refreshIniFiles(); }
+          }}, 'Files'),
+        h('div', {className:'right-tab' + (showPlotter ? ' active' : ''),
+          onClick:() => {
+            if (showPlotter) { setShowPlotter(false); }
+            else { setShowPlotter(true); setShowFileBrowser(false); }
+          }}, 'Plotter'),
       ),
-      h('div', {className:'filebrowser' + (showFileBrowser ? '' : ' collapsed')},
-        h('div', {className:'fb-header'},
-          h('h2', null, 'Configurations'),
-          h('button', {className:'fb-close', onClick:()=>setShowFileBrowser(false)}, '\u00d7'),
+      // Panel content
+      h('div', {className:'filebrowser' + ((showFileBrowser || showPlotter) ? '' : ' collapsed')},
+        // Files content
+        showFileBrowser ? h(React.Fragment, null,
+          h('div', {className:'fb-header'},
+            h('h2', null, 'Configurations'),
+            h('button', {className:'fb-close', onClick:()=>setShowFileBrowser(false)}, '\u00d7'),
+          ),
+          h('div', {className:'fb-search'},
+            h('input', {placeholder:'Search...', value:iniSearch,
+              onChange:e=>{setIniSearch(e.target.value); setConfirmDelete(null);}}),
+          ),
+          h('div', {className:'fb-body'}, (() => {
+            const filtered = iniFiles.filter(f => !iniSearch || f.path.toLowerCase().includes(iniSearch.toLowerCase()));
+            if (filtered.length === 0) return h('div', {className:'fb-empty'}, 'No matching .ini files');
+            const folders = {};
+            for (const f of filtered) {
+              const key = f.dir || '/';
+              if (!folders[key]) folders[key] = [];
+              folders[key].push(f);
+            }
+            const sortedKeys = Object.keys(folders).sort((a, b) => {
+              if (a === '/') return -1; if (b === '/') return 1; return a.localeCompare(b);
+            });
+            return h(React.Fragment, null,
+              sortedKeys.map(folder => {
+                const isOpen = foldersOpen[folder] !== false;
+                return h(React.Fragment, {key:folder},
+                  h('div', {className:'fb-group-label',
+                    onClick:()=>setFoldersOpen(prev=>({...prev,[folder]:!isOpen}))},
+                    h('span', {className:'fb-caret'+(isOpen?' open':'')}, '\u25b6'),
+                    (folder === '/' ? 'root' : folder) + ' (' + folders[folder].length + ')',
+                  ),
+                  isOpen ? folders[folder].map(f => h(FileRow, {key:f.path, f, loadIniFile, confirmDelete, setConfirmDelete, deleteIniFile})) : null,
+                );
+              }),
+            );
+          })()),
+        ) : null,
+        // Plotter content
+        showPlotter ? h('div', {className:'plotter-content'},
+          h('div', {style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'16px'}},
+            h('h3', null, 'AxiDraw'),
+            h('button', {onClick:()=>setShowPlotter(false), style:{background:'none',border:'none',color:'var(--muted)',fontSize:'1.2rem',cursor:'pointer',padding:'4px'}}, '\u00d7'),
         ),
-        h('div', {className:'fb-search'},
-          h('input', {placeholder:'Search...', value:iniSearch,
-            onChange:e=>{setIniSearch(e.target.value); setConfirmDelete(null);}}),
+
+        // Model & Port
+        h('div', {className:'pg'},
+          h('div', {className:'pg-title'}, 'Device'),
+          h('select', {value:pOpts.model, style:{marginBottom:'8px'}, onChange:e=>pSet('model',Number(e.target.value))},
+            Object.entries(plotterModels).map(([id, m]) => h('option', {key:id, value:id}, m.label))),
+          h('label', null, h('span', null, 'Port'),
+            h('input', {type:'text', value:pOpts.port, style:{width:'120px'}, placeholder:'auto',
+              onChange:e=>pSet('port',e.target.value)})),
+          plotterModels[pOpts.model] ? h('div', {className:'device-info'},
+            `Paper: ${plotterModels[pOpts.model].width}" \u00d7 ${plotterModels[pOpts.model].height}"`,
+            h('br'),
+            `Draw area: ${(plotterModels[pOpts.model].width-2*pOpts.margin).toFixed(1)}" \u00d7 ${(plotterModels[pOpts.model].height-2*pOpts.margin).toFixed(1)}"`,
+          ) : null,
         ),
-        h('div', {className:'fb-body'}, (() => {
-          const filtered = iniFiles.filter(f => !iniSearch || f.path.toLowerCase().includes(iniSearch.toLowerCase()));
-          if (filtered.length === 0) return h('div', {className:'fb-empty'}, 'No matching .ini files');
-          // Group by folder
-          const folders = {};
-          for (const f of filtered) {
-            const key = f.dir || '/';
-            if (!folders[key]) folders[key] = [];
-            folders[key].push(f);
-          }
-          // Sort: root first, then alphabetical
-          const sortedKeys = Object.keys(folders).sort((a, b) => {
-            if (a === '/') return -1; if (b === '/') return 1; return a.localeCompare(b);
-          });
-          return h(React.Fragment, null,
-            sortedKeys.map(folder => {
-              const isOpen = foldersOpen[folder] !== false;
-              return h(React.Fragment, {key:folder},
-                h('div', {className:'fb-group-label',
-                  onClick:()=>setFoldersOpen(prev=>({...prev,[folder]:!isOpen}))},
-                  h('span', {className:'fb-caret'+(isOpen?' open':'')}, '\u25b6'),
-                  (folder === '/' ? 'root' : folder) + ' (' + folders[folder].length + ')',
-                ),
-                isOpen ? folders[folder].map(f => h(FileRow, {key:f.path, f, loadIniFile, confirmDelete, setConfirmDelete, deleteIniFile})) : null,
-              );
-            }),
-          );
-        })()),
-      ),
-    ), document.getElementById('filebrowser-mount')),
+
+        // Speed & Motion
+        h('div', {className:'pg'},
+          h('div', {className:'pg-title'}, 'Speed & Motion'),
+          h('label', null, h('span', null, 'Drawing speed (%)'), h('input', {type:'number',min:1,max:110,value:pOpts.penDownSpeed, onChange:e=>pSet('penDownSpeed',Number(e.target.value))})),
+          h('label', null, h('span', null, 'Travel speed (%)'), h('input', {type:'number',min:1,max:110,value:pOpts.penUpSpeed, onChange:e=>pSet('penUpSpeed',Number(e.target.value))})),
+          h('label', null, h('span', null, 'Acceleration'),
+            h('select', {value:pOpts.accelFactor, style:{width:'120px'}, onChange:e=>pSet('accelFactor',Number(e.target.value))},
+              h('option', {value:100}, 'Maximum'), h('option', {value:75}, 'High'),
+              h('option', {value:50}, 'Standard'), h('option', {value:35}, 'Slow'), h('option', {value:10}, 'Very slow'))),
+          h('label', null, h('span', null, 'Constant speed'),
+            h('input', {type:'checkbox', checked:pOpts.constSpeed, onChange:e=>pSet('constSpeed',e.target.checked)})),
+        ),
+
+        // Pen
+        h('div', {className:'pg'},
+          h('div', {className:'pg-title'}, 'Pen'),
+          h('label', null, h('span', null, 'Up height (%)'), h('input', {type:'number',min:0,max:100,value:pOpts.penUpPosition, onChange:e=>pSet('penUpPosition',Number(e.target.value))})),
+          h('label', null, h('span', null, 'Down height (%)'), h('input', {type:'number',min:0,max:100,value:pOpts.penDownPosition, onChange:e=>pSet('penDownPosition',Number(e.target.value))})),
+          h('label', null, h('span', null, 'Lift speed'),
+            h('select', {value:pOpts.penLiftRate, style:{width:'120px'}, onChange:e=>pSet('penLiftRate',Number(e.target.value))},
+              h('option', {value:400}, 'Maximum'), h('option', {value:150}, 'Standard'),
+              h('option', {value:100}, 'Slow'), h('option', {value:50}, 'Very slow'))),
+          h('label', null, h('span', null, 'Lower speed'),
+            h('select', {value:pOpts.penLowerRate, style:{width:'120px'}, onChange:e=>pSet('penLowerRate',Number(e.target.value))},
+              h('option', {value:400}, 'Maximum'), h('option', {value:150}, 'Standard'),
+              h('option', {value:100}, 'Slow'), h('option', {value:50}, 'Very slow'))),
+          h('label', null, h('span', null, 'Lift delay (ms)'), h('input', {type:'number',min:-500,max:500,value:pOpts.penLiftDelay, onChange:e=>pSet('penLiftDelay',Number(e.target.value))})),
+          h('label', null, h('span', null, 'Lower delay (ms)'), h('input', {type:'number',min:-500,max:500,value:pOpts.penLowerDelay, onChange:e=>pSet('penLowerDelay',Number(e.target.value))})),
+        ),
+
+        // Options
+        h('div', {className:'pg'},
+          h('div', {className:'pg-title'}, 'Options'),
+          h('label', null, h('span', null, 'Margin (inches)'), h('input', {type:'number',min:0,max:5,step:0.1,value:pOpts.margin, onChange:e=>pSet('margin',Number(e.target.value))})),
+          h('label', null, h('span', null, 'Resolution'),
+            h('select', {value:pOpts.resolution, style:{width:'120px'}, onChange:e=>pSet('resolution',Number(e.target.value))},
+              h('option', {value:1}, 'High (~2870 DPI)'), h('option', {value:2}, 'Low (~1435 DPI)'))),
+          h('label', null, h('span', null, 'Auto-rotate'),
+            h('input', {type:'checkbox', checked:pOpts.autoRotate, onChange:e=>pSet('autoRotate',e.target.checked)})),
+          h('label', null, h('span', null, 'Copies'), h('input', {type:'number',min:1,max:9999,value:pOpts.copies, onChange:e=>pSet('copies',Number(e.target.value))})),
+          pOpts.copies > 1 ? h('label', null, h('span', null, 'Delay between (s)'), h('input', {type:'number',min:0,max:3600,value:pOpts.copyDelay, onChange:e=>pSet('copyDelay',Number(e.target.value))})) : null,
+          h('label', null, h('span', null, 'Preview only'),
+            h('input', {type:'checkbox', checked:pOpts.preview, onChange:e=>pSet('preview',e.target.checked)})),
+        ),
+
+        // Manual Controls
+        h('div', {className:'pg'},
+          h('div', {className:'pg-title'}, 'Manual Control'),
+          h('div', {style:{display:'flex',gap:'8px',flexWrap:'wrap',marginBottom:'10px'}},
+            ...[['Pen Up','pen_up'],['Pen Down','pen_down'],['Toggle Pen','toggle_pen'],['Home','home']].map(([label, cmd]) =>
+              h('button', {key:cmd, className:'p-btn', onClick: async () => {
+                try {
+                  setStatus(label + '...');
+                  await fetch('/api/plot-manual', {method:'POST', headers:{'Content-Type':'application/json'},
+                    body:JSON.stringify({command:cmd, model:pOpts.model, port:pOpts.port, penUpPosition:pOpts.penUpPosition, penDownPosition:pOpts.penDownPosition})});
+                  setStatus(label + ' done');
+                } catch(e) { setStatus('Error: '+e.message); }
+              }}, label)),
+          ),
+          h('div', {style:{display:'flex',gap:'8px',flexWrap:'wrap',marginBottom:'10px'}},
+            ...[['Enable Motors','enable_motors'],['Disable Motors','disable_motors']].map(([label, cmd]) =>
+              h('button', {key:cmd, className:'p-btn', onClick: async () => {
+                try {
+                  setStatus(label + '...');
+                  await fetch('/api/plot-manual', {method:'POST', headers:{'Content-Type':'application/json'},
+                    body:JSON.stringify({command:cmd, model:pOpts.model, port:pOpts.port, penUpPosition:pOpts.penUpPosition, penDownPosition:pOpts.penDownPosition})});
+                  setStatus(label + ' done');
+                } catch(e) { setStatus('Error: '+e.message); }
+              }}, label)),
+          ),
+          h('div', {className:'pg-title', style:{marginTop:'4px'}}, 'Walk Carriage'),
+          h('div', {style:{display:'flex',gap:'8px',alignItems:'center'}},
+            ...[['X+','walk_x',1],['X\u2013','walk_x',-1],['Y+','walk_y',1],['Y\u2013','walk_y',-1]].map(([label, cmd, dir]) =>
+              h('button', {key:label, className:'p-btn', onClick: async () => {
+                try {
+                  setStatus('Walk ' + label + '...');
+                  await fetch('/api/plot-manual', {method:'POST', headers:{'Content-Type':'application/json'},
+                    body:JSON.stringify({command:cmd, model:pOpts.model, port:pOpts.port, penUpPosition:pOpts.penUpPosition, penDownPosition:pOpts.penDownPosition, walkDistance: dir * 1.0})});
+                  setStatus('Walk done');
+                } catch(e) { setStatus('Error: '+e.message); }
+              }}, label)),
+          ),
+        ),
+
+        // Plot action
+        h('div', {className:'pg', style:{borderBottom:'none'}},
+          h('div', {style:{display:'flex',gap:'10px',alignItems:'center'}},
+            h('button', {className:'p-btn primary', disabled:totalModules===0 || (plotterStatus && plotterStatus.plotting),
+              onClick:plotToAxidraw},
+              plotterStatus && plotterStatus.plotting ? 'Plotting...' : 'Plot to AxiDraw'),
+            plotterStatus && plotterStatus.plotting ? h('button', {className:'p-btn danger', onClick:plotStop}, 'STOP') : null,
+          ),
+          plotterStatus && plotterStatus.plotting ? h('div', null,
+            h('div', {style:{background:'var(--border)',borderRadius:'3px',height:'4px',overflow:'hidden'}},
+              h('div', {style:{width:(plotterStatus.progress*100)+'%',height:'100%',background:'var(--accent)',transition:'width 0.3s'}})),
+            h('div', {style:{fontSize:'0.6rem',color:'var(--muted)',marginTop:'2px'}}, plotterStatus.message),
+          ) : null,
+          plotterStatus && plotterStatus.error ? h('div', {style:{fontSize:'0.6rem',color:'#e74c3c',marginTop:'2px'}}, plotterStatus.error) : null,
+        ),
+      ) : null, // end plotter-content
+      ), // end filebrowser/shared panel div
+    ), document.getElementById('right-panel-mount')),
 
     // ---- Toolbar (portaled) ----
     ReactDOM.createPortal(h(React.Fragment, {key:'tb'},
@@ -1833,9 +2472,30 @@ function App() {
         h('div', {className:'spinner'}),
         h('div', {className:'spinner-label'}, 'Generating pattern...'),
       ) : null,
-      svgHtml
-        ? h('div', {dangerouslySetInnerHTML:{__html:svgHtml}, style:{display:'flex',alignItems:'center',justifyContent:'center',width:'100%',height:'100%'}})
-        : null,
+      (() => {
+        const hasTransform = cvOff.x !== 0 || cvOff.y !== 0 || cvRot !== 0 || cvScale !== 1;
+        const zBtn = {background:'none',border:'1px solid #666',color:'#ccc',borderRadius:'3px',padding:'1px 7px',fontSize:'0.7rem',cursor:'pointer',fontWeight:600,lineHeight:'1.2'};
+        const infoBar = h('div', {style:{position:'absolute',top:'8px',left:'8px',zIndex:5,display:'flex',gap:'4px',alignItems:'center',
+            background:'rgba(0,0,0,0.6)',borderRadius:'4px',padding:'3px 6px',fontSize:'0.65rem',color:'#ccc'}},
+          h('button', {onClick:()=>setCvScale(s=>Math.min(1000,s*1.25)), style:zBtn}, '+'),
+          h('button', {onClick:()=>setCvScale(s=>Math.max(1,s/1.25)), style:zBtn}, '\u2013'),
+          h('input', {type:'text', value: (cvScale*100).toFixed(1).replace(/\.0$/,''),
+            style:{width:'48px',background:'rgba(0,0,0,0.4)',color:'#ccc',border:'1px solid #666',borderRadius:'3px',padding:'1px 4px',fontSize:'0.65rem',textAlign:'right'},
+            onChange: e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v > 0) setCvScale(Math.min(1000, Math.max(1, v/100))); },
+            onKeyDown: e => { if (e.key === 'Enter') e.target.blur(); },
+          }),
+          h('span', {style:{fontSize:'0.6rem',color:'#999'}}, '%'),
+          cvRot !== 0 ? h('span', null, `${cvRot.toFixed(1)}\u00b0`) : null,
+          hasTransform ? h('button', {onClick:cvReset, style:zBtn}, 'Reset') : null,
+        );
+        const hint = h('div', {style:{position:'absolute',bottom:'8px',left:'8px',zIndex:5,fontSize:'0.58rem',color:'rgba(255,255,255,0.35)',pointerEvents:'none'}},
+          'Drag to move \u2022 Shift+drag to rotate');
+        return h('div', {ref:cvRef, onMouseDown:cvMouseDown,
+          style:{position:'relative',width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',cursor:'grab',userSelect:'none'}},
+          infoBar, hint,
+          h('canvas', {ref:canvasRef, style:{borderRadius:'8px', boxShadow:'0 4px 24px rgba(0,0,0,0.4)'}}),
+        );
+      })(),
       ),
       document.getElementById('canvas-area'),
     ),
