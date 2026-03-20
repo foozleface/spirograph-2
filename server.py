@@ -2023,7 +2023,7 @@ function App() {
       // Torus + rotation — "Trefoil Knot"
       () => {
         return { steps: [
-          { kind:'single', mod: mm('surface', { surface_type:pick(['torus','figure8']), major_radius:rf(100,150), minor_radius:rf(35,65), u_lines:rint(60,100), v_lines:rint(25,50), view_angle_x:rf(20,50), view_angle_y:rf(10,40), view_angle_z:rf(-20,20) }) },
+          { kind:'single', mod: mm('surface', { surface:pick(['torus','figure8','mobius','klein']), major_radius:rf(100,150), minor_radius:rf(35,65), u_lines:rint(60,100), v_lines:rint(25,50), view_angle_x:rf(20,50), view_angle_y:rf(10,40), view_angle_z:rf(-20,20) }) },
           { kind:'single', mod: mm('rotation', { total_degrees:360, origin_x:0, origin_y:0, normalize:true }) },
         ], sw: 0.1 };
       },
