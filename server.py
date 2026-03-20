@@ -147,6 +147,25 @@ MODULE_DEFS = {
             "cycles":       {"type": "float", "default": 1.0,  "min": 1, "max": 10, "step": 1, "desc": "Repetitions"},
         },
     },
+    "guilloche": {
+        "category": "generator",
+        "label": "Guilloche",
+        "desc": "Engine-turning pattern (banknote/certificate style)",
+        "params": {
+            "inner":     {"type": "float", "default": 60.0,  "min": 5,   "max": 200, "desc": "Inner radius"},
+            "end_inner": {"type": "float", "default": 60.0,  "min": 5,   "max": 200, "desc": "End value", "drift_for": "inner"},
+            "outer":     {"type": "float", "default": 180.0, "min": 20,  "max": 400, "desc": "Outer radius"},
+            "end_outer": {"type": "float", "default": 180.0, "min": 20,  "max": 400, "desc": "End value", "drift_for": "outer"},
+            "nodes":     {"type": "float", "default": 120.0, "min": 10,  "max": 300, "desc": "Wave oscillations"},
+            "end_nodes": {"type": "float", "default": 120.0, "min": 10,  "max": 300, "desc": "End value", "drift_for": "nodes"},
+            "div":       {"type": "int",   "default": 37,    "min": 7,   "max": 97,  "desc": "Overlap (use primes)"},
+            "n0":        {"type": "float", "default": 6.0,   "min": 0,   "max": 30,  "desc": "Inner envelope waves"},
+            "h0":        {"type": "float", "default": 10.0,  "min": 0,   "max": 50,  "desc": "Inner envelope amp"},
+            "n1":        {"type": "float", "default": 12.0,  "min": 0,   "max": 30,  "desc": "Outer envelope waves"},
+            "h1":        {"type": "float", "default": 15.0,  "min": 0,   "max": 50,  "desc": "Outer envelope amp"},
+            "cycles":    {"type": "float", "default": 1.0,   "min": 1,   "max": 10,  "step": 1, "desc": "Cycles"},
+        },
+    },
     "rotation": {
         "category": "transform",
         "label": "Rotation",
@@ -2289,6 +2308,34 @@ function App() {
           sparc(rf(15,25), rf(140,180), pick([720,1080])),
         ], sw: 0.12,
       }),
+
+      // ── GUILLOCHE (banknote/certificate patterns) ──
+      () => {
+        const primes = [11,13,17,19,23,29,31,37,41,43,47,53,59,67,71,79,83,89];
+        const div = pick(primes);
+        return { steps: [
+          { kind:'single', mod: mm('guilloche', {
+            inner:rf(50,100), outer:rf(160,250),
+            nodes:rint(80,170), div,
+            n0:rint(4,12), h0:rf(5,25),
+            n1:rint(8,20), h1:rf(8,30),
+          })},
+        ], sw: 0.08 };
+      },
+
+      // ── GUILLOCHE with envelope drift ──
+      () => {
+        const primes = [11,13,17,19,23,29,31,37,41,43,47,53];
+        return { steps: [
+          { kind:'single', mod: mm('guilloche', {
+            inner:rf(40,80), end_inner:rf(90,130),
+            outer:rf(200,260), end_outer:rf(150,200),
+            nodes:rint(100,160), div:pick(primes),
+            n0:rint(5,10), h0:rf(8,18),
+            n1:rint(10,18), h1:rf(10,22),
+          })},
+        ], sw: 0.08 };
+      },
     ];
 
     const recipe = pick(recipes)();
