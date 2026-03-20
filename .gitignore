@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtualenvs
+.venv/
+venv/
+
+# IDEs
+.idea/
+.vscode/
+
+# Generated outputs
+*.svg
+*.zip
+
+# OS junk
+.DS_Store
+Thumbs.db
