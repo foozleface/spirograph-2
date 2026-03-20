@@ -409,6 +409,17 @@ MODULE_DEFS = {
             "seed":          {"type": "int",   "default": 42,   "min": 0,   "max": 9999, "desc": "Seed"},
         },
     },
+    "stretch": {
+        "category": "transform",
+        "label": "Stretch",
+        "desc": "Non-uniform X/Y scaling — elongate along either axis",
+        "params": {
+            "scale_x":     {"type": "float", "default": 1.0, "min": 0.1, "max": 10, "step": 0.1, "desc": "X scale"},
+            "end_scale_x": {"type": "float", "default": 1.0, "min": 0.1, "max": 10, "step": 0.1, "desc": "End value", "drift_for": "scale_x"},
+            "scale_y":     {"type": "float", "default": 1.0, "min": 0.1, "max": 10, "step": 0.1, "desc": "Y scale"},
+            "end_scale_y": {"type": "float", "default": 1.0, "min": 0.1, "max": 10, "step": 0.1, "desc": "End value", "drift_for": "scale_y"},
+        },
+    },
 }
 
 
