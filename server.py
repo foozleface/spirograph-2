@@ -383,7 +383,6 @@ class GenerateRequest(BaseModel):
     output: dict[str, Any] = {}
     sampling: dict[str, Any] = {}
     symmetry: dict[str, Any] = {}
-    moire: dict[str, Any] = {}
 
 
 @app.post("/api/generate")
@@ -548,7 +547,6 @@ class SaveRequest(BaseModel):
     output: dict[str, Any] = {}
     sampling: dict[str, Any] = {}
     symmetry: dict[str, Any] = {}
-    moire: dict[str, Any] = {}
 
 
 @app.post("/api/save")
@@ -570,7 +568,7 @@ def api_save(req: SaveRequest):
     # Build INI using same logic as generate
     gen_req = GenerateRequest(
         steps=req.steps, output=req.output, sampling=req.sampling,
-        symmetry=req.symmetry, moire=req.moire,
+        symmetry=req.symmetry,
     )
     ini_text = _build_ini(gen_req)
     resolved.write_text(ini_text)
@@ -609,7 +607,6 @@ class PlotRequest(BaseModel):
     output: dict[str, Any] = {}
     sampling: dict[str, Any] = {}
     symmetry: dict[str, Any] = {}
-    moire: dict[str, Any] = {}
     # AxiDraw settings
     model: int = 3
     port: str = ""
@@ -664,7 +661,7 @@ def api_plot(req: PlotRequest):
     gen_req = GenerateRequest(
         steps=req.steps, pipeline=req.pipeline, arms=req.arms,
         global_mods=req.global_mods, output=req.output, sampling=req.sampling,
-        symmetry=req.symmetry, moire=req.moire,
+        symmetry=req.symmetry,
     )
     ini_text = _build_ini(gen_req)
 
@@ -1329,7 +1326,6 @@ function App() {
   const [output, setOutput] = useState({ stroke_width: 0.3, stroke_color: '#000000', background_color: '#ffffff' });
   const [symmetry, setSymmetry] = useState({ n_fold: 1, mirror: false });
   const [sampling, setSampling] = useState({ scroll_repeats: 1.0, initial_samples: 80000, output_samples: 12000 });
-  const [moire, setMoire] = useState({ enabled: false, module_idx: 0, param: '', copies: 5, range: 2.0 });
   const [pointData, setPointData] = useState(null); // {paths:[[x,y],...], config:{...}}
   const canvasRef = useRef(null);
   const [generating, setGenerating] = useState(false);
@@ -1605,7 +1601,6 @@ function App() {
         output,
         sampling,
         symmetry: symmetry.n_fold > 1 || symmetry.mirror ? symmetry : {},
-        moire: moire.enabled ? { module_idx: moire.module_idx, param: moire.param, copies: moire.copies, range: moire.range } : {},
       };
       const res = await fetch('/api/generate-points', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1815,8 +1810,7 @@ function App() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ filename: saveName, steps: stepsData, output, sampling,
           symmetry: symmetry.n_fold > 1 || symmetry.mirror ? symmetry : {},
-          moire: moire.enabled ? { module_idx: moire.module_idx, param: moire.param, copies: moire.copies, range: moire.range } : {},
-        }),
+          }),
       });
       if (!res.ok) { const e = await res.json(); throw new Error(e.detail || 'Save failed'); }
       const data = await res.json();
@@ -1831,41 +1825,250 @@ function App() {
 
   const randomize = () => {
     if (!modules) return;
-    const generators = Object.entries(modules).filter(([_,v]) => v.category === 'generator');
-    const transforms = Object.entries(modules).filter(([_,v]) => v.category === 'transform');
-    const [gType, gDef] = generators[Math.floor(Math.random() * generators.length)];
-    const newPipeline = [];
-    const id1 = ++idCounter.current;
-    const gParams = { type: gType };
-    for (const [k, v] of Object.entries(gDef.params)) {
-      if (v.type === 'bool') { gParams[k] = Math.random() > 0.5; continue; }
-      const lo = v.min ?? 0; const hi = v.max ?? 100;
-      let val = lo + Math.random() * (hi - lo);
-      if (v.type === 'int') val = Math.round(val);
-      else val = Math.round(val * 100) / 100;
-      gParams[k] = val;
-    }
-    newPipeline.push({ id: id1, type: gType, params: gParams });
+    const R = Math.random;
+    const pick = arr => arr[Math.floor(R() * arr.length)];
+    const rf = (lo, hi) => Math.round((lo + R() * (hi - lo)) * 100) / 100;
+    const rint = (lo, hi) => Math.round(lo + R() * (hi - lo));
+    const gcd = (a, b) => { while (b) { [a, b] = [b, a % b]; } return a; };
 
-    // Maybe add a transform
-    if (Math.random() > 0.3 && transforms.length > 0) {
-      const [tType, tDef] = transforms[Math.floor(Math.random() * transforms.length)];
-      const id2 = ++idCounter.current;
-      const tParams = { type: tType };
-      for (const [k, v] of Object.entries(tDef.params)) {
-        if (v.type === 'bool') { tParams[k] = v.default; continue; }
-        const lo = v.min ?? 0; const hi = v.max ?? 100;
-        let val = lo + Math.random() * (hi - lo);
-        if (v.type === 'int') val = Math.round(val);
-        else val = Math.round(val * 100) / 100;
-        tParams[k] = val;
-      }
-      newPipeline.push({ id: id2, type: tType, params: tParams });
-    }
-    setSteps(newPipeline.map(m => ({ kind: 'single', mod: m })));
+    const mm = (type, params) => ({ id: ++idCounter.current, type, params: { type, ...params } });
+
+    // Proven recipes — each is a complete pipeline that produces good results,
+    // based on analysis of 32 working INI files and mathematical aesthetics research.
+    const recipes = [
+
+      // --- HARMONOGRAPH FAMILY (the most reliably beautiful) ---
+      () => {
+        // Classic 2:3 harmonograph — the "quintessential" pattern
+        const [a, b] = pick([[2,3],[3,2],[3,4],[4,3],[5,4],[5,3]]);
+        const detune = (R()-0.5) * 0.015;
+        const decay = rf(0.003, 0.012);
+        const steps = [{ kind:'single', mod: mm('harmonograph', {
+          freq1:a, amp1:rf(90,130), phase1:0, decay1:decay,
+          freq2:b+detune, amp2:rf(90,130), phase2:90, decay2:decay,
+          freq3:0, amp3:0, phase3:0, decay3:0, freq4:0, amp4:0, phase4:0, decay4:0,
+          duration:rf(60,100), cycles:rint(3,5),
+        })}];
+        if (R()>0.5) steps.push({ kind:'single', mod: mm('damping', { decay_rate:rf(0.01,0.025), duration:rf(40,70) }) });
+        return { steps, sw: 0.2 };
+      },
+
+      () => {
+        // 4-pendulum harmonograph — dense organic pattern
+        const [a,b] = pick([[2,3],[3,2],[1,1]]);
+        const detune1 = (R()-0.5)*0.01, detune2 = (R()-0.5)*0.01;
+        const d = rf(0.002, 0.008);
+        return { steps: [{ kind:'single', mod: mm('harmonograph', {
+          freq1:a, amp1:rf(90,120), phase1:0, decay1:d,
+          freq2:b+detune1, amp2:rf(90,120), phase2:90, decay2:d,
+          freq3:1+detune2, amp3:rf(30,60), phase3:rf(0,180), decay3:d,
+          freq4:pick([1,2,3]), amp4:rf(20,45), phase4:rf(0,180), decay4:d,
+          duration:rf(80,140), cycles:rint(3,6),
+        })}], sw: 0.15 };
+      },
+
+      () => {
+        // Harmonograph + rotation — swooping arcs
+        const [a,b] = pick([[2,3],[3,4],[5,4]]);
+        return { steps: [
+          { kind:'single', mod: mm('harmonograph', {
+            freq1:a, amp1:100, phase1:0, decay1:rf(0.005,0.01),
+            freq2:b+(R()-0.5)*0.01, amp2:100, phase2:90, decay2:rf(0.005,0.01),
+            freq3:0, amp3:0, phase3:0, decay3:0, freq4:0, amp4:0, phase4:0, decay4:0,
+            duration:80, cycles:3,
+          })},
+          { kind:'single', mod: mm('rotation', { total_degrees:pick([90,120,180]), origin_x:0, origin_y:0, normalize:true }) },
+        ], sw: 0.2 };
+      },
+
+      // --- SPIROGRAPH GEAR FAMILY ---
+      () => {
+        // Classic spirograph — proven tooth combos
+        const fixed = pick([96, 105, 120, 144]);
+        const goodRolling = [24,30,32,36,40,45,48,52,56,60,63,72].filter(r => {
+          if (r >= fixed) return false;
+          const g = gcd(fixed, r);
+          return g >= 3 && g <= 12;
+        });
+        const rolling = goodRolling.length ? pick(goodRolling) : 36;
+        return { steps: [{ kind:'single', mod: mm('spirograph_gear', {
+          fixed_teeth:fixed, rolling_teeth:rolling,
+          tooth_pitch:rf(4,9), hole_position:rf(0.55,0.75),
+          inside:true, cycles:1,
+        })}], sw: 0.15 };
+      },
+
+      () => {
+        // Gear + rotation — the "nautilus shell" family
+        const fixed = pick([96, 105]);
+        const rolling = pick([36, 40, 45, 52]);
+        return { steps: [
+          { kind:'single', mod: mm('spirograph_gear', {
+            fixed_teeth:fixed, rolling_teeth:rolling,
+            tooth_pitch:rf(5,9), hole_position:rf(0.55,0.70),
+            inside:true, cycles:1,
+          })},
+          { kind:'single', mod: mm('arc', { arc_radius:rf(120,250), sweep_angle:pick([90,120,180]), start_angle:0, cycles:1 }) },
+          { kind:'single', mod: mm('rotation', { total_degrees:pick([90,180,270,360]), origin_x:0, origin_y:0, normalize:true }) },
+        ], sw: 0.12 };
+      },
+
+      () => {
+        // Gear + translation + spiral + bend — the "scroll" archetype
+        const fixed = 105, rolling = 52;
+        return { steps: [
+          { kind:'single', mod: mm('spirograph_gear', {
+            fixed_teeth:fixed, rolling_teeth:rolling,
+            tooth_pitch:rf(5,8), hole_position:0.65,
+            inside:true, cycles:rint(10,20),
+          })},
+          { kind:'single', mod: mm('translation', { start_x:0, end_x:rf(150,250), start_y:0, end_y:0, normalize:true }) },
+          { kind:'single', mod: mm('rotation', { total_degrees:pick([90,180,360,540]), origin_x:0, origin_y:0, normalize:true }) },
+          { kind:'single', mod: mm('spiral_shape', { start_radius:5, end_radius:rf(120,170), turns:rf(4,6), cycles:1 }) },
+        ], sw: 0.1 };
+      },
+
+      // --- LISSAJOUS ---
+      () => {
+        const [a,b] = pick([[3,2],[5,4],[4,3],[7,4]]);
+        return { steps: [
+          { kind:'single', mod: mm('lissajous', {
+            freq_x:a, freq_y:b,
+            amp_x:rf(90,130), amp_y:rf(90,130),
+            phase:rf(40,85), cycles:rint(2,4),
+          })},
+          { kind:'single', mod: mm('rotation', { total_degrees:pick([72,90,120]), origin_x:0, origin_y:0, normalize:true }) },
+        ], sw: 0.2 };
+      },
+
+      // --- ELLIPSE PETAL FAMILY ---
+      () => {
+        return { steps: [
+          { kind:'single', mod: mm('ellipse', {
+            radius_x:rf(120,180), radius_y:rf(80,130),
+            end_radius_x:rf(30,60), end_radius_y:rf(20,45),
+            cycles:rint(80,200), rotation:rf(0,90),
+          })},
+          { kind:'single', mod: mm('bend', { radius:rf(180,280), sweep_angle:pick([120,180,200]) }) },
+          { kind:'single', mod: mm('rotation', { total_degrees:pick([120,180,270]), origin_x:0, origin_y:0, normalize:true }) },
+        ], sw: 0.1 };
+      },
+
+      // --- SIMULTANEOUS ARMS ---
+      () => {
+        // Two harmonographs with different ratios, summed
+        const [a1,b1] = pick([[2,3],[3,4]]);
+        const [a2,b2] = pick([[5,4],[3,2]]);
+        return { steps: [
+          { kind:'group', branches: [
+            [mm('harmonograph', {
+              freq1:a1, amp1:100, phase1:0, decay1:rf(0.004,0.01),
+              freq2:b1+(R()-0.5)*0.01, amp2:100, phase2:90, decay2:rf(0.004,0.01),
+              freq3:0, amp3:0, phase3:0, decay3:0, freq4:0, amp4:0, phase4:0, decay4:0,
+              duration:80, cycles:3,
+            })],
+            [mm('harmonograph', {
+              freq1:a2, amp1:rf(50,80), phase1:0, decay1:rf(0.004,0.01),
+              freq2:b2+(R()-0.5)*0.01, amp2:rf(50,80), phase2:90, decay2:rf(0.004,0.01),
+              freq3:0, amp3:0, phase3:0, decay3:0, freq4:0, amp4:0, phase4:0, decay4:0,
+              duration:80, cycles:3,
+            })],
+          ]},
+          { kind:'single', mod: mm('rotation', { total_degrees:pick([60,90,120]), origin_x:0, origin_y:0, normalize:true }) },
+        ], sw: 0.15 };
+      },
+
+      () => {
+        // Harmonograph + circle + translation (the decay_shell_joe recipe)
+        const [a,b] = pick([[2,3],[3,2],[3,4]]);
+        return { steps: [
+          { kind:'group', branches: [
+            [mm('harmonograph', {
+              freq1:a, amp1:100, phase1:0, decay1:0,
+              freq2:b, amp2:100, end_amp2:rf(50,80), phase2:90, decay2:0,
+              freq3:0, amp3:0, phase3:0, decay3:0, freq4:0, amp4:0, phase4:0, decay4:0,
+              duration:60, cycles:3,
+            })],
+            [mm('circle', { radius:rf(30,60), cycles:1 })],
+            [mm('translation', { start_x:0, end_x:rf(60,120), start_y:0, end_y:0, normalize:true })],
+          ]},
+          { kind:'single', mod: mm('rotation', { total_degrees:rf(50,120), origin_x:0, origin_y:0, normalize:true }) },
+        ], sw: 0.15 };
+      },
+
+      // --- ROSE + SYMMETRY ---
+      () => {
+        const k = pick([3,5,7]);
+        return { steps: [
+          { kind:'single', mod: mm('rose', { petals:k, denom:1, radius:rf(90,140), cycles:1 }) },
+          { kind:'single', mod: mm('rotation', { total_degrees:pick([45,60,72,90]), origin_x:0, origin_y:0, normalize:true }) },
+        ], sw: 0.2, sym: pick([3,5,6]) };
+      },
+
+      // --- NEW DISCOVERIES ---
+
+      // Harmonograph amplitude drift — "Butterfly"
+      () => {
+        const [a,b] = pick([[2,3],[3,4],[5,4]]);
+        const d = rf(0.002,0.006);
+        return { steps: [{ kind:'single', mod: mm('harmonograph', {
+          freq1:a, amp1:rf(100,140), end_amp1:rf(30,50), phase1:0, decay1:d,
+          freq2:b+(R()-0.5)*0.01, amp2:rf(100,140), end_amp2:rf(40,70), phase2:90, decay2:d,
+          freq3:1+(R()-0.5)*0.005, amp3:rf(30,60), end_amp3:rf(5,15), phase3:rf(20,60), decay3:d,
+          freq4:0, amp4:0, phase4:0, decay4:0,
+          duration:rf(80,120), cycles:rint(3,5),
+        })}], sw: 0.15 };
+      },
+
+      // Torus + rotation — "Trefoil Knot"
+      () => {
+        return { steps: [
+          { kind:'single', mod: mm('surface', { surface_type:pick(['torus','figure8']), major_radius:rf(100,150), minor_radius:rf(35,65), u_lines:rint(60,100), v_lines:rint(25,50), view_angle_x:rf(20,50), view_angle_y:rf(10,40), view_angle_z:rf(-20,20) }) },
+          { kind:'single', mod: mm('rotation', { total_degrees:360, origin_x:0, origin_y:0, normalize:true }) },
+        ], sw: 0.1 };
+      },
+
+      // Gear drift + bend — "Wreath"
+      () => {
+        const fixed = pick([96,105,120]);
+        const rolling = pick([36,40,45,52].filter(r => r < fixed));
+        return { steps: [
+          { kind:'single', mod: mm('spirograph_gear', { fixed_teeth:fixed, rolling_teeth:rolling, tooth_pitch:rf(4,7), hole_position:rf(0.4,0.55), end_hole_position:rf(0.75,0.9), inside:true, cycles:rint(10,20) }) },
+          { kind:'single', mod: mm('translation', { start_x:0, end_x:rf(150,250), start_y:0, end_y:0, normalize:true }) },
+          { kind:'single', mod: mm('bend', { radius:rf(170,260), sweep_angle:pick([180,200,240]) }) },
+          { kind:'single', mod: mm('rotation', { total_degrees:pick([180,270,360]), origin_x:0, origin_y:0, normalize:true }) },
+        ], sw: 0.08 };
+      },
+
+      // Lissajous + scale decay — "Nautilus Mesh"
+      () => {
+        const [a,b] = pick([[5,6],[7,8],[9,8],[7,6]]);
+        return { steps: [
+          { kind:'single', mod: mm('lissajous', { freq_x:a, freq_y:b, amp_x:rf(100,140), amp_y:rf(100,140), phase:rf(40,80), cycles:rint(2,4) }) },
+          { kind:'single', mod: mm('scale', { start_scale:1.0, end_scale:rf(0.2,0.4) }) },
+          { kind:'single', mod: mm('rotation', { total_degrees:pick([120,180,270]), origin_x:0, origin_y:0, normalize:true }) },
+        ], sw: 0.12 };
+      },
+
+      // Ellipse axis swap + damping — "Lens"
+      () => {
+        const rx = rf(140,200), ry = rf(20,40);
+        return { steps: [
+          { kind:'single', mod: mm('ellipse', { radius_x:rx, radius_y:ry, end_radius_x:ry, end_radius_y:rx, cycles:rint(100,180), rotation:rf(0,90) }) },
+          { kind:'single', mod: mm('damping', { decay_rate:rf(0.01,0.02), duration:rf(40,70) }) },
+          { kind:'single', mod: mm('rotation', { total_degrees:pick([120,180,270]), origin_x:0, origin_y:0, normalize:true }) },
+        ], sw: 0.1 };
+      },
+    ];
+
+    const recipe = pick(recipes)();
+    setSteps(recipe.steps);
     setSel({ step: 0 });
-    setSymmetry({ n_fold: Math.random() > 0.6 ? Math.floor(Math.random()*6)+2 : 1, mirror: Math.random() > 0.7 });
-    setSampling({ scroll_repeats: Math.random() > 0.5 ? Math.floor(Math.random()*8)+2 : 1 });
+    const sym = recipe.sym || (R() > 0.8 ? pick([3,5,6,8]) : 1);
+    setSymmetry({ n_fold: sym, mirror: sym > 1 && R() > 0.6 });
+    setSampling({ initial_samples: 300000, output_samples: 40000, scroll_repeats: 1 });
+    setOutput(prev => ({ ...prev, stroke_width: recipe.sw || 0.15 }));
+    regenFlag.current = true;
   };
 
   const refreshIniFiles = async () => {
@@ -2143,54 +2346,6 @@ function App() {
         ),
       ) : null,
 
-      // Moire — parameter drift
-      (() => {
-        // Build flat list of single-step modules for moire targeting
-        const flatMods = steps.filter(s => s.kind === 'single' && s.mod).map(s => s.mod);
-        const ss = {flex:1,background:'var(--bg)',border:'1px solid var(--border)',color:'var(--text)',borderRadius:'4px',padding:'3px 6px',fontSize:'0.78rem'};
-        return h('div', {className:'section'},
-          h('div', {style:{display:'flex',alignItems:'center',justifyContent:'space-between'}},
-            h('div', {className:'section-title', style:{marginBottom:0}}, 'Moire \u2014 Parameter Drift'),
-            h('input', {type:'checkbox', checked:moire.enabled, style:{accentColor:'var(--accent)'},
-              onChange:e=>setMoire({...moire, enabled:e.target.checked})}),
-          ),
-          moire.enabled && flatMods.length > 0 ? h('div', {style:{marginTop:8}},
-            h('div', {className:'output-row'},
-              h('label', null, 'Module'),
-              h('select', {value:moire.module_idx, style:ss,
-                onChange:e=>{const idx=parseInt(e.target.value); setMoire({...moire, module_idx:idx, param:''});}},
-                flatMods.map((m, i) => h('option', {key:i, value:i}, `${i+1}. ${modules[m.type]?.label || m.type}`)),
-              ),
-            ),
-            h('div', {className:'output-row'},
-              h('label', null, 'Parameter'),
-              h('select', {value:moire.param, style:ss,
-                onChange:e=>setMoire({...moire, param:e.target.value})},
-                h('option', {value:''}, '-- select --'),
-                (() => {
-                  const mod = flatMods[moire.module_idx];
-                  if (!mod || !modules[mod.type]) return null;
-                  return Object.entries(modules[mod.type].params)
-                    .filter(([_, spec]) => spec.type !== 'bool')
-                    .map(([key, spec]) => h('option', {key, value:key}, `${spec.desc} (${key})`));
-                })(),
-              ),
-            ),
-            h('div', {className:'output-row'},
-              h('label', null, 'Copies'),
-              h('input', {type:'number', value:moire.copies, min:2, max:30, step:1,
-                onChange:e=>setMoire({...moire, copies:parseInt(e.target.value)})}),
-              h('label', null, 'Range \u00b1'),
-              h('input', {type:'number', value:moire.range, min:0.001, max:100, step:0.1,
-                onChange:e=>setMoire({...moire, range:parseFloat(e.target.value)})}),
-            ),
-            moire.param && flatMods[moire.module_idx] ? h('div', {style:{fontSize:'0.68rem',color:'var(--muted)',marginTop:4}},
-              `${moire.copies} copies, varying ${moire.param} \u00b1${moire.range}`
-            ) : null,
-          ) : moire.enabled ? h('div', {style:{fontSize:'0.72rem',color:'var(--muted)',marginTop:6}}, 'Add steps to pipeline first') : null,
-        );
-      })(),
-
       // Output / Symmetry / Sampling
       h('div', {className:'section'},
         h('div', {className:'section-title'}, 'Output'),
@@ -2252,7 +2407,7 @@ function App() {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ steps: stepsData, output, sampling,
                 symmetry: symmetry.n_fold > 1 || symmetry.mirror ? symmetry : {},
-                moire: moire.enabled ? { module_idx: moire.module_idx, param: moire.param, copies: moire.copies, range: moire.range } : {} }),
+              }),
             });
             const svg = await res.text();
             const blob = new Blob([svg], {type:'image/svg+xml'});
