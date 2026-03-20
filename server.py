@@ -1943,8 +1943,12 @@ function App() {
     const rint = (lo, hi) => Math.round(lo + R() * (hi - lo));
     const gcd = (a, b) => { while (b) { [a, b] = [b, a % b]; } return a; };
     const mm = (type, params) => ({ id: ++idCounter.current, type, params: { type, ...params } });
-    // Zero-fill unused harmonograph pendulums
     const hz = {freq3:0,amp3:0,phase3:0,decay3:0,freq4:0,amp4:0,phase4:0,decay4:0};
+    const rot = d => ({ kind:'single', mod: mm('rotation', { total_degrees:d, origin_x:0, origin_y:0, normalize:true }) });
+    const arc = (r,sw) => ({ kind:'single', mod: mm('arc', { arc_radius:r, sweep_angle:sw, start_angle:0, cycles:1 }) });
+    const sparc = (ir,or,sw) => ({ kind:'single', mod: mm('spiral_arc', { inner_radius:ir, outer_radius:or, sweep_angle:sw, start_angle:0 }) });
+    const noise = (a,f) => ({ kind:'single', mod: mm('noise', { amplitude:a, frequency:f }) });
+    const bend = (r,sw) => ({ kind:'single', mod: mm('bend', { radius:r, sweep_angle:sw }) });
 
     const recipes = [
 
@@ -2184,6 +2188,96 @@ function App() {
           { kind:'single', mod: mm('rotation', { total_degrees:pick([36,45,60,72]), origin_x:0, origin_y:0, normalize:true }) },
         ], sw: 0.15, sym: pick([0,0,3,5]) || undefined };
       },
+
+      // ── KLEIN BOTTLE + rotation (dense intricate mesh) ──
+      () => ({
+        steps: [
+          { kind:'single', mod: mm('klein_bottle', { surface:'klein', major_radius:rf(80,120), minor_radius:rf(30,50), v_lines:rint(40,60), view_angle_x:rf(25,45), view_angle_y:rf(15,35) }) },
+          rot(360),
+        ], sw: 0.1,
+      }),
+
+      // ── FIGURE-8 TORUS + rotation (spirograph-like mesh) ──
+      () => ({
+        steps: [
+          { kind:'single', mod: mm('figure8', { surface:'figure8', major_radius:rf(90,130), minor_radius:rf(30,50), v_lines:rint(35,55), view_angle_x:rf(15,40), view_angle_y:rf(5,25) }) },
+          rot(360),
+        ], sw: 0.1,
+      }),
+
+      // ── HELIX RIBBON + rotation (circle chain spiral) ──
+      () => ({
+        steps: [
+          { kind:'single', mod: mm('helix_ribbon', { surface:'helix_ribbon', major_radius:rf(80,120), width:rf(30,50), twists:pick([1,2,3]), v_lines:rint(30,50), view_angle_x:rf(25,40), view_angle_y:rf(15,30) }) },
+          rot(360),
+        ], sw: 0.12,
+      }),
+
+      // ── HARMONOGRAPH + ARC (3D knot form) ──
+      () => {
+        const [a,b] = pick([[3,2],[2,3],[5,4],[4,3]]);
+        return { steps: [
+          { kind:'single', mod: mm('harmonograph', {
+            freq1:a, amp1:rf(60,80), phase1:0, decay1:rf(0.006,0.01),
+            freq2:b+0.004, amp2:rf(60,80), phase2:90, decay2:rf(0.006,0.01), ...hz,
+            duration:rf(35,50), cycles:rint(2,3),
+          })},
+          arc(rf(160,220), pick([180,270])), rot(pick([180,270,360])),
+        ], sw: 0.1 };
+      },
+
+      // ── HARMONOGRAPH + SPIRAL ARC (spiral galaxy) ──
+      () => {
+        const [a,b] = pick([[2,3],[3,2],[3,4]]);
+        return { steps: [
+          { kind:'single', mod: mm('harmonograph', {
+            freq1:a, amp1:rf(40,60), phase1:0, decay1:rf(0.008,0.015),
+            freq2:b+0.005, amp2:rf(40,60), phase2:90, decay2:rf(0.008,0.015), ...hz,
+            duration:rf(25,40), cycles:2,
+          })},
+          sparc(rf(15,25), rf(150,200), pick([720,1080,1440])),
+        ], sw: 0.1 };
+      },
+
+      // ── GEAR EPITROCHOID + NOISE (hand-drawn ring) ──
+      () => ({
+        steps: [
+          { kind:'single', mod: mm('spirograph_gear', { fixed_teeth:144, rolling_teeth:pick([55,89,73]), tooth_pitch:rf(1.0,1.8), hole_position:rf(0.55,0.75), inside:false, cycles:1 }) },
+          noise(rf(1.5,3.5), rf(6,14)),
+        ], sw: 0.1,
+      }),
+
+      // ── STAR + HARMONOGRAPH GROUP (angular organic) ──
+      () => {
+        const [a,b] = pick([[3,2],[2,3],[5,4]]);
+        return { steps: [
+          { kind:'group', branches: [
+            [mm('star_shape', { points:pick([5,6,7]), outer_radius:rf(50,70), inner_radius:rf(15,30), rotation:0, cycles:2 })],
+            [mm('harmonograph', {
+              freq1:a, amp1:rf(80,100), phase1:0, decay1:rf(0.005,0.008),
+              freq2:b+0.005, amp2:rf(80,100), phase2:90, decay2:rf(0.005,0.008), ...hz,
+              duration:60, cycles:3,
+            })],
+          ]},
+          rot(pick([90,120])),
+        ], sw: 0.12 };
+      },
+
+      // ── RACK + BEND (cloud lobes) ──
+      () => ({
+        steps: [
+          { kind:'single', mod: mm('rack', { teeth:rint(25,40), tooth_pitch:rf(4,7), hole_position:rf(0.6,0.8), straight_length:rf(150,250), cycles:rint(2,4) }) },
+          bend(rf(170,230), pick([180,200,240])), rot(pick([180,270])),
+        ], sw: 0.15,
+      }),
+
+      // ── POLYGON + SPIRAL ARC (rounded spiral) ──
+      () => ({
+        steps: [
+          { kind:'single', mod: mm('polygon', { sides:pick([5,6,7,8]), radius:rf(30,50), rotation:0, cycles:rint(3,5) }) },
+          sparc(rf(15,25), rf(140,180), pick([720,1080])),
+        ], sw: 0.12,
+      }),
     ];
 
     const recipe = pick(recipes)();
