@@ -1477,6 +1477,7 @@ function App() {
   const undoPending = useRef(false);
   const stateRef = useRef({steps:[], output:{stroke_width:0.3,stroke_color:'#000000',background_color:'#ffffff'}, symmetry:{n_fold:1,mirror:false}, sampling:{scroll_repeats:1,initial_samples:80000,output_samples:12000}});
   useEffect(() => { stateRef.current = {steps, output, symmetry, sampling}; });
+  const redoStack = useRef([]);
   const pushUndo = () => {
     if (skipUndo.current) return;
     // Only push if no recent push (debounce 500ms)
@@ -1484,6 +1485,8 @@ function App() {
       undoStack.current.push(JSON.stringify(stateRef.current));
       if (undoStack.current.length > 100) undoStack.current.shift();
       undoPending.current = true;
+      // New change clears redo history
+      redoStack.current.length = 0;
     }
     clearTimeout(undoTimer.current);
     undoTimer.current = setTimeout(() => { undoPending.current = false; }, 500);
@@ -1494,6 +1497,8 @@ function App() {
   const setSampling = (v) => { pushUndo(); setSamplingRaw(v); };
   const undo = useCallback(() => {
     if (undoStack.current.length === 0) { setStatus('Nothing to undo'); return; }
+    // Push current state to redo before restoring
+    redoStack.current.push(JSON.stringify(stateRef.current));
     skipUndo.current = true;
     const prev = JSON.parse(undoStack.current.pop());
     setStepsRaw(prev.steps); setOutputRaw(prev.output);
@@ -1501,11 +1506,25 @@ function App() {
     skipUndo.current = false;
     setStatus('Undo');
   }, []);
+  const redo = useCallback(() => {
+    if (redoStack.current.length === 0) { setStatus('Nothing to redo'); return; }
+    // Push current state to undo before restoring
+    undoStack.current.push(JSON.stringify(stateRef.current));
+    skipUndo.current = true;
+    const next = JSON.parse(redoStack.current.pop());
+    setStepsRaw(next.steps); setOutputRaw(next.output);
+    setSymmetryRaw(next.symmetry); setSamplingRaw(next.sampling);
+    skipUndo.current = false;
+    setStatus('Redo');
+  }, []);
   useEffect(() => {
-    const onKey = (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); } };
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) { e.preventDefault(); redo(); }
+    };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [undo]);
+  }, [undo, redo]);
   const [pointData, setPointData] = useState(null); // {paths:[[x,y],...], config:{...}}
   const canvasRef = useRef(null);
   const [generating, setGenerating] = useState(false);
@@ -2933,6 +2952,10 @@ function App() {
 
     // ---- Toolbar (portaled) ----
     ReactDOM.createPortal(h(React.Fragment, {key:'tb'},
+      h('button', {onClick:undo, title:'Undo (Ctrl+Z)', disabled:undoStack.current.length===0,
+        style:{background:'none',border:'1px solid var(--border)',color:'var(--muted)',borderRadius:'4px',padding:'2px 8px',cursor:'pointer',fontSize:'0.8rem',opacity:undoStack.current.length?1:0.3}}, '\u21a9'),
+      h('button', {onClick:redo, title:'Redo (Ctrl+Shift+Z)', disabled:redoStack.current.length===0,
+        style:{background:'none',border:'1px solid var(--border)',color:'var(--muted)',borderRadius:'4px',padding:'2px 8px',cursor:'pointer',fontSize:'0.8rem',opacity:redoStack.current.length?1:0.3}}, '\u21aa'),
       h('div', {className:'spacer'}),
       status ? h('div', {className:'status'}, status) : null,
     ), document.getElementById('toolbar')),
