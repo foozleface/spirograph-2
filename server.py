@@ -1470,15 +1470,23 @@ function App() {
   const [sampling, setSamplingRaw] = useState({ scroll_repeats: 1.0, initial_samples: 80000, output_samples: 12000 });
 
   // Undo system — snapshot all state before each change, restore with Ctrl+Z
+  // Debounced: rapid changes (slider drags) coalesce into one undo entry
   const undoStack = useRef([]);
   const skipUndo = useRef(false);
+  const undoTimer = useRef(null);
+  const undoPending = useRef(false);
   const stateRef = useRef({steps:[], output:{stroke_width:0.3,stroke_color:'#000000',background_color:'#ffffff'}, symmetry:{n_fold:1,mirror:false}, sampling:{scroll_repeats:1,initial_samples:80000,output_samples:12000}});
-  // Keep ref in sync
   useEffect(() => { stateRef.current = {steps, output, symmetry, sampling}; });
   const pushUndo = () => {
     if (skipUndo.current) return;
-    undoStack.current.push(JSON.stringify(stateRef.current));
-    if (undoStack.current.length > 100) undoStack.current.shift();
+    // Only push if no recent push (debounce 500ms)
+    if (!undoPending.current) {
+      undoStack.current.push(JSON.stringify(stateRef.current));
+      if (undoStack.current.length > 100) undoStack.current.shift();
+      undoPending.current = true;
+    }
+    clearTimeout(undoTimer.current);
+    undoTimer.current = setTimeout(() => { undoPending.current = false; }, 500);
   };
   const setSteps = (v) => { pushUndo(); setStepsRaw(v); };
   const setOutput = (v) => { pushUndo(); setOutputRaw(v); };
