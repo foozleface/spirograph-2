@@ -1553,6 +1553,12 @@ function App() {
   const regenFlag = useRef(false);
   const [regenTrigger, setRegenTrigger] = useState(0);
   const generateRef = useRef(null);
+
+  // Multi-pattern composition for plotter
+  const [placedPatterns, setPlacedPatterns] = useState([]);
+  const [selectedPlaced, setSelectedPlaced] = useState(null); // id of selected placed pattern
+  const placedIdCounter = useRef(0);
+  const placedDrag = useRef(null); // {id, startX, startY, origX, origY}
   const recentRecipes = useRef([]);
   const [driftOpen, setDriftOpen] = useState({});
   const [showPlotter, setShowPlotter] = useState(false);
@@ -1930,10 +1936,40 @@ function App() {
   cvOffRef.current = cvOff;
   cvRotRef.current = cvRot;
 
+  const placedPatternsRef = useRef(placedPatterns);
+  placedPatternsRef.current = placedPatterns;
+
   const cvMouseDown = (e) => {
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
+
+    // In plotter mode, check if clicking on a placed pattern
+    if (showPlotter && placedPatternsRef.current.length > 0 && !e.shiftKey) {
+      const cvs = canvasRef.current;
+      if (cvs) {
+        const rect = cvs.getBoundingClientRect();
+        const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+        const drawW = cvs.clientWidth, drawH = cvs.clientHeight;
+        // Check placed patterns in reverse (top-most first)
+        for (let i = placedPatternsRef.current.length - 1; i >= 0; i--) {
+          const pp = placedPatternsRef.current[i];
+          const ppSc = drawH / pp.config.height * pp.scale;
+          const px = pp.x * (drawW / 100), py = pp.y * (drawH / 100);
+          const pw = pp.config.width * (drawH / pp.config.height) * pp.scale;
+          const ph = drawH * pp.scale;
+          if (mx >= px && mx <= px + pw && my >= py && my <= py + ph) {
+            setSelectedPlaced(pp.id);
+            placedDrag.current = {id: pp.id, startX: e.clientX, startY: e.clientY,
+              origX: pp.x, origY: pp.y, drawW, drawH};
+            document.body.style.cursor = 'grabbing';
+            return;
+          }
+        }
+        setSelectedPlaced(null);
+      }
+    }
+
     if (e.shiftKey) {
       const rect = cvRef.current.getBoundingClientRect();
       const cx = rect.left + rect.width/2, cy = rect.top + rect.height/2;
@@ -1949,6 +1985,16 @@ function App() {
 
   useEffect(() => {
     const onMove = (e) => {
+      // Handle placed pattern dragging
+      if (placedDrag.current) {
+        e.preventDefault();
+        const dx = e.clientX - placedDrag.current.startX;
+        const dy = e.clientY - placedDrag.current.startY;
+        const newX = placedDrag.current.origX + (dx / placedDrag.current.drawW) * 100;
+        const newY = placedDrag.current.origY + (dy / placedDrag.current.drawH) * 100;
+        updatePlaced(placedDrag.current.id, { x: newX, y: newY });
+        return;
+      }
       if (!cvDrag.current) return;
       e.preventDefault();
       if (cvDrag.current.mode === 'move') {
@@ -1961,7 +2007,7 @@ function App() {
         setCvRot(cvDrag.current.origRot + angle - cvDrag.current.startAngle);
       }
     };
-    const onUp = () => { cvDrag.current = null; document.body.style.cursor = ''; };
+    const onUp = () => { cvDrag.current = null; placedDrag.current = null; document.body.style.cursor = ''; };
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
     return () => {
@@ -1969,6 +2015,33 @@ function App() {
       document.removeEventListener('mouseup', onUp);
     };
   }, []);
+
+  // Multi-pattern composition
+  const addToPage = () => {
+    if (!pointData) return;
+    const id = ++placedIdCounter.current;
+    // Stagger: spread across paper width
+    const n = placedPatterns.length;
+    const pm = showPlotter && plotterModels[pOpts.model];
+    const paperAR = pm ? pm.width / pm.height : 1;
+    // Place patterns side by side, each taking ~(100/paperAR)% of width to be roughly square
+    const slotW = Math.min(30, 90 / Math.max(1, n + 1));
+    const staggerX = n * slotW;
+    setPlacedPatterns(prev => [...prev, {
+      id, paths: pointData.paths, config: pointData.config,
+      x: staggerX, y: 0, scale: 1.0, rotation: cvRot,
+      name: loadedFile ? loadedFile.replace('.ini','') : `pattern ${id}`,
+    }]);
+    setSelectedPlaced(id);
+    setStatus(`Added pattern to page (${n + 1} total)`);
+  };
+  const removePlaced = (id) => {
+    setPlacedPatterns(prev => prev.filter(p => p.id !== id));
+    if (selectedPlaced === id) setSelectedPlaced(null);
+  };
+  const updatePlaced = (id, updates) => {
+    setPlacedPatterns(prev => prev.map(p => p.id === id ? {...p, ...updates} : p));
+  };
 
   // Canvas rendering
   const drawCanvas = useCallback(() => {
@@ -2023,32 +2096,64 @@ function App() {
     const cxC = offX + pxW / 2;
     const cyC = offY + pxH / 2;
 
-    ctx.save();
-    // User transforms: pivot around drawing center
-    ctx.translate(cxC + cvOff.x, cyC + cvOff.y);
-    ctx.rotate(cvRot * Math.PI / 180);
-    ctx.scale(cvScale, cvScale);
-    ctx.translate(-cxC, -cyC);
-    // Offset to center pattern in canvas
-    ctx.translate(offX, offY);
-
-    // Draw paths
-    ctx.strokeStyle = cfg.stroke_color || '#000000';
-    ctx.lineWidth = (cfg.stroke_width || 0.3) * sc;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-
-    for (const path of pointData.paths) {
-      if (path.length < 2) continue;
-      ctx.beginPath();
-      ctx.moveTo(path[0][0] * sc, path[0][1] * sc);
-      for (let i = 1; i < path.length; i++) {
-        ctx.lineTo(path[i][0] * sc, path[i][1] * sc);
+    // Helper: draw a set of paths with given transforms
+    const drawPaths = (paths, pcfg, psc, ox, oy, pOff, pRot, pScale, isSelected) => {
+      const pcxC = ox + (pcfg.width * psc) / 2;
+      const pcyC = oy + (pcfg.height * psc) / 2;
+      ctx.save();
+      ctx.translate(pcxC + pOff.x, pcyC + pOff.y);
+      ctx.rotate(pRot * Math.PI / 180);
+      ctx.scale(pScale, pScale);
+      ctx.translate(-pcxC, -pcyC);
+      ctx.translate(ox, oy);
+      ctx.strokeStyle = pcfg.stroke_color || '#000000';
+      ctx.lineWidth = Math.max(0.4, (pcfg.stroke_width || 0.3) * psc);
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      for (const path of paths) {
+        if (path.length < 2) continue;
+        ctx.beginPath();
+        ctx.moveTo(path[0][0] * psc, path[0][1] * psc);
+        for (let i = 1; i < path.length; i++) ctx.lineTo(path[i][0] * psc, path[i][1] * psc);
+        ctx.stroke();
       }
-      ctx.stroke();
+      if (isSelected) {
+        ctx.strokeStyle = 'rgba(124,92,252,0.6)';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([4, 4]);
+        ctx.strokeRect(0, 0, pcfg.width * psc, pcfg.height * psc);
+        ctx.setLineDash([]);
+      }
+      ctx.restore();
+    };
+
+    // Draw placed patterns (plotter composition)
+    if (showPlotter && placedPatterns.length > 0) {
+      for (const pp of placedPatterns) {
+        const ppAR = pp.config.width / pp.config.height;
+        // Scale placed pattern to fit paper height
+        const ppSc = drawH / pp.config.height;
+        const ppOffX = pp.x * (drawW / 100); // x,y are in % of paper
+        const ppOffY = pp.y * (drawH / 100);
+        drawPaths(pp.paths, pp.config, ppSc,
+          ppOffX, ppOffY, {x:0, y:0}, pp.rotation, pp.scale,
+          pp.id === selectedPlaced);
+      }
     }
-    ctx.restore();
-  }, [pointData, cvOff, cvRot, cvScale, showPlotter, pOpts.model, plotterModels]);
+
+    // Draw current live pattern (ghosted if there are placed patterns)
+    if (showPlotter && placedPatterns.length > 0) {
+      ctx.globalAlpha = 0.2;
+    }
+    drawPaths(pointData.paths, cfg, sc, offX, offY, cvOff, cvRot, cvScale, false);
+    ctx.globalAlpha = 1;
+
+    // Paper border in plotter mode
+    if (pm) {
+      ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(0, 0, drawW, drawH);
+    }
+  }, [pointData, cvOff, cvRot, cvScale, showPlotter, pOpts.model, plotterModels, placedPatterns, selectedPlaced]);
 
   useEffect(() => { drawCanvas(); }, [drawCanvas]);
   useEffect(() => {
@@ -3147,6 +3252,9 @@ function App() {
           } catch(e) { setStatus('Export error: ' + e.message); }
         }}, 'Export SVG'),
         h('button', {className:'btn btn-secondary', onClick:randomize}, 'Random'),
+        showPlotter ? h('button', {className:'btn btn-secondary', disabled:!pointData,
+          style:{background:'rgba(124,92,252,0.15)', borderColor:'var(--accent)'},
+          onClick:addToPage}, '+ Page') : null,
       ),
       // Plotter panel is a right flyout (rendered below in portal)
       showSave ? h('div', {style:{padding:'4px 16px 8px',display:'flex',gap:'6px',alignItems:'center'}},
@@ -3326,6 +3434,36 @@ function App() {
           ),
         ),
 
+        // Placed patterns
+        placedPatterns.length > 0 ? h('div', {className:'pg'},
+          h('div', {className:'pg-title'}, `Page Composition (${placedPatterns.length})`),
+          placedPatterns.map(pp => {
+            const isSel = pp.id === selectedPlaced;
+            return h('div', {key:pp.id, style:{display:'flex',alignItems:'center',gap:'6px',padding:'3px 0',
+              borderLeft: isSel ? '2px solid var(--accent)' : '2px solid transparent',
+              paddingLeft:'4px', cursor:'pointer', fontSize:'0.7rem'},
+              onClick:()=>setSelectedPlaced(isSel ? null : pp.id)},
+              h('span', {style:{flex:1,color: isSel ? 'var(--text)' : 'var(--muted)'}}, pp.name),
+              h('input', {type:'number', value:pp.scale.toFixed(2), step:0.1, min:0.1, max:10,
+                style:{width:'42px',background:'var(--bg)',border:'1px solid var(--border)',color:'var(--text)',
+                  borderRadius:'3px',padding:'1px 3px',fontSize:'0.6rem',textAlign:'right'},
+                title:'Scale',
+                onClick:e=>e.stopPropagation(),
+                onChange:e=>{const v=parseFloat(e.target.value); if(!isNaN(v)&&v>0) updatePlaced(pp.id,{scale:v});}}),
+              h('input', {type:'number', value:Math.round(pp.rotation), step:15,
+                style:{width:'38px',background:'var(--bg)',border:'1px solid var(--border)',color:'var(--text)',
+                  borderRadius:'3px',padding:'1px 3px',fontSize:'0.6rem',textAlign:'right'},
+                title:'Rotation (\u00b0)',
+                onClick:e=>e.stopPropagation(),
+                onChange:e=>{const v=parseFloat(e.target.value); if(!isNaN(v)) updatePlaced(pp.id,{rotation:v});}}),
+              h('span', {style:{fontSize:'0.55rem',color:'var(--muted)'}}, '\u00b0'),
+              h('span', {style:{cursor:'pointer',color:'var(--muted)',fontSize:'0.7rem',padding:'0 2px'},
+                title:'Remove',
+                onClick:e=>{e.stopPropagation(); removePlaced(pp.id);}}, '\u00d7'),
+            );
+          }),
+        ) : null,
+
         // Plot action
         h('div', {className:'pg', style:{borderBottom:'none'}},
           h('div', {style:{display:'flex',gap:'10px',alignItems:'center'}},
@@ -3374,14 +3512,24 @@ function App() {
             onKeyDown: e => { if (e.key === 'Enter') e.target.blur(); },
           }),
           h('span', {style:{fontSize:'0.6rem',color:'#999'}}, '%'),
-          cvRot !== 0 ? h('span', null, `${cvRot.toFixed(1)}\u00b0`) : null,
           hasTransform ? h('button', {onClick:cvReset, style:zBtn}, 'Reset') : null,
+        );
+        const rotBar = h('div', {style:{position:'absolute',top:'32px',left:'8px',zIndex:5,display:'flex',gap:'4px',alignItems:'center',
+            background:'rgba(0,0,0,0.6)',borderRadius:'4px',padding:'3px 6px',fontSize:'0.65rem',color:'#ccc'}},
+          h('button', {onClick:()=>setCvRot(r=>r-15), style:zBtn}, '\u21b6'),
+          h('button', {onClick:()=>setCvRot(r=>r+15), style:zBtn}, '\u21b7'),
+          h('input', {type:'text', value: cvRot.toFixed(1).replace(/\.0$/,''),
+            style:{width:'48px',background:'rgba(0,0,0,0.4)',color:'#ccc',border:'1px solid #666',borderRadius:'3px',padding:'1px 4px',fontSize:'0.65rem',textAlign:'right'},
+            onChange: e => { const v = parseFloat(e.target.value); if (!isNaN(v)) setCvRot(v % 360); },
+            onKeyDown: e => { if (e.key === 'Enter') e.target.blur(); },
+          }),
+          h('span', {style:{fontSize:'0.6rem',color:'#999'}}, '\u00b0'),
         );
         const hint = h('div', {style:{position:'absolute',bottom:'8px',left:'8px',zIndex:5,fontSize:'0.58rem',color:'rgba(255,255,255,0.35)',pointerEvents:'none'}},
           'Drag to move \u2022 Shift+drag to rotate');
         return h('div', {ref:cvRef, onMouseDown:cvMouseDown,
           style:{position:'relative',width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',cursor:'grab',userSelect:'none'}},
-          infoBar, hint,
+          infoBar, rotBar, hint,
           h('canvas', {ref:canvasRef, style:{borderRadius:'8px', boxShadow:'0 4px 24px rgba(0,0,0,0.4)'}}),
         );
       })(),
