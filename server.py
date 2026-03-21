@@ -2622,6 +2622,94 @@ function App() {
           rot(pick([180,360,540])),
         ], sw: 0.12,
       }),
+
+      // ── 1K EXPERIMENT TOP SCORERS ──
+
+      // Ellipse + rotation (score 1344)
+      () => ({
+        steps: [
+          { kind:'single', mod: mm('ellipse', { radius_x:rf(100,170), radius_y:rf(60,120), end_radius_x:rf(25,55), end_radius_y:rf(15,40), cycles:rint(80,180), rotation:rf(0,60) }) },
+          rot(pick([90,120,180,270,360])),
+        ], sw: 0.1,
+      }),
+
+      // Line + bend + rotation (score 1344, perfect)
+      () => ({
+        steps: [
+          { kind:'single', mod: mm('line', { length:rf(100,250), angle:rf(0,30), cycles:rint(2,5) }) },
+          bend(rf(120,250), pick([120,180,240,270])),
+          rot(pick([180,270,360])),
+        ], sw: 0.12,
+      }),
+
+      // Line deep: damping + stretch + spiral_arc + noise (score 1341)
+      () => ({
+        steps: [
+          { kind:'single', mod: mm('line', { length:rf(80,180), angle:0, cycles:rint(2,4) }) },
+          damp(rf(0.008,0.018), rf(30,55)),
+          { kind:'single', mod: mm('stretch', { scale_x:rf(1.2,2.0), scale_y:rf(0.8,1.2) }) },
+          sparc(rf(15,25), rf(140,190), pick([720,1080])),
+          noise(rf(1,3), rf(6,10)),
+        ], sw: 0.1,
+      }),
+
+      // Klein + damping + spiral_arc (score 1303)
+      () => ({
+        steps: [
+          { kind:'single', mod: mm('klein_bottle', { surface:'klein', major_radius:rf(80,120), minor_radius:rf(30,50), v_lines:rint(35,55), view_angle_x:rf(25,45), view_angle_y:rf(15,35) }) },
+          damp(rf(0.008,0.015), rf(35,55)),
+          sparc(rf(20,35), rf(150,200), pick([360,720])),
+        ], sw: 0.1,
+      }),
+
+      // Guilloche + scale + rotation (score 1319)
+      () => {
+        const primes = [17,23,31,37,41,53,59,67,71];
+        return { steps: [
+          { kind:'single', mod: mm('guilloche', {
+            inner:rf(50,90), outer:rf(170,240), nodes:rint(80,150), div:pick(primes),
+            n0:rint(4,10), h0:rf(6,18), n1:rint(8,16), h1:rf(8,22),
+          })},
+          { kind:'single', mod: mm('scale', { start_scale:1.0, end_scale:rf(0.4,0.7) }) },
+          rot(pick([120,180,270,360])),
+        ], sw: 0.08 };
+      },
+
+      // GROUP: star_shape + ellipse (score 1338)
+      () => ({
+        steps: [
+          { kind:'group', branches: [
+            [mm('star_shape', { points:pick([5,6,7,8]), outer_radius:rf(60,100), inner_radius:rf(20,40), rotation:0, cycles:rint(2,4) })],
+            [mm('ellipse', { radius_x:rf(80,130), radius_y:rf(50,90), end_radius_x:rf(20,45), end_radius_y:rf(15,35), cycles:rint(60,120), rotation:rf(0,45) })],
+          ]},
+          rot(pick([90,120,180])),
+        ], sw: 0.1,
+      }),
+
+      // GROUP: guilloche + ellipse + polygon (score 1324)
+      () => {
+        const primes = [17,23,31,37,41,53];
+        return { steps: [
+          { kind:'group', branches: [
+            [mm('guilloche', { inner:rf(40,70), outer:rf(130,180), nodes:rint(60,100), div:pick(primes), n0:rint(3,7), h0:rf(5,12), n1:rint(6,12), h1:rf(6,15) })],
+            [mm('ellipse', { radius_x:rf(50,80), radius_y:rf(30,55), end_radius_x:rf(15,30), end_radius_y:rf(10,25), cycles:rint(40,80), rotation:0 })],
+            [mm('polygon', { sides:pick([5,6,7,8]), radius:rf(30,50), rotation:0, cycles:rint(2,4) })],
+          ]},
+        ], sw: 0.1 };
+      },
+
+      // GROUP: gear + polygon (score 1322)
+      () => {
+        const fixed = pick([96,105,120]);
+        const rolling = pick([36,40,45,52].filter(r => r < fixed));
+        return { steps: [
+          { kind:'group', branches: [
+            [mm('spirograph_gear', { fixed_teeth:fixed, rolling_teeth:rolling, tooth_pitch:rf(3,6), hole_position:rf(0.55,0.75), inside:true, cycles:1 })],
+            [mm('polygon', { sides:pick([5,6,7,8]), radius:rf(30,55), rotation:0, cycles:rint(2,4) })],
+          ]},
+          rot(pick([90,180,270])),
+        ], sw: 0.1 };
+      },
     ];
 
     const recipe = pick(recipes)();
