@@ -2036,6 +2036,7 @@ function App() {
     const sparc = (ir,or,sw) => ({ kind:'single', mod: mm('spiral_arc', { inner_radius:ir, outer_radius:or, sweep_angle:sw, start_angle:0 }) });
     const noise = (a,f) => ({ kind:'single', mod: mm('noise', { amplitude:a, frequency:f }) });
     const bend = (r,sw) => ({ kind:'single', mod: mm('bend', { radius:r, sweep_angle:sw }) });
+    const damp = (rate,dur) => ({ kind:'single', mod: mm('damping', { decay_rate:rate, duration:dur }) });
 
     const recipes = [
 
@@ -2393,6 +2394,234 @@ function App() {
           })},
         ], sw: 0.08 };
       },
+
+      // ── GUILLOCHE deep chain: damping + scale + noise ──
+      () => {
+        const primes = [13,17,23,29,37,41,47,53,59,67,71];
+        return { steps: [
+          { kind:'single', mod: mm('guilloche', {
+            inner:rf(50,90), outer:rf(170,240), nodes:rint(90,160), div:pick(primes),
+            n0:rint(4,10), h0:rf(6,20), n1:rint(8,18), h1:rf(8,25),
+          })},
+          damp(rf(0.008,0.02), rf(30,60)),
+          { kind:'single', mod: mm('scale', { start_scale:1.0, end_scale:rf(0.4,0.7) }) },
+          noise(rf(1,3), rf(6,12)),
+        ], sw: 0.1 };
+      },
+
+      // ── GUILLOCHE + stretch + rotation ──
+      () => {
+        const primes = [17,23,31,37,41,53,71];
+        return { steps: [
+          { kind:'single', mod: mm('guilloche', {
+            inner:rf(60,100), outer:rf(160,220), nodes:rint(100,150), div:pick(primes),
+            n0:rint(5,8), h0:rf(8,15), n1:rint(10,16), h1:rf(10,20),
+          })},
+          { kind:'single', mod: mm('stretch', { scale_x:rf(1.5,2.5), scale_y:1.0 }) },
+          rot(pick([90,180,270,360])),
+        ], sw: 0.08 };
+      },
+
+      // ── GEAR EPITROCHOID (outside rolling) + noise ──
+      () => {
+        const fixed = pick([96,105,120,144]);
+        const rolling = pick([36,40,45,52,55].filter(r => r < fixed));
+        return { steps: [
+          { kind:'single', mod: mm('spirograph_gear', { fixed_teeth:fixed, rolling_teeth:rolling, tooth_pitch:rf(1.0,2.5), hole_position:rf(0.55,0.75), inside:false, cycles:1 }) },
+          noise(rf(1.5,3), rf(6,12)),
+          rot(pick([90,180,360])),
+        ], sw: 0.1 };
+      },
+
+      // ── GEAR deep chain: noise + rotation + damping ──
+      () => {
+        const fixed = pick([96,100,120]);
+        const rolling = pick([37,41,43,47].filter(r => r < fixed));
+        return { steps: [
+          { kind:'single', mod: mm('spirograph_gear', { fixed_teeth:fixed, rolling_teeth:rolling, tooth_pitch:rf(1.5,4), hole_position:rf(0.65,0.85), inside:true, cycles:1 }) },
+          noise(rf(1,2.5), rf(8,15)),
+          rot(pick([120,180,270])),
+          damp(rf(0.008,0.015), rf(40,60)),
+        ], sw: 0.1 };
+      },
+
+      // ── TORUS + stretch (wide paper fill) ──
+      () => ({
+        steps: [
+          { kind:'single', mod: mm('torus', { surface:'torus', major_radius:rf(90,130), minor_radius:rf(30,55), v_lines:rint(35,55), view_angle_x:rf(20,45), view_angle_y:rf(10,35) }) },
+          { kind:'single', mod: mm('stretch', { scale_x:rf(1.8,3.0), scale_y:1.0 }) },
+        ], sw: 0.1,
+      }),
+
+      // ── KLEIN + rotation (dense mesh, top experiment result) ──
+      () => ({
+        steps: [
+          { kind:'single', mod: mm('klein_bottle', { surface:'klein', major_radius:rf(80,120), minor_radius:rf(30,50), v_lines:rint(40,60), view_angle_x:rf(25,45), view_angle_y:rf(15,35) }) },
+          rot(360),
+        ], sw: 0.1,
+      }),
+
+      // ── FIGURE8 + stretch ──
+      () => ({
+        steps: [
+          { kind:'single', mod: mm('figure8', { surface:'figure8', major_radius:rf(90,130), minor_radius:rf(30,50), v_lines:rint(35,55), view_angle_x:rf(15,40), view_angle_y:rf(5,25) }) },
+          { kind:'single', mod: mm('stretch', { scale_x:rf(1.5,2.5), scale_y:rf(0.8,1.0) }) },
+        ], sw: 0.1,
+      }),
+
+      // ── MOBIUS + rotation + scale ──
+      () => ({
+        steps: [
+          { kind:'single', mod: mm('mobius', { surface:'mobius', major_radius:rf(100,140), width:rf(40,70), v_lines:rint(35,55), view_angle_x:rf(30,50), view_angle_y:rf(15,30) }) },
+          { kind:'single', mod: mm('scale', { start_scale:1.0, end_scale:rf(0.3,0.5) }) },
+          rot(pick([180,270,360])),
+        ], sw: 0.1,
+      }),
+
+      // ── LISSAJOUS high ratio (6:5, 7:8, 9:8) ──
+      () => {
+        const [a,b] = pick([[6,5],[7,8],[9,8],[8,7],[7,6]]);
+        return { steps: [
+          { kind:'single', mod: mm('lissajous', { freq_x:a, freq_y:b, amp_x:rf(100,140), amp_y:rf(100,140), phase:rf(30,80), cycles:rint(2,4) }) },
+          noise(rf(1,2.5), rf(8,14)),
+        ], sw: 0.1 };
+      },
+
+      // ── LISSAJOUS + damping + stretch ──
+      () => {
+        const [a,b] = pick([[5,4],[7,6],[4,3],[9,8]]);
+        return { steps: [
+          { kind:'single', mod: mm('lissajous', { freq_x:a, freq_y:b, amp_x:rf(90,130), amp_y:rf(90,130), phase:rf(40,75), cycles:rint(2,4) }) },
+          damp(rf(0.008,0.015), rf(40,60)),
+          { kind:'single', mod: mm('stretch', { scale_x:rf(1.3,2.0), scale_y:1.0 }) },
+        ], sw: 0.12 };
+      },
+
+      // ── ELLIPSE + spiral_arc ──
+      () => ({
+        steps: [
+          { kind:'single', mod: mm('ellipse', { radius_x:rf(40,70), radius_y:rf(25,45), end_radius_x:rf(15,30), end_radius_y:rf(10,20), cycles:rint(60,120), rotation:rf(0,45) }) },
+          sparc(rf(15,25), rf(140,200), pick([720,1080,1440])),
+        ], sw: 0.1,
+      }),
+
+      // ── ELLIPSE deep: bend + rotation + noise ──
+      () => ({
+        steps: [
+          { kind:'single', mod: mm('ellipse', { radius_x:rf(100,160), radius_y:rf(60,100), end_radius_x:rf(30,60), end_radius_y:rf(20,40), cycles:rint(80,150), rotation:rf(0,60) }) },
+          bend(rf(180,260), pick([120,180,200])),
+          rot(pick([120,180,270])),
+          noise(rf(1,3), rf(6,12)),
+        ], sw: 0.08,
+      }),
+
+      // ── RACK + bend + rotation (cloud lobes) ──
+      () => ({
+        steps: [
+          { kind:'single', mod: mm('rack', { teeth:rint(20,40), tooth_pitch:rf(4,8), hole_position:rf(0.6,0.8), straight_length:rf(150,250), cycles:rint(2,5) }) },
+          bend(rf(150,250), pick([180,200,240])),
+          rot(pick([180,270,360])),
+        ], sw: 0.12,
+      }),
+
+      // ── RACK + spiral_arc ──
+      () => ({
+        steps: [
+          { kind:'single', mod: mm('rack', { teeth:rint(25,40), tooth_pitch:rf(3,6), hole_position:rf(0.55,0.75), straight_length:rf(120,200), cycles:rint(3,5) }) },
+          sparc(rf(20,35), rf(150,200), pick([720,1080])),
+        ], sw: 0.1,
+      }),
+
+      // ── RAIL + arc + rotation ──
+      () => ({
+        steps: [
+          { kind:'single', mod: mm('spirograph_rail', { rolling_teeth:rint(25,45), tooth_pitch:rf(3,6), hole_position:rf(0.55,0.8), rail_length:rf(200,400), cycles:rint(1,3) }) },
+          arc(rf(150,250), pick([180,270])),
+          rot(pick([180,270,360])),
+        ], sw: 0.12,
+      }),
+
+      // ── RAIL + stretch (fill wide paper) ──
+      () => ({
+        steps: [
+          { kind:'single', mod: mm('spirograph_rail', { rolling_teeth:rint(30,50), tooth_pitch:rf(3,5), hole_position:rf(0.6,0.8), rail_length:rf(250,400), cycles:rint(1,3) }) },
+          { kind:'single', mod: mm('stretch', { scale_x:rf(1.5,2.5), scale_y:rf(0.8,1.2) }) },
+          rot(pick([90,180])),
+        ], sw: 0.1,
+      }),
+
+      // ── POLYGON + spiral_arc + noise ──
+      () => ({
+        steps: [
+          { kind:'single', mod: mm('polygon', { sides:pick([5,6,7,8]), radius:rf(25,45), rotation:0, cycles:rint(3,6) }) },
+          sparc(rf(15,25), rf(140,180), pick([720,1080,1440])),
+          noise(rf(1,2), rf(8,14)),
+        ], sw: 0.1,
+      }),
+
+      // ── STAR + scale + rotation (shrinking star spiral) ──
+      () => ({
+        steps: [
+          { kind:'single', mod: mm('star_shape', { points:pick([5,6,7,8,9]), outer_radius:rf(100,150), inner_radius:rf(25,55), rotation:0, cycles:rint(3,5) }) },
+          { kind:'single', mod: mm('scale', { start_scale:1.3, end_scale:rf(0.2,0.4) }) },
+          rot(pick([270,360,540])),
+        ], sw: 0.12,
+      }),
+
+      // ── STAR deep: arc + noise + damping ──
+      () => ({
+        steps: [
+          { kind:'single', mod: mm('star_shape', { points:pick([5,7,8]), outer_radius:rf(50,80), inner_radius:rf(15,30), rotation:0, cycles:rint(2,4) }) },
+          arc(rf(150,220), pick([180,270])),
+          noise(rf(1.5,3), rf(6,10)),
+          damp(rf(0.01,0.02), rf(30,50)),
+        ], sw: 0.1,
+      }),
+
+      // ── LINE + spiral_arc + noise (textured spiral) ──
+      () => ({
+        steps: [
+          { kind:'single', mod: mm('line', { length:rf(80,180), angle:0, cycles:rint(2,4) }) },
+          sparc(rf(15,25), rf(140,180), pick([720,1080,1440])),
+          noise(rf(2,5), rf(4,8)),
+        ], sw: 0.12,
+      }),
+
+      // ── ROSE + noise + damping ──
+      () => {
+        const [p,d] = pick([[5,2],[7,3],[8,3],[5,3],[7,4]]);
+        return { steps: [
+          { kind:'single', mod: mm('rose', { petals:p, denom:d, radius:rf(100,140), cycles:rint(2,4) }) },
+          noise(rf(2,4), rf(6,12)),
+          damp(rf(0.01,0.02), rf(40,60)),
+        ], sw: 0.12 };
+      },
+
+      // ── SPHERE + arc + rotation ──
+      () => ({
+        steps: [
+          { kind:'single', mod: mm('sphere', { surface:'sphere', major_radius:rf(50,80), v_lines:rint(25,40) }) },
+          arc(rf(150,220), pick([180,270])),
+          rot(pick([180,270,360])),
+        ], sw: 0.12,
+      }),
+
+      // ── RIBBON + rotation ──
+      () => ({
+        steps: [
+          { kind:'single', mod: mm('ribbon', { surface:'ribbon', major_radius:rf(90,130), width:rf(40,60), twists:pick([2,3,4]), v_lines:rint(35,50), view_angle_x:rf(25,40), view_angle_y:rf(10,25) }) },
+          rot(360),
+        ], sw: 0.1,
+      }),
+
+      // ── SPIRAL_SHAPE + noise + rotation ──
+      () => ({
+        steps: [
+          { kind:'single', mod: mm('spiral_shape', { start_radius:rf(3,8), end_radius:rf(120,180), turns:rf(4,8), cycles:1 }) },
+          noise(rf(3,8), rf(4,10)),
+          rot(pick([180,360,540])),
+        ], sw: 0.12,
+      }),
     ];
 
     const recipe = pick(recipes)();
