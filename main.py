@@ -341,9 +341,20 @@ def normalize_all_for_svg(point_arrays: List[np.ndarray], width: float,
 
     data_width = max_x - min_x if max_x != min_x else 1
     data_height = max_y - min_y if max_y != min_y else 1
+    data_ar = data_width / data_height
 
-    available_width = width * (1 - 2 * margin)
-    available_height = height * (1 - 2 * margin)
+    # Adapt canvas to data aspect ratio: keep the smaller dimension,
+    # expand the other so the pattern fills without squishing
+    canvas_ar = width / height
+    if data_ar > canvas_ar:
+        actual_w = height * data_ar
+        actual_h = height
+    else:
+        actual_w = width
+        actual_h = width / data_ar
+
+    available_width = actual_w * (1 - 2 * margin)
+    available_height = actual_h * (1 - 2 * margin)
     scale = min(available_width / data_width, available_height / data_height)
 
     center_x = (min_x + max_x) / 2
@@ -352,11 +363,11 @@ def normalize_all_for_svg(point_arrays: List[np.ndarray], width: float,
     result = []
     for pts in point_arrays:
         normalized = (pts - complex(center_x, center_y)) * scale
-        normalized = normalized + complex(width / 2, height / 2)
-        normalized = normalized.real - 1j * normalized.imag + complex(0, height)
+        normalized = normalized + complex(actual_w / 2, actual_h / 2)
+        normalized = normalized.real - 1j * normalized.imag + complex(0, actual_h)
         result.append(normalized)
 
-    return result
+    return result, actual_w, actual_h
 
 
 def _build_path_data(points: np.ndarray) -> str:
@@ -793,12 +804,12 @@ def main(config_path: str = "config.ini"):
 
     # Normalize for SVG (shared bounding box across all paths)
     print("Normalizing for SVG output...")
-    normalized_arrays = normalize_all_for_svg(all_path_arrays, width, height, margin)
+    normalized_arrays, actual_w, actual_h = normalize_all_for_svg(all_path_arrays, width, height, margin)
 
     # Generate SVG
     print(f"Generating SVG...")
     config_text = Path(config_path).read_text()
-    svg = generate_svg(normalized_arrays[0], width, height, stroke_width,
+    svg = generate_svg(normalized_arrays[0], actual_w, actual_h, stroke_width,
                        stroke_color, background_color,
                        close_path=close_path,
                        extra_paths=normalized_arrays[1:] if len(normalized_arrays) > 1 else None,

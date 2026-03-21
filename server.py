@@ -717,6 +717,17 @@ def api_save(req: SaveRequest):
     return {"saved": name}
 
 
+@app.get("/api/file-exists")
+def api_file_exists(name: str):
+    """Check if an INI file already exists."""
+    if not name.endswith(".ini"):
+        name += ".ini"
+    resolved = (SPIRO_DIR / name).resolve()
+    if not str(resolved).startswith(str(SPIRO_DIR.resolve())):
+        return {"exists": False}
+    return {"exists": resolved.exists()}
+
+
 # --------------------------------------------------------------------------- #
 # AxiDraw Plotter
 # --------------------------------------------------------------------------- #
@@ -1163,9 +1174,9 @@ def _run_pipeline_points(ini_text: str, target_width: float = None, target_heigh
 
     norm_w = target_width if target_width else width
     norm_h = target_height if target_height else height
-    normalized = normalize_all_for_svg(all_path_arrays, norm_w, norm_h, margin)
+    normalized, actual_w, actual_h = normalize_all_for_svg(all_path_arrays, norm_w, norm_h, margin)
 
-    cfg = dict(width=width, height=height, margin=margin, stroke_width=stroke_width,
+    cfg = dict(width=actual_w, height=actual_h, margin=margin, stroke_width=stroke_width,
                stroke_color=stroke_color, bg_color=bg_color, close_path=close_path)
     return normalized, cfg
 
@@ -1536,9 +1547,12 @@ function App() {
   const [loadedFile, setLoadedFile] = useState('');
   const [saveName, setSaveName] = useState('');
   const [showSave, setShowSave] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [foldersOpen, setFoldersOpen] = useState({'/': true});
   const regenFlag = useRef(false);
+  const [regenTrigger, setRegenTrigger] = useState(0);
+  const generateRef = useRef(null);
   const recentRecipes = useRef([]);
   const [driftOpen, setDriftOpen] = useState({});
   const [showPlotter, setShowPlotter] = useState(false);
@@ -1565,12 +1579,12 @@ function App() {
 
   useEffect(() => { fetch('/api/plotter-models').then(r=>r.json()).then(setPlotterModels); }, []);
 
-  const totalModules = steps.reduce((n, s) => s.kind === 'group' ? n + s.branches.reduce((m, b) => m + b.length, 0) : n + (s.mod ? 1 : 0), 0);
+  const totalModules = steps.reduce((n, s) => s.kind === 'group' ? n + (s.branches || []).reduce((m, b) => m + b.length, 0) : n + (s.mod ? 1 : 0), 0);
 
   useEffect(() => { fetch('/api/modules').then(r=>r.json()).then(setModules); }, []);
   useEffect(() => {
-    if (regenFlag.current && totalModules > 0) { regenFlag.current = false; generate(); }
-  }, [steps, symmetry, sampling, output]);
+    if (regenFlag.current && totalModules > 0) { regenFlag.current = false; generateRef.current?.(); }
+  }, [steps, symmetry, sampling, output, regenTrigger]);
 
   // Get selected module for param editing
   const getSelectedMod = () => {
@@ -1716,12 +1730,13 @@ function App() {
     });
   };
 
-  // Unified drag system: reorder steps OR drag new modules from palette
-  const [dragSrc, setDragSrc] = useState(null);  // {type:'reorder',idx} or {type:'new',modType}
+  // Unified drag system: reorder steps, drag new modules, or extract branches
+  const [dragSrc, setDragSrc] = useState(null);  // {type:'reorder',idx} or {type:'new',modType} or {type:'branch',stepIdx,branchIdx}
   const [dropTarget, setDropTarget] = useState(null);  // {stepIdx, mode:'before'|'on'|'after'}
 
   const onStepDragStart = (idx) => setDragSrc({ type: 'reorder', idx });
   const onPaletteDragStart = (modType) => setDragSrc({ type: 'new', modType });
+  const onBranchDragStart = (e, stepIdx, branchIdx) => { e.stopPropagation(); setDragSrc({ type: 'branch', stepIdx, branchIdx }); };
 
   const onStepDragOver = (e, stepIdx) => {
     e.preventDefault();
@@ -1757,9 +1772,9 @@ function App() {
           const next = [...prev];
           const src = next[fromIdx];
           const tgt = next[stepIdx];
-          const srcMods = src.kind === 'single' ? [src.mod] : src.mods;
-          const tgtMods = tgt.kind === 'single' ? [tgt.mod] : tgt.mods;
-          next[stepIdx] = { kind: 'group', mods: [...tgtMods, ...srcMods] };
+          const srcBranches = src.kind === 'group' ? src.branches : (src.mod ? [[src.mod]] : []);
+          const tgtBranches = tgt.kind === 'group' ? tgt.branches : (tgt.mod ? [[tgt.mod]] : []);
+          next[stepIdx] = { kind: 'group', branches: [...tgtBranches, ...srcBranches] };
           next.splice(fromIdx, 1);
           return next;
         });
@@ -1777,6 +1792,46 @@ function App() {
           regenFlag.current = true;
         }
       }
+    } else if (dragSrc.type === 'branch') {
+      // Extract a branch from a group and insert as a new serial step
+      const { stepIdx: srcStep, branchIdx } = dragSrc;
+      if (mode === 'on' && stepIdx === srcStep) return; // dropping back on own group
+      setSteps(prev => {
+        const next = [...prev];
+        const group = next[srcStep];
+        if (!group || group.kind !== 'group' || !group.branches) return next;
+        const branch = group.branches[branchIdx];
+        if (!branch || branch.length === 0) return next;
+
+        // Remove branch from group
+        const remaining = group.branches.filter((_, i) => i !== branchIdx);
+        if (remaining.length <= 1) {
+          // Collapse group to single step
+          next[srcStep] = { kind: 'single', mod: remaining[0]?.[0] || null };
+        } else {
+          next[srcStep] = { ...group, branches: remaining };
+        }
+
+        // Create new single step(s) from the extracted branch
+        // For simplicity, wrap the first mod as a single step (branches are typically 1 mod)
+        const newStep = branch.length === 1
+          ? { kind: 'single', mod: branch[0] }
+          : { kind: 'group', branches: [branch] };  // keep as single-branch group if multi-mod
+
+        // Insert at the right position
+        if (mode === 'on' && stepIdx !== srcStep) {
+          // Merge into target
+          const tgt = next[stepIdx];
+          const tgtBranches = tgt.kind === 'group' ? tgt.branches : (tgt.mod ? [[tgt.mod]] : []);
+          next[stepIdx] = { kind: 'group', branches: [...tgtBranches, branch] };
+        } else {
+          let insertIdx = mode === 'before' ? stepIdx : stepIdx + 1;
+          // Adjust if source group was before the insert point and it was removed/shrunk
+          next.splice(insertIdx, 0, newStep);
+        }
+        return next;
+      });
+      regenFlag.current = true;
     }
   };
 
@@ -1818,6 +1873,7 @@ function App() {
       setGenerating(false);
     }
   };
+  generateRef.current = generate;
 
 
   const plotToAxidraw = async () => {
@@ -1949,8 +2005,12 @@ function App() {
     const svgW = cfg.width, svgH = cfg.height;
     const patternAR = svgW / svgH;
     // Fit pattern inside canvas without distortion
+    // In plotter mode, scale to fit paper height (Y preserved), allow horizontal overflow
     let pxW, pxH;
-    if (drawW / drawH > patternAR) {
+    if (pm && patternAR > canvasAR) {
+      // Pattern wider than paper: fit to height, let width overflow (user can zoom/pan)
+      pxH = drawH; pxW = drawH * patternAR;
+    } else if (drawW / drawH > patternAR) {
       pxH = drawH; pxW = drawH * patternAR;
     } else {
       pxW = drawW; pxH = drawW / patternAR;
@@ -1997,11 +2057,18 @@ function App() {
     return () => window.removeEventListener('resize', onResize);
   }, [drawCanvas]);
 
-  const saveConfig = async () => {
+  const saveConfig = async (skipConfirm) => {
     if (!saveName.trim()) return;
     try {
+      // Check for overwrite
+      if (!skipConfirm) {
+        const chk = await fetch('/api/file-exists?name=' + encodeURIComponent(saveName));
+        const { exists } = await chk.json();
+        if (exists && !confirm('Overwrite "' + saveName + '.ini"?')) return;
+      }
+      setSaving(true);
       const stepsData = steps
-        .filter(s => s.kind === 'single' ? s.mod !== null : s.branches.some(b => b.some(m => m !== null)))
+        .filter(s => s.kind === 'single' ? s.mod !== null : (s.branches || []).some(b => b.some(m => m !== null)))
         .map(s => {
           if (s.kind === 'single') return { kind: 'single', params: s.mod.params };
           return { kind: 'group', branches: s.branches.map(b => b.filter(m => m !== null).map(m => m.params)).filter(b => b.length > 0) };
@@ -2020,6 +2087,8 @@ function App() {
       refreshIniFiles();
     } catch (e) {
       setStatus('Error: ' + e.message);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -2798,11 +2867,10 @@ function App() {
         ...data.output.background_color && { background_color: data.output.background_color } });
       setSymmetry({ n_fold: data.symmetry.n_fold || 1, mirror: data.symmetry.mirror || false });
       setSampling({ scroll_repeats: data.sampling.scroll_repeats || 1, initial_samples: 80000, output_samples: 12000 });
-      setMoire({ enabled: false, module_idx: 0, param: '', copies: 5, range: 2.0 });
-
       setLoadedFile(filePath);
       setStatus(`Loaded ${filePath}`);
       regenFlag.current = true;
+      setRegenTrigger(c => c + 1);
     } catch (e) {
       setStatus('Error: ' + e.message);
       setGenerating(false);
@@ -2881,7 +2949,8 @@ function App() {
                   h('div', {className:'group-label'}, 'simultaneous'),
                   h('div', {className:'group-children'},
                     step.branches.map((branch, bi) =>
-                      h('div', {key:`b-${bi}`, className:'tree-node'},
+                      h('div', {key:`b-${bi}`, className:'tree-node', draggable:true,
+                        onDragStart:(e) => onBranchDragStart(e, si, bi), onDragEnd:onDragEnd},
                         h('div', {className:'tree-line'}),
                         h('div', {className:'tree-content'},
                           // Each branch is its own serial chain
@@ -3081,16 +3150,17 @@ function App() {
       ),
       // Plotter panel is a right flyout (rendered below in portal)
       showSave ? h('div', {style:{padding:'4px 16px 8px',display:'flex',gap:'6px',alignItems:'center'}},
-        h('input', {type:'text', value:saveName, placeholder:'filename',
+        h('input', {type:'text', value:saveName, placeholder:'filename', disabled:saving,
           style:{flex:1,background:'var(--bg)',border:'1px solid var(--border)',color:'var(--text)',
                  borderRadius:'4px',padding:'5px 8px',fontSize:'0.78rem',outline:'none'},
           onChange:e=>setSaveName(e.target.value),
-          onKeyDown:e=>{ if (e.key==='Enter') saveConfig(); if (e.key==='Escape') setShowSave(false); },
+          onKeyDown:e=>{ if (e.key==='Enter' && !saving) saveConfig(); if (e.key==='Escape') setShowSave(false); },
           autoFocus:true}),
         h('span', {style:{color:'var(--muted)',fontSize:'0.72rem'}}, '.ini'),
         h('button', {style:{background:'var(--accent)',color:'#fff',border:'none',borderRadius:'4px',
-                            padding:'5px 10px',fontSize:'0.75rem',fontWeight:600,cursor:'pointer'},
-          onClick:saveConfig}, 'Save'),
+                            padding:'5px 10px',fontSize:'0.75rem',fontWeight:600,cursor:'pointer',
+                            opacity: saving ? 0.6 : 1},
+          disabled:saving, onClick:saveConfig}, saving ? 'Saving...' : 'Save'),
       ) : null,
       loadedFile ? h('div', {style:{padding:'0 16px 8px',fontSize:'0.7rem',color:'var(--muted)'}},
         'Loaded: ', loadedFile) : null,
