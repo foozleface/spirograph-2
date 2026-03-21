@@ -2055,6 +2055,9 @@ function App() {
 
   const cvMouseDown = (e) => {
     if (e.button !== 0) return;
+    // Don't handle clicks on toolbar buttons/inputs inside the canvas area
+    const tag = e.target.tagName;
+    if (tag === 'BUTTON' || tag === 'INPUT' || tag === 'SELECT') return;
     e.preventDefault();
     e.stopPropagation();
 
@@ -3108,18 +3111,19 @@ function App() {
                   title:'Remove from plotter',
                   onClick:e=>{e.stopPropagation(); removePlotterPattern(pp.id);}}, '\u00d7'),
               ),
-              h('div', {style:{display:'flex',gap:'8px',alignItems:'center',fontSize:'0.68rem',color:'var(--muted)'}},
-                h('label', null, 'Scale ',
+              h('div', {style:{display:'flex',gap:'8px',alignItems:'center',fontSize:'0.68rem',color:'var(--muted)'},
+                onClick:e=>e.stopPropagation(), onMouseDown:e=>e.stopPropagation()},
+                h('label', {onClick:e=>e.stopPropagation()}, 'Scale ',
                   h('input', {type:'number', value:pp.scale.toFixed(2), step:0.1, min:0.1, max:10,
                     style:{width:'50px',background:'var(--bg)',border:'1px solid var(--border)',color:'var(--text)',
                       borderRadius:'3px',padding:'2px 4px',fontSize:'0.68rem'},
-                    onClick:e=>e.stopPropagation(),
+                    onClick:e=>e.stopPropagation(), onMouseDown:e=>e.stopPropagation(),
                     onChange:e=>{const v=parseFloat(e.target.value); if(!isNaN(v)&&v>0) updatePlotterPattern(pp.id,{scale:v});}})),
-                h('label', null, 'Rot ',
+                h('label', {onClick:e=>e.stopPropagation()}, 'Rot ',
                   h('input', {type:'number', value:Math.round(pp.rotation), step:15,
                     style:{width:'45px',background:'var(--bg)',border:'1px solid var(--border)',color:'var(--text)',
                       borderRadius:'3px',padding:'2px 4px',fontSize:'0.68rem'},
-                    onClick:e=>e.stopPropagation(),
+                    onClick:e=>e.stopPropagation(), onMouseDown:e=>e.stopPropagation(),
                     onChange:e=>{const v=parseFloat(e.target.value); if(!isNaN(v)) updatePlotterPattern(pp.id,{rotation:v});}}),
                   '\u00b0'),
               ),
@@ -3617,28 +3621,46 @@ function App() {
       (() => {
         const hasTransform = cvOff.x !== 0 || cvOff.y !== 0 || cvRot !== 0 || cvScale !== 1;
         const zBtn = {background:'none',border:'1px solid #666',color:'#ccc',borderRadius:'3px',padding:'1px 7px',fontSize:'0.7rem',cursor:'pointer',fontWeight:600,lineHeight:'1.2'};
+        // In plotter tab with selected pattern, zoom targets pattern scale
+        const selPPz = plotterActive && selectedPlaced ? plotterPatterns.find(p => p.id === selectedPlaced) : null;
+        const scaleVal = selPPz ? selPPz.scale * 100 : cvScale * 100;
+        const doScale = (fn) => {
+          if (selPPz) updatePlotterPattern(selPPz.id, {scale: fn(selPPz.scale)});
+          else setCvScale(fn);
+        };
         const infoBar = h('div', {style:{position:'absolute',top:'8px',left:'8px',zIndex:5,display:'flex',gap:'4px',alignItems:'center',
             background:'rgba(0,0,0,0.6)',borderRadius:'4px',padding:'3px 6px',fontSize:'0.65rem',color:'#ccc'}},
-          h('button', {onClick:()=>setCvScale(s=>Math.min(1000,s*1.25)), style:zBtn}, '+'),
-          h('button', {onClick:()=>setCvScale(s=>Math.max(1,s/1.25)), style:zBtn}, '\u2013'),
-          h('input', {type:'text', value: (cvScale*100).toFixed(1).replace(/\.0$/,''),
+          h('button', {onClick:()=>doScale(s=>Math.min(10,s*1.25)), style:zBtn}, '+'),
+          h('button', {onClick:()=>doScale(s=>Math.max(0.05,s/1.25)), style:zBtn}, '\u2013'),
+          h('input', {type:'text', value: scaleVal.toFixed(1).replace(/\.0$/,''),
             style:{width:'48px',background:'rgba(0,0,0,0.4)',color:'#ccc',border:'1px solid #666',borderRadius:'3px',padding:'1px 4px',fontSize:'0.65rem',textAlign:'right'},
-            onChange: e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v > 0) setCvScale(Math.min(1000, Math.max(1, v/100))); },
+            onChange: e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v > 0) {
+              if (selPPz) updatePlotterPattern(selPPz.id, {scale: Math.min(10, Math.max(0.05, v/100))});
+              else setCvScale(Math.min(1000, Math.max(1, v/100)));
+            }},
             onKeyDown: e => { if (e.key === 'Enter') e.target.blur(); },
           }),
           h('span', {style:{fontSize:'0.6rem',color:'#999'}}, '%'),
-          hasTransform ? h('button', {onClick:cvReset, style:zBtn}, 'Reset') : null,
+          hasTransform && !selPPz ? h('button', {onClick:cvReset, style:zBtn}, 'Reset') : null,
         );
+        // In plotter tab with a selected pattern, rotate/scale controls target the selected pattern
+        const selPP = plotterActive && selectedPlaced ? plotterPatterns.find(p => p.id === selectedPlaced) : null;
+        const rotVal = selPP ? selPP.rotation : cvRot;
+        const doRot = (fn) => {
+          if (selPP) updatePlotterPattern(selPP.id, {rotation: fn(selPP.rotation)});
+          else setCvRot(fn);
+        };
         const rotBar = h('div', {style:{position:'absolute',top:'32px',left:'8px',zIndex:5,display:'flex',gap:'4px',alignItems:'center',
             background:'rgba(0,0,0,0.6)',borderRadius:'4px',padding:'3px 6px',fontSize:'0.65rem',color:'#ccc'}},
-          h('button', {onClick:()=>setCvRot(r=>r-15), style:zBtn}, '\u21b6'),
-          h('button', {onClick:()=>setCvRot(r=>r+15), style:zBtn}, '\u21b7'),
-          h('input', {type:'text', value: cvRot.toFixed(1).replace(/\.0$/,''),
+          h('button', {onClick:()=>doRot(r=>r-15), style:zBtn}, '\u21b6'),
+          h('button', {onClick:()=>doRot(r=>r+15), style:zBtn}, '\u21b7'),
+          h('input', {type:'text', value: rotVal.toFixed(1).replace(/\.0$/,''),
             style:{width:'48px',background:'rgba(0,0,0,0.4)',color:'#ccc',border:'1px solid #666',borderRadius:'3px',padding:'1px 4px',fontSize:'0.65rem',textAlign:'right'},
-            onChange: e => { const v = parseFloat(e.target.value); if (!isNaN(v)) setCvRot(v % 360); },
+            onChange: e => { const v = parseFloat(e.target.value); if (!isNaN(v)) doRot(() => v % 360); },
             onKeyDown: e => { if (e.key === 'Enter') e.target.blur(); },
           }),
           h('span', {style:{fontSize:'0.6rem',color:'#999'}}, '\u00b0'),
+          selPP ? h('span', {style:{fontSize:'0.55rem',color:'var(--accent)',marginLeft:'2px'}}, selPP.name) : null,
         );
         const hint = h('div', {style:{position:'absolute',bottom:'8px',left:'8px',zIndex:5,fontSize:'0.58rem',color:'rgba(255,255,255,0.35)',pointerEvents:'none'}},
           'Drag to move \u2022 Shift+drag to rotate');
