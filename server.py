@@ -1437,11 +1437,26 @@ body { background:var(--bg); color:var(--text); font-family:'Inter',system-ui,sa
 .fb-confirm button { padding:1px 6px; border-radius:3px; font-size:0.65rem; cursor:pointer; border:none; }
 .fb-confirm .fb-yes { background:var(--accent2); color:#fff; }
 .fb-confirm .fb-no { background:var(--card); color:var(--text); }
+/* Tab bar */
+#tab-bar { display:flex; align-items:flex-end; background:var(--sidebar); border-bottom:1px solid var(--border);
+  padding:0 8px; gap:2px; min-height:32px; }
+.tab-item { padding:5px 12px; font-size:0.72rem; cursor:pointer; border:1px solid transparent;
+  border-bottom:none; border-radius:6px 6px 0 0; color:var(--muted); user-select:none;
+  display:flex; align-items:center; gap:6px; white-space:nowrap; }
+.tab-item:hover { color:var(--text); background:rgba(255,255,255,0.03); }
+.tab-item.active { background:var(--bg); color:var(--text); border-color:var(--border); }
+.tab-item .tab-close { font-size:0.6rem; opacity:0.3; cursor:pointer; padding:0 2px; }
+.tab-item .tab-close:hover { opacity:1; color:var(--accent2); }
+.tab-add { padding:5px 10px; font-size:0.8rem; cursor:pointer; color:var(--muted); user-select:none; }
+.tab-add:hover { color:var(--text); }
+.tab-plotter { margin-left:auto; border-left:1px solid var(--border); padding-left:8px; }
+.tab-plotter.active { background:var(--bg); border-color:var(--border); color:var(--accent); }
 </style>
 </head>
 <body>
 <div id="sidebar"></div>
 <div id="main">
+  <div id="tab-bar"></div>
   <div id="toolbar"></div>
   <div id="content-area">
     <div id="canvas-area"><div id="canvas-sizer" style="position:absolute;inset:20px;pointer-events:none;"></div></div>
@@ -1554,11 +1569,110 @@ function App() {
   const [regenTrigger, setRegenTrigger] = useState(0);
   const generateRef = useRef(null);
 
-  // Multi-pattern composition for plotter
-  const [placedPatterns, setPlacedPatterns] = useState([]);
-  const [selectedPlaced, setSelectedPlaced] = useState(null); // id of selected placed pattern
+  // Tab system — each tab stores a snapshot; switching saves/restores
+  const tabIdCounter = useRef(1);
+  const [tabs, setTabs] = useState([{id:1, name:'Pattern 1'}]);
+  const [activeTabId, setActiveTabId] = useState(1);
+  const [plotterActive, setPlotterActive] = useState(false);
+  const tabSnapshots = useRef({}); // {tabId: {steps, output, symmetry, sampling, pointData, loadedFile, cvOff, cvRot, cvScale}}
+
+  const saveCurrentTab = () => {
+    tabSnapshots.current[activeTabId] = {
+      steps, output, symmetry, sampling, pointData, loadedFile,
+      cvOff, cvRot, cvScale, sel,
+      undoStack: [...undoStack.current], redoStack: [...redoStack.current],
+    };
+  };
+  const restoreTab = (tabId) => {
+    const snap = tabSnapshots.current[tabId];
+    skipUndo.current = true;
+    if (snap) {
+      setStepsRaw(snap.steps); setOutputRaw(snap.output);
+      setSymmetryRaw(snap.symmetry); setSamplingRaw(snap.sampling);
+      setPointData(snap.pointData); setLoadedFile(snap.loadedFile);
+      setCvOff(snap.cvOff); setCvRot(snap.cvRot); setCvScale(snap.cvScale);
+      setSel(snap.sel);
+      undoStack.current = snap.undoStack || [];
+      redoStack.current = snap.redoStack || [];
+    } else {
+      setStepsRaw([]); setOutputRaw({stroke_width:0.3,stroke_color:'#000000',background_color:'#ffffff'});
+      setSymmetryRaw({n_fold:1,mirror:false}); setSamplingRaw({scroll_repeats:1,initial_samples:80000,output_samples:12000});
+      setPointData(null); setLoadedFile(''); setCvOff({x:0,y:0}); setCvRot(0); setCvScale(1); setSel(null);
+      undoStack.current = []; redoStack.current = [];
+    }
+    skipUndo.current = false;
+  };
+  const switchTab = (tabId) => {
+    if (tabId === activeTabId && !plotterActive) return;
+    saveCurrentTab();
+    setActiveTabId(tabId);
+    setPlotterActive(false);
+    restoreTab(tabId);
+  };
+  const switchToPlotter = () => {
+    if (plotterActive) return;
+    saveCurrentTab();
+    setPlotterActive(true);
+  };
+  const addNewTab = () => {
+    saveCurrentTab();
+    const id = ++tabIdCounter.current;
+    setTabs(prev => [...prev, {id, name: 'Pattern ' + id}]);
+    setActiveTabId(id);
+    setPlotterActive(false);
+    // Clear state for new tab
+    skipUndo.current = true;
+    setStepsRaw([]); setOutputRaw({stroke_width:0.3,stroke_color:'#000000',background_color:'#ffffff'});
+    setSymmetryRaw({n_fold:1,mirror:false}); setSamplingRaw({scroll_repeats:1,initial_samples:80000,output_samples:12000});
+    setPointData(null); setLoadedFile(''); setCvOff({x:0,y:0}); setCvRot(0); setCvScale(1); setSel(null);
+    undoStack.current = []; redoStack.current = [];
+    skipUndo.current = false;
+  };
+  const closeTab = (id) => {
+    if (tabs.length <= 1) return;
+    delete tabSnapshots.current[id];
+    const remaining = tabs.filter(t => t.id !== id);
+    setTabs(remaining);
+    // Remove from plotter
+    setPlotterPatterns(prev => prev.filter(p => p.sourceTabId !== id));
+    if (activeTabId === id) {
+      const next = remaining[0];
+      setActiveTabId(next.id);
+      restoreTab(next.id);
+    }
+  };
+
+  // Plotter composition
+  const [plotterPatterns, setPlotterPatterns] = useState([]);
+  const [selectedPlaced, setSelectedPlaced] = useState(null);
   const placedIdCounter = useRef(0);
-  const placedDrag = useRef(null); // {id, startX, startY, origX, origY}
+  const placedDrag = useRef(null);
+
+  const addToPlotter = () => {
+    if (!pointData) return;
+    const tabName = tabs.find(t => t.id === activeTabId)?.name || 'pattern';
+    setPlotterPatterns(prev => {
+      const existing = prev.find(p => p.sourceTabId === activeTabId);
+      if (existing) {
+        return prev.map(p => p.sourceTabId === activeTabId
+          ? {...p, paths: pointData.paths, config: pointData.config, name: tabName}
+          : p);
+      }
+      const id = ++placedIdCounter.current;
+      const n = prev.length;
+      const slotW = Math.min(30, 90 / Math.max(1, n + 1));
+      return [...prev, {id, sourceTabId: activeTabId, paths: pointData.paths,
+        config: pointData.config, x: n * slotW, y: 0, scale: 1.0, rotation: cvRot, name: tabName}];
+    });
+    setStatus('Added to plotter');
+  };
+  const removePlotterPattern = (id) => {
+    setPlotterPatterns(prev => prev.filter(p => p.id !== id));
+    if (selectedPlaced === id) setSelectedPlaced(null);
+  };
+  const updatePlotterPattern = (id, updates) => {
+    setPlotterPatterns(prev => prev.map(p => p.id === id ? {...p, ...updates} : p));
+  };
   const recentRecipes = useRef([]);
   const [driftOpen, setDriftOpen] = useState({});
   const [showPlotter, setShowPlotter] = useState(false);
@@ -1936,8 +2050,8 @@ function App() {
   cvOffRef.current = cvOff;
   cvRotRef.current = cvRot;
 
-  const placedPatternsRef = useRef(placedPatterns);
-  placedPatternsRef.current = placedPatterns;
+  const plotterPatternsRef = useRef(plotterPatterns);
+  plotterPatternsRef.current = plotterPatterns;
 
   const cvMouseDown = (e) => {
     if (e.button !== 0) return;
@@ -1945,15 +2059,15 @@ function App() {
     e.stopPropagation();
 
     // In plotter mode, check if clicking on a placed pattern
-    if (showPlotter && placedPatternsRef.current.length > 0 && !e.shiftKey) {
+    if (plotterActive && plotterPatternsRef.current.length > 0 && !e.shiftKey) {
       const cvs = canvasRef.current;
       if (cvs) {
         const rect = cvs.getBoundingClientRect();
         const mx = e.clientX - rect.left, my = e.clientY - rect.top;
         const drawW = cvs.clientWidth, drawH = cvs.clientHeight;
         // Check placed patterns in reverse (top-most first)
-        for (let i = placedPatternsRef.current.length - 1; i >= 0; i--) {
-          const pp = placedPatternsRef.current[i];
+        for (let i = plotterPatternsRef.current.length - 1; i >= 0; i--) {
+          const pp = plotterPatternsRef.current[i];
           const ppSc = drawH / pp.config.height * pp.scale;
           const px = pp.x * (drawW / 100), py = pp.y * (drawH / 100);
           const pw = pp.config.width * (drawH / pp.config.height) * pp.scale;
@@ -1992,7 +2106,7 @@ function App() {
         const dy = e.clientY - placedDrag.current.startY;
         const newX = placedDrag.current.origX + (dx / placedDrag.current.drawW) * 100;
         const newY = placedDrag.current.origY + (dy / placedDrag.current.drawH) * 100;
-        updatePlaced(placedDrag.current.id, { x: newX, y: newY });
+        updatePlotterPattern(placedDrag.current.id, { x: newX, y: newY });
         return;
       }
       if (!cvDrag.current) return;
@@ -2017,38 +2131,15 @@ function App() {
   }, []);
 
   // Multi-pattern composition
-  const addToPage = () => {
-    if (!pointData) return;
-    const id = ++placedIdCounter.current;
-    // Stagger: spread across paper width
-    const n = placedPatterns.length;
-    const pm = showPlotter && plotterModels[pOpts.model];
-    const paperAR = pm ? pm.width / pm.height : 1;
-    // Place patterns side by side, each taking ~(100/paperAR)% of width to be roughly square
-    const slotW = Math.min(30, 90 / Math.max(1, n + 1));
-    const staggerX = n * slotW;
-    setPlacedPatterns(prev => [...prev, {
-      id, paths: pointData.paths, config: pointData.config,
-      x: staggerX, y: 0, scale: 1.0, rotation: cvRot,
-      name: loadedFile ? loadedFile.replace('.ini','') : `pattern ${id}`,
-    }]);
-    setSelectedPlaced(id);
-    setStatus(`Added pattern to page (${n + 1} total)`);
-  };
-  const removePlaced = (id) => {
-    setPlacedPatterns(prev => prev.filter(p => p.id !== id));
-    if (selectedPlaced === id) setSelectedPlaced(null);
-  };
-  const updatePlaced = (id, updates) => {
-    setPlacedPatterns(prev => prev.map(p => p.id === id ? {...p, ...updates} : p));
-  };
+  // (addToPlotter, removePlotterPattern, updatePlotterPattern defined above with tab system)
 
   // Canvas rendering
   const drawCanvas = useCallback(() => {
     const cvs = canvasRef.current;
-    if (!cvs || !pointData) return;
+    if (!cvs) return;
+    if (!pointData && !plotterActive) return;
     const ctx = cvs.getContext('2d');
-    const cfg = pointData.config;
+    const cfg = pointData ? pointData.config : {width:800,height:800,bg_color:'#ffffff',stroke_color:'#000000',stroke_width:0.3};
     const dpr = window.devicePixelRatio || 1;
 
     // Measure available space from the sizer div (position:absolute, always in DOM).
@@ -2057,7 +2148,7 @@ function App() {
     const cw = sizer.clientWidth, ch = sizer.clientHeight;
     if (cw === 0 || ch === 0) return;
 
-    const pm = showPlotter && plotterModels[pOpts.model];
+    const pm = plotterActive && plotterModels[pOpts.model];
     const canvasAR = pm ? pm.width / pm.height : cfg.width / cfg.height;
 
     let drawW, drawH;
@@ -2127,8 +2218,8 @@ function App() {
     };
 
     // Draw placed patterns (plotter composition)
-    if (showPlotter && placedPatterns.length > 0) {
-      for (const pp of placedPatterns) {
+    if (plotterActive && plotterPatterns.length > 0) {
+      for (const pp of plotterPatterns) {
         const ppAR = pp.config.width / pp.config.height;
         // Scale placed pattern to fit paper height
         const ppSc = drawH / pp.config.height;
@@ -2140,12 +2231,10 @@ function App() {
       }
     }
 
-    // Draw current live pattern (ghosted if there are placed patterns)
-    if (showPlotter && placedPatterns.length > 0) {
-      ctx.globalAlpha = 0.2;
+    // Draw current live pattern (only on pattern tabs, not plotter tab)
+    if (pointData && !plotterActive) {
+      drawPaths(pointData.paths, cfg, sc, offX, offY, cvOff, cvRot, cvScale, false);
     }
-    drawPaths(pointData.paths, cfg, sc, offX, offY, cvOff, cvRot, cvScale, false);
-    ctx.globalAlpha = 1;
 
     // Paper border in plotter mode
     if (pm) {
@@ -2153,7 +2242,7 @@ function App() {
       ctx.lineWidth = 1;
       ctx.strokeRect(0, 0, drawW, drawH);
     }
-  }, [pointData, cvOff, cvRot, cvScale, showPlotter, pOpts.model, plotterModels, placedPatterns, selectedPlaced]);
+  }, [pointData, cvOff, cvRot, cvScale, plotterActive, pOpts.model, plotterModels, plotterPatterns, selectedPlaced]);
 
   useEffect(() => { drawCanvas(); }, [drawCanvas]);
   useEffect(() => {
@@ -2973,6 +3062,9 @@ function App() {
       setSymmetry({ n_fold: data.symmetry.n_fold || 1, mirror: data.symmetry.mirror || false });
       setSampling({ scroll_repeats: data.sampling.scroll_repeats || 1, initial_samples: 80000, output_samples: 12000 });
       setLoadedFile(filePath);
+      // Update tab name to match loaded file
+      const tabName = filePath.replace('.ini','').replace(/.*\//,'').replace(/_/g,' ');
+      setTabs(prev => prev.map(t => t.id === activeTabId ? {...t, name: tabName} : t));
       setStatus(`Loaded ${filePath}`);
       regenFlag.current = true;
       setRegenTrigger(c => c + 1);
@@ -2994,8 +3086,50 @@ function App() {
     ReactDOM.createPortal(h('div', { key:'sb', style:{display:'flex',flexDirection:'column',height:'100%'} },
       h('div', {className:'sidebar-header'},
         h('h1', null, 'Spirograph Studio'),
-        h('p', null, 'Modular pattern generator'),
+        h('p', null, plotterActive ? 'Plotter composition' : 'Modular pattern generator'),
       ),
+
+      // ---- Plotter sidebar (when plotter tab is active) ----
+      plotterActive ? h(React.Fragment, null,
+        // Composition list
+        h('div', {className:'section', style:{flex:1,overflowY:'auto'}},
+          h('div', {className:'section-title'}, `Patterns on page (${plotterPatterns.length})`),
+          plotterPatterns.length === 0 ? h('div', {style:{padding:'16px',color:'var(--muted)',fontSize:'0.78rem',textAlign:'center'}},
+            'No patterns added yet.', h('br'), 'Switch to a pattern tab and click "+ Plotter"') : null,
+          plotterPatterns.map(pp => {
+            const isSel = pp.id === selectedPlaced;
+            return h('div', {key:pp.id, style:{padding:'8px 12px',margin:'4px 8px',borderRadius:'6px',cursor:'pointer',
+              background: isSel ? 'rgba(124,92,252,0.12)' : 'var(--card)',
+              border: isSel ? '1px solid var(--accent)' : '1px solid var(--border)'},
+              onClick:()=>setSelectedPlaced(isSel ? null : pp.id)},
+              h('div', {style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'4px'}},
+                h('span', {style:{fontWeight:600,fontSize:'0.78rem'}}, pp.name),
+                h('span', {style:{cursor:'pointer',color:'var(--muted)',fontSize:'0.8rem',padding:'0 4px'},
+                  title:'Remove from plotter',
+                  onClick:e=>{e.stopPropagation(); removePlotterPattern(pp.id);}}, '\u00d7'),
+              ),
+              h('div', {style:{display:'flex',gap:'8px',alignItems:'center',fontSize:'0.68rem',color:'var(--muted)'}},
+                h('label', null, 'Scale ',
+                  h('input', {type:'number', value:pp.scale.toFixed(2), step:0.1, min:0.1, max:10,
+                    style:{width:'50px',background:'var(--bg)',border:'1px solid var(--border)',color:'var(--text)',
+                      borderRadius:'3px',padding:'2px 4px',fontSize:'0.68rem'},
+                    onClick:e=>e.stopPropagation(),
+                    onChange:e=>{const v=parseFloat(e.target.value); if(!isNaN(v)&&v>0) updatePlotterPattern(pp.id,{scale:v});}})),
+                h('label', null, 'Rot ',
+                  h('input', {type:'number', value:Math.round(pp.rotation), step:15,
+                    style:{width:'45px',background:'var(--bg)',border:'1px solid var(--border)',color:'var(--text)',
+                      borderRadius:'3px',padding:'2px 4px',fontSize:'0.68rem'},
+                    onClick:e=>e.stopPropagation(),
+                    onChange:e=>{const v=parseFloat(e.target.value); if(!isNaN(v)) updatePlotterPattern(pp.id,{rotation:v});}}),
+                  '\u00b0'),
+              ),
+            );
+          }),
+        ),
+      ) : null,
+
+      // ---- Pattern editor sidebar (when pattern tab is active) ----
+      !plotterActive ? h(React.Fragment, null,
 
       // Pipeline tree
       h('div', {className:'section'},
@@ -3252,9 +3386,9 @@ function App() {
           } catch(e) { setStatus('Export error: ' + e.message); }
         }}, 'Export SVG'),
         h('button', {className:'btn btn-secondary', onClick:randomize}, 'Random'),
-        showPlotter ? h('button', {className:'btn btn-secondary', disabled:!pointData,
+        !plotterActive ? h('button', {className:'btn btn-secondary', disabled:!pointData,
           style:{background:'rgba(124,92,252,0.15)', borderColor:'var(--accent)'},
-          onClick:addToPage}, '+ Page') : null,
+          onClick:addToPlotter}, '+ Plotter') : null,
       ),
       // Plotter panel is a right flyout (rendered below in portal)
       showSave ? h('div', {style:{padding:'4px 16px 8px',display:'flex',gap:'6px',alignItems:'center'}},
@@ -3272,6 +3406,7 @@ function App() {
       ) : null,
       loadedFile ? h('div', {style:{padding:'0 16px 8px',fontSize:'0.7rem',color:'var(--muted)'}},
         'Loaded: ', loadedFile) : null,
+      ) : null, // end !plotterActive conditional
     ), document.getElementById('sidebar')),
 
     // ---- Right panel: tabs (Files / Plotter) + content ----
@@ -3281,16 +3416,11 @@ function App() {
         h('div', {className:'right-tab' + (showFileBrowser ? ' active' : ''),
           onClick:() => {
             if (showFileBrowser) { setShowFileBrowser(false); }
-            else { setShowFileBrowser(true); setShowPlotter(false); refreshIniFiles(); }
+            else { setShowFileBrowser(true); refreshIniFiles(); }
           }}, 'Files'),
-        h('div', {className:'right-tab' + (showPlotter ? ' active' : ''),
-          onClick:() => {
-            if (showPlotter) { setShowPlotter(false); }
-            else { setShowPlotter(true); setShowFileBrowser(false); }
-          }}, 'Plotter'),
       ),
       // Panel content
-      h('div', {className:'filebrowser' + ((showFileBrowser || showPlotter) ? '' : ' collapsed')},
+      h('div', {className:'filebrowser' + (showFileBrowser ? '' : ' collapsed')},
         // Files content
         showFileBrowser ? h(React.Fragment, null,
           h('div', {className:'fb-header'},
@@ -3329,7 +3459,7 @@ function App() {
           })()),
         ) : null,
         // Plotter content
-        showPlotter ? h('div', {className:'plotter-content'},
+        plotterActive ? h('div', {className:'plotter-content'},
           h('div', {style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'16px'}},
             h('h3', null, 'AxiDraw'),
             h('button', {onClick:()=>setShowPlotter(false), style:{background:'none',border:'none',color:'var(--muted)',fontSize:'1.2rem',cursor:'pointer',padding:'4px'}}, '\u00d7'),
@@ -3434,36 +3564,6 @@ function App() {
           ),
         ),
 
-        // Placed patterns
-        placedPatterns.length > 0 ? h('div', {className:'pg'},
-          h('div', {className:'pg-title'}, `Page Composition (${placedPatterns.length})`),
-          placedPatterns.map(pp => {
-            const isSel = pp.id === selectedPlaced;
-            return h('div', {key:pp.id, style:{display:'flex',alignItems:'center',gap:'6px',padding:'3px 0',
-              borderLeft: isSel ? '2px solid var(--accent)' : '2px solid transparent',
-              paddingLeft:'4px', cursor:'pointer', fontSize:'0.7rem'},
-              onClick:()=>setSelectedPlaced(isSel ? null : pp.id)},
-              h('span', {style:{flex:1,color: isSel ? 'var(--text)' : 'var(--muted)'}}, pp.name),
-              h('input', {type:'number', value:pp.scale.toFixed(2), step:0.1, min:0.1, max:10,
-                style:{width:'42px',background:'var(--bg)',border:'1px solid var(--border)',color:'var(--text)',
-                  borderRadius:'3px',padding:'1px 3px',fontSize:'0.6rem',textAlign:'right'},
-                title:'Scale',
-                onClick:e=>e.stopPropagation(),
-                onChange:e=>{const v=parseFloat(e.target.value); if(!isNaN(v)&&v>0) updatePlaced(pp.id,{scale:v});}}),
-              h('input', {type:'number', value:Math.round(pp.rotation), step:15,
-                style:{width:'38px',background:'var(--bg)',border:'1px solid var(--border)',color:'var(--text)',
-                  borderRadius:'3px',padding:'1px 3px',fontSize:'0.6rem',textAlign:'right'},
-                title:'Rotation (\u00b0)',
-                onClick:e=>e.stopPropagation(),
-                onChange:e=>{const v=parseFloat(e.target.value); if(!isNaN(v)) updatePlaced(pp.id,{rotation:v});}}),
-              h('span', {style:{fontSize:'0.55rem',color:'var(--muted)'}}, '\u00b0'),
-              h('span', {style:{cursor:'pointer',color:'var(--muted)',fontSize:'0.7rem',padding:'0 2px'},
-                title:'Remove',
-                onClick:e=>{e.stopPropagation(); removePlaced(pp.id);}}, '\u00d7'),
-            );
-          }),
-        ) : null,
-
         // Plot action
         h('div', {className:'pg', style:{borderBottom:'none'}},
           h('div', {style:{display:'flex',gap:'10px',alignItems:'center'}},
@@ -3482,6 +3582,21 @@ function App() {
       ) : null, // end plotter-content
       ), // end filebrowser/shared panel div
     ), document.getElementById('right-panel-mount')),
+
+    // ---- Tab bar (portaled) ----
+    ReactDOM.createPortal(h(React.Fragment, {key:'tabs'},
+      tabs.map(t => h('div', {key:t.id,
+        className:'tab-item' + (t.id === activeTabId && !plotterActive ? ' active' : ''),
+        onClick:() => switchTab(t.id)},
+        t.name,
+        tabs.length > 1 ? h('span', {className:'tab-close', onClick:e=>{e.stopPropagation(); closeTab(t.id);}}, '\u00d7') : null,
+      )),
+      h('div', {className:'tab-add', onClick:addNewTab, title:'New pattern tab'}, '+'),
+      h('div', {className:'tab-item tab-plotter' + (plotterActive ? ' active' : ''),
+        onClick:switchToPlotter},
+        'Plotter', plotterPatterns.length > 0 ? ` (${plotterPatterns.length})` : null,
+      ),
+    ), document.getElementById('tab-bar')),
 
     // ---- Toolbar (portaled) ----
     ReactDOM.createPortal(h(React.Fragment, {key:'tb'},
