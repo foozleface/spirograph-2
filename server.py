@@ -1463,11 +1463,41 @@ function FileRow({ f, loadIniFile, confirmDelete, setConfirmDelete, deleteIniFil
 function App() {
   const [modules, setModules] = useState(null);  // module defs from API
   // steps: [{kind:'single', mod:{id,type,params}}, {kind:'group', branches:[[{mod},...],[{mod},...]]}]
-  const [steps, setSteps] = useState([]);
+  const [steps, setStepsRaw] = useState([]);
   const [sel, setSel] = useState(null); // {step, branch?, sub?}
-  const [output, setOutput] = useState({ stroke_width: 0.3, stroke_color: '#000000', background_color: '#ffffff' });
-  const [symmetry, setSymmetry] = useState({ n_fold: 1, mirror: false });
-  const [sampling, setSampling] = useState({ scroll_repeats: 1.0, initial_samples: 80000, output_samples: 12000 });
+  const [output, setOutputRaw] = useState({ stroke_width: 0.3, stroke_color: '#000000', background_color: '#ffffff' });
+  const [symmetry, setSymmetryRaw] = useState({ n_fold: 1, mirror: false });
+  const [sampling, setSamplingRaw] = useState({ scroll_repeats: 1.0, initial_samples: 80000, output_samples: 12000 });
+
+  // Undo system — snapshot all state before each change, restore with Ctrl+Z
+  const undoStack = useRef([]);
+  const skipUndo = useRef(false);
+  const stateRef = useRef({steps:[], output:{stroke_width:0.3,stroke_color:'#000000',background_color:'#ffffff'}, symmetry:{n_fold:1,mirror:false}, sampling:{scroll_repeats:1,initial_samples:80000,output_samples:12000}});
+  // Keep ref in sync
+  useEffect(() => { stateRef.current = {steps, output, symmetry, sampling}; });
+  const pushUndo = () => {
+    if (skipUndo.current) return;
+    undoStack.current.push(JSON.stringify(stateRef.current));
+    if (undoStack.current.length > 100) undoStack.current.shift();
+  };
+  const setSteps = (v) => { pushUndo(); setStepsRaw(v); };
+  const setOutput = (v) => { pushUndo(); setOutputRaw(v); };
+  const setSymmetry = (v) => { pushUndo(); setSymmetryRaw(v); };
+  const setSampling = (v) => { pushUndo(); setSamplingRaw(v); };
+  const undo = useCallback(() => {
+    if (undoStack.current.length === 0) { setStatus('Nothing to undo'); return; }
+    skipUndo.current = true;
+    const prev = JSON.parse(undoStack.current.pop());
+    setStepsRaw(prev.steps); setOutputRaw(prev.output);
+    setSymmetryRaw(prev.symmetry); setSamplingRaw(prev.sampling);
+    skipUndo.current = false;
+    setStatus('Undo');
+  }, []);
+  useEffect(() => {
+    const onKey = (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); } };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [undo]);
   const [pointData, setPointData] = useState(null); // {paths:[[x,y],...], config:{...}}
   const canvasRef = useRef(null);
   const [generating, setGenerating] = useState(false);
