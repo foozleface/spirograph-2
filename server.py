@@ -1539,6 +1539,7 @@ function App() {
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [foldersOpen, setFoldersOpen] = useState({'/': true});
   const regenFlag = useRef(false);
+  const recentRecipes = useRef([]);
   const [driftOpen, setDriftOpen] = useState({});
   const [showPlotter, setShowPlotter] = useState(false);
   const [plotterModels, setPlotterModels] = useState({});
@@ -1569,7 +1570,7 @@ function App() {
   useEffect(() => { fetch('/api/modules').then(r=>r.json()).then(setModules); }, []);
   useEffect(() => {
     if (regenFlag.current && totalModules > 0) { regenFlag.current = false; generate(); }
-  }, [steps]);
+  }, [steps, symmetry, sampling, output]);
 
   // Get selected module for param editing
   const getSelectedMod = () => {
@@ -2712,12 +2713,19 @@ function App() {
       },
     ];
 
-    const recipe = pick(recipes)();
+    // Avoid repeating recent recipes — exclude last 40 picks
+    const recent = recentRecipes.current;
+    let idx;
+    const available = recipes.map((_,i) => i).filter(i => !recent.includes(i));
+    idx = available.length > 0 ? pick(available) : Math.floor(R() * recipes.length);
+    recent.push(idx);
+    if (recent.length > 40) recent.splice(0, recent.length - 40);
+    const recipe = recipes[idx]();
     setSteps(recipe.steps);
     setSel({ step: 0 });
-    const sym = recipe.sym || (R() > 0.85 ? pick([3,5,6,8]) : 1);
+    const sym = recipe.sym || (R() > 0.55 ? pick([3,4,5,6,8]) : 1);
     setSymmetry({ n_fold: sym, mirror: sym > 1 && R() > 0.6 });
-    setSampling({ initial_samples: 300000, output_samples: 40000, scroll_repeats: 1 });
+    setSampling({ initial_samples: 80000, output_samples: 12000, scroll_repeats: 1 });
     setOutput(prev => ({ ...prev, stroke_width: recipe.sw || 0.12 }));
     regenFlag.current = true;
   };
