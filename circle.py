@@ -10,7 +10,7 @@ or for combining with other transformations.
 
 import numpy as np
 from fractions import Fraction
-from math import pi
+from math import pi, sin
 from main import TransformModule
 
 
@@ -29,34 +29,40 @@ class CircleModule(TransformModule):
         """Load circle configuration."""
         self.radius = self._getfloat('radius', 50.0)
         self.end_radius = self._getfloat('end_radius', self.radius)
+        self.sweep = self._getfloat('sweep', 0.0)        # per-revolution: radius varies ±sweep within each revolution
+        self.sweep_n = self._getfloat('sweep_n', 1.0)    # how many times per revolution
         self.cycles = self._getfloat('cycles', 1.0)
-    
+
     def transform(self, z: complex, t: float) -> complex:
         """
         Generate point on circle at time t.
-        
+
         With cycles > 1, draws the circle multiple times.
         Combined with transforms, creates moiré effects.
         """
         # Normalize t to [0,1] for global interpolation
         period = float(self._pipeline_period)
         t_norm = t / period if period > 0 else t
-        
+
         # Convert to position within cycles
         t_in_cycles = t_norm * self.cycles
-        
+
         # Position within current cycle [0, 1)
         t_frac = t_in_cycles % 1.0
-        
-        # Interpolate radius based on overall progress
+
+        # Interpolate radius (global t — wobble varies across repetitions)
         current_radius = self._interpolate(self.radius, self.end_radius, t_norm, 'radius')
-        
+
         # Angle for this single circle (one full revolution per cycle)
         angle = t_frac * 2 * pi
-        
+
+        # Per-revolution sweep: radius smoothly varies within each revolution
+        if self.sweep != 0:
+            current_radius += self.sweep * sin(angle * self.sweep_n)
+
         # Point on circle
         point = current_radius * np.exp(1j * angle)
-        
+
         return z + point
     
     @property

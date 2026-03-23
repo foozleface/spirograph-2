@@ -8,7 +8,7 @@ Can grow/shrink over time.
 
 import numpy as np
 from fractions import Fraction
-from math import pi
+from math import pi, sin
 from main import TransformModule
 
 
@@ -33,45 +33,53 @@ class EllipseModule(TransformModule):
         self.end_radius_x = self._getfloat('end_radius_x', self.radius_x)
         self.end_radius_y = self._getfloat('end_radius_y', self.radius_y)
         self.cycles = self._getfloat('cycles', 1.0)
+        self.sweep = self._getfloat('sweep', 0.0)
+        self.sweep_n = self._getfloat('sweep_n', 1.0)
         self.rotation_deg = self._getfloat('rotation', 0.0)
         self.end_rotation_deg = self._getfloat('end_rotation', self.rotation_deg)
 
         self.rotation_rad = self.rotation_deg * pi / 180
         self.end_rotation_rad = self.end_rotation_deg * pi / 180
-    
+
     def transform(self, z: complex, t: float) -> complex:
         """
         Generate point on ellipse at time t.
-        
+
         With cycles > 1, draws the ellipse multiple times.
         Combined with transforms, creates moiré effects.
         """
         # Normalize t to [0,1] for global interpolation
         period = float(self._pipeline_period)
         t_norm = t / period if period > 0 else t
-        
+
         # Convert to position within cycles
         t_in_cycles = t_norm * self.cycles
-        
+
         # Position within current cycle [0, 1)
         t_frac = t_in_cycles % 1.0
-        
-        # Interpolate radii based on overall progress
+
+        # Interpolate radii (global t — oscillation varies across repetitions)
         rx = self._interpolate(self.radius_x, self.end_radius_x, t_norm, 'radius_x')
         ry = self._interpolate(self.radius_y, self.end_radius_y, t_norm, 'radius_y')
-        
+
         # Angle for this single ellipse (one full revolution per cycle)
         angle = t_frac * 2 * pi
-        
+
+        # Per-revolution sweep: radii vary within each revolution
+        if self.sweep != 0:
+            s = self.sweep * sin(angle * self.sweep_n)
+            rx += s
+            ry += s
+
         # Point on ellipse (before rotation)
         x = rx * np.cos(angle)
         y = ry * np.sin(angle)
         point = x + 1j * y
-        
+
         # Apply rotation (interpolated for drift)
         rot = self._interpolate(self.rotation_rad, self.end_rotation_rad, t_norm, 'rotation')
         point *= np.exp(1j * rot)
-        
+
         return z + point
     
     @property

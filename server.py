@@ -105,7 +105,9 @@ MODULE_DEFS = {
         "params": {
             "radius":     {"type": "float", "default": 50.0, "min": 5,  "max": 200, "desc": "Radius"},
             "end_radius": {"type": "float", "default": 50.0, "min": 5,  "max": 200, "desc": "End value", "drift_for": "radius"},
-            "cycles":     {"type": "float", "default": 1.0,  "min": 1,  "max": 50, "step": 1, "desc": "Repetitions"},
+            "sweep":      {"type": "float", "default": 0.0,  "min": -100, "max": 100, "step": 1, "desc": "Sweep \u00b1"},
+            "sweep_n":    {"type": "float", "default": 1.0,  "min": 0.5, "max": 20, "step": 0.5, "desc": "Sweep per rev"},
+            "cycles":     {"type": "float", "default": 1.0,  "min": 1,  "max": 500, "step": 1, "desc": "Repetitions"},
         },
     },
     "polygon": {
@@ -363,7 +365,9 @@ MODULE_DEFS = {
             "end_radius_y": {"type": "float", "default": 30.0, "min": 5,  "max": 200, "desc": "End value", "drift_for": "radius_y"},
             "rotation":     {"type": "float", "default": 0.0,  "min": 0,  "max": 360, "desc": "Rotation"},
             "end_rotation": {"type": "float", "default": 0.0,  "min": 0,  "max": 360, "desc": "End value", "drift_for": "rotation"},
-            "cycles":       {"type": "float", "default": 1.0,  "min": 1,  "max": 50, "step": 1, "desc": "Cycles"},
+            "sweep":        {"type": "float", "default": 0.0,  "min": -100, "max": 100, "step": 1, "desc": "Sweep \u00b1"},
+            "sweep_n":      {"type": "float", "default": 1.0,  "min": 0.5, "max": 20, "step": 0.5, "desc": "Sweep per rev"},
+            "cycles":       {"type": "float", "default": 1.0,  "min": 1,  "max": 500, "step": 1, "desc": "Cycles"},
         },
     },
     "rack": {
@@ -3314,7 +3318,7 @@ function App() {
                 hasDrift ? h('button', {className:'drift-toggle ' + driftMode,
                   title: driftMode === '' ? 'Click for drift' : driftMode === 'drift' ? 'Click for oscillate' : 'Click to disable',
                   onClick:cycleDrift}, driftLabel) : null,
-                h('label', null, spec.desc),
+                h('label', null, driftMode === 'osc' ? spec.desc + ' min' : spec.desc),
                 h('input', {type:'range', min:spec.min, max:Math.max(spec.max, val), step, value:val,
                   onChange:e=>updateParam(sel.step, sel.branch, sel.sub, key, parse(e.target.value))}),
                 h('input', {type:'number', step, value:val,
@@ -3357,18 +3361,18 @@ function App() {
                     onChange:e=>{ const v = dparse(e.target.value); if (!isNaN(v)) updateParam(sel.step, sel.branch, sel.sub, dk, v); }}),
                 ));
                 rows.push(h('div', {key:oscKey+'_spd', className:'drift-row'},
-                  h('label', null, 'speed'),
+                  h('label', null, 'cycles'),
                   h('input', {type:'range', min:0.5, max:20, step:0.5, value:oscSpeed,
                     onChange:e=>setOsc(parseFloat(e.target.value), oscIrreg)}),
                   h('input', {type:'number', step:0.5, value:oscSpeed, style:{width:'45px'},
                     onChange:e=>{ const v=parseFloat(e.target.value); if(!isNaN(v)&&v>0) setOsc(v, oscIrreg); }}),
                 ));
                 rows.push(h('div', {key:oscKey+'_irr', className:'drift-row'},
-                  h('label', null, 'organic'),
-                  h('input', {type:'range', min:0, max:1, step:0.05, value:oscIrreg,
+                  h('label', null, 'wobble'),
+                  h('input', {type:'range', min:0, max:5, step:0.1, value:oscIrreg,
                     onChange:e=>setOsc(oscSpeed, parseFloat(e.target.value))}),
-                  h('input', {type:'number', step:0.05, value:oscIrreg, style:{width:'45px'},
-                    onChange:e=>{ const v=parseFloat(e.target.value); if(!isNaN(v)) setOsc(oscSpeed, Math.max(0,Math.min(1,v))); }}),
+                  h('input', {type:'number', step:0.1, value:oscIrreg, style:{width:'45px'},
+                    onChange:e=>{ const v=parseFloat(e.target.value); if(!isNaN(v)&&v>=0) setOsc(oscSpeed, v); }}),
                 ));
               }
             }

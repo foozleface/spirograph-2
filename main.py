@@ -134,11 +134,16 @@ class TransformModule(ABC):
         mid = (start + end) / 2.0
         amp = (end - start) / 2.0
         phi = 1.618033988749895  # golden ratio
-        base = sin(2 * pi * speed * t_norm)
-        perturb = sin(2 * pi * speed * phi * t_norm)
-        mix = base * (1.0 - irreg) + (base + perturb * 0.5) * irreg
-        # Clamp to [-1, 1]
-        mix = max(-1.0, min(1.0, mix))
+        sqrt2 = 1.4142135623730951
+        tau = 2 * pi * speed * t_norm
+        base = sin(tau)
+        p1 = sin(tau * phi)       # golden ratio harmonic
+        p2 = sin(tau * sqrt2)     # sqrt(2) harmonic — incommensurate with both
+        # Mix: base always present, perturbations scale with wobble
+        mix = base + irreg * (p1 * 0.5 + p2 * 0.35)
+        # Normalize so output always spans [-1, 1] without clamping
+        max_amp = 1.0 + irreg * 0.85  # max possible: 1 + 0.5*w + 0.35*w
+        mix = mix / max_amp
         return mid + mix * amp
 
     @abstractmethod
