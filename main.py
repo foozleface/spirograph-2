@@ -131,20 +131,22 @@ class TransformModule(ABC):
         speed = parts[0] if len(parts) > 0 else 3.0
         irreg = parts[1] if len(parts) > 1 else 0.3
 
-        mid = (start + end) / 2.0
-        amp = (end - start) / 2.0
+        # Map to [0, 1] range: starts at 0 (=start), peaks at 1 (=end), returns to 0
+        # Uses raised cosine: 0.5 - 0.5*cos(2π*speed*t) so t=0 → 0, mid-cycle → 1, end → 0
         phi = 1.618033988749895  # golden ratio
         sqrt2 = 1.4142135623730951
         tau = 2 * pi * speed * t_norm
-        base = sin(tau)
-        p1 = sin(tau * phi)       # golden ratio harmonic
-        p2 = sin(tau * sqrt2)     # sqrt(2) harmonic — incommensurate with both
-        # Mix: base always present, perturbations scale with wobble
-        mix = base + irreg * (p1 * 0.5 + p2 * 0.35)
-        # Normalize so output always spans [-1, 1] without clamping
-        max_amp = 1.0 + irreg * 0.85  # max possible: 1 + 0.5*w + 0.35*w
-        mix = mix / max_amp
-        return mid + mix * amp
+        base = 0.5 - 0.5 * cos(tau)
+        p1 = 0.5 - 0.5 * cos(tau * phi)
+        p2 = 0.5 - 0.5 * cos(tau * sqrt2)
+        # Mix: base always present, perturbations add organic variation
+        mix = base * (1.0 - irreg * 0.4) + p1 * irreg * 0.25 + p2 * irreg * 0.15
+        # Normalize to [0, 1]
+        max_amp = 1.0  # raised cosines are already in [0,1], mix stays bounded
+        if irreg > 0:
+            max_amp = (1.0 - irreg * 0.4) + irreg * 0.25 + irreg * 0.15
+        mix = max(0.0, min(1.0, mix / max_amp))
+        return start + (end - start) * mix
 
     @abstractmethod
     def _load_config(self):
