@@ -1318,10 +1318,11 @@ body { background:var(--bg); color:var(--text); font-family:'Inter',system-ui,sa
                                  border-radius:4px; padding:2px 4px; font-size:0.75rem; text-align:right; flex-shrink:0; }
 .param-row input[type=number]:focus { border-color:var(--accent); outline:none; }
 .param-row input[type=checkbox] { accent-color:var(--accent); }
-.param-row .drift-toggle { background:none; border:none; color:var(--muted); cursor:pointer; font-size:0.6rem;
+.param-row .drift-toggle { background:none; border:none; color:var(--muted); cursor:pointer; font-size:0.55rem;
                             padding:0 2px; transition:transform 0.15s, color 0.15s; flex-shrink:0; width:14px; text-align:center; }
 .param-row .drift-toggle:hover { color:var(--accent); }
-.param-row .drift-toggle.open { color:var(--accent); transform:rotate(90deg); }
+.param-row .drift-toggle.drift { color:var(--accent); }
+.param-row .drift-toggle.osc { color:#e94560; }
 .drift-row { display:flex; align-items:center; gap:8px; margin-bottom:6px; padding-left:14px;
              border-left:2px solid var(--accent); margin-left:6px; opacity:0.85; }
 .drift-row label { font-size:0.72rem; color:var(--accent); min-width:86px; flex-shrink:0; font-style:italic; cursor:pointer; }
@@ -3284,32 +3285,82 @@ function App() {
               }
               const step = spec.step || (spec.type==='int' ? 1 : 0.1);
               const parse = v => spec.type==='int' ? parseInt(v) : parseFloat(v);
-              // Base param row — with optional drift toggle
+              // Base param row — with optional drift/oscillation toggle
+              // Auto-detect mode from params
+              let driftMode = driftOpen[key] || '';
+              if (!driftMode && hasDrift) {
+                if (activeMod.params['osc_'+key]) driftMode = 'osc';
+                else if (activeMod.params[driftMap[key]] !== undefined && activeMod.params[driftMap[key]] !== val) driftMode = 'drift';
+              }
+              const cycleDrift = () => setDriftOpen(prev => {
+                const cur = prev[key] || '';
+                const next = cur === '' ? 'drift' : cur === 'drift' ? 'osc' : '';
+                // Reset osc params when turning off
+                if (next === '' && activeMod.params['osc_'+key]) {
+                  updateParam(sel.step, sel.branch, sel.sub, 'osc_'+key, '');
+                }
+                return {...prev, [key]: next};
+              });
+              const driftLabel = driftMode === 'osc' ? '\u25ce' : driftMode === 'drift' ? '\u25be' : '\u25b8';
               rows.push(h('div', {key, className:'param-row'},
-                hasDrift ? h('button', {className:'drift-toggle' + (driftOpen[key] ? ' open' : ''),
-                  title:'Drift: animate this value over the draw',
-                  onClick:()=>setDriftOpen(prev=>({...prev,[key]:!prev[key]}))}, '\u25b6') : null,
+                hasDrift ? h('button', {className:'drift-toggle ' + driftMode,
+                  title: driftMode === '' ? 'Click for drift' : driftMode === 'drift' ? 'Click for oscillate' : 'Click to disable',
+                  onClick:cycleDrift}, driftLabel) : null,
                 h('label', null, spec.desc),
                 h('input', {type:'range', min:spec.min, max:Math.max(spec.max, val), step, value:val,
                   onChange:e=>updateParam(sel.step, sel.branch, sel.sub, key, parse(e.target.value))}),
                 h('input', {type:'number', step, value:val,
                   onChange:e=>{ const v = parse(e.target.value); if (!isNaN(v)) updateParam(sel.step, sel.branch, sel.sub, key, v); }}),
               ));
-              // Drift row (if expanded)
-              if (hasDrift && driftOpen[key]) {
+              // Drift row (linear end value)
+              if (hasDrift && driftMode === 'drift') {
                 const dk = driftMap[key];
                 const ds = params[dk];
                 const dv = activeMod.params[dk];
                 const dstep = ds.step || (ds.type==='int' ? 1 : 0.1);
                 const dparse = v => ds.type==='int' ? parseInt(v) : parseFloat(v);
                 rows.push(h('div', {key:dk, className:'drift-row'},
-                  h('label', {title:'Click to reset (no drift)',
-                    onClick:()=>{updateParam(sel.step, sel.branch, sel.sub, dk, activeMod.params[key]); setDriftOpen(prev=>({...prev,[key]:false}));}},
-                    '\u2192 end \u00d7'),
+                  h('label', null, '\u2192 end'),
                   h('input', {type:'range', min:ds.min, max:Math.max(ds.max, dv), step:dstep, value:dv,
                     onChange:e=>updateParam(sel.step, sel.branch, sel.sub, dk, dparse(e.target.value))}),
                   h('input', {type:'number', step:dstep, value:dv,
                     onChange:e=>{ const v = dparse(e.target.value); if (!isNaN(v)) updateParam(sel.step, sel.branch, sel.sub, dk, v); }}),
+                ));
+              }
+              // Oscillation row (speed + irregularity)
+              if (hasDrift && driftMode === 'osc') {
+                const dk = driftMap[key];
+                const ds = params[dk];
+                const dv = activeMod.params[dk];
+                const dstep = ds.step || (ds.type==='int' ? 1 : 0.1);
+                const dparse = v => ds.type==='int' ? parseInt(v) : parseFloat(v);
+                const oscKey = 'osc_' + key;
+                const oscVal = activeMod.params[oscKey] || '';
+                const oscParts = oscVal ? String(oscVal).split(',').map(Number) : [3, 0.3];
+                const oscSpeed = oscParts[0] || 3;
+                const oscIrreg = oscParts[1] != null ? oscParts[1] : 0.3;
+                const setOsc = (s, ir) => updateParam(sel.step, sel.branch, sel.sub, oscKey, s+','+ir);
+                // End value (max of oscillation)
+                rows.push(h('div', {key:dk, className:'drift-row'},
+                  h('label', null, '\u2194 max'),
+                  h('input', {type:'range', min:ds.min, max:Math.max(ds.max, dv), step:dstep, value:dv,
+                    onChange:e=>updateParam(sel.step, sel.branch, sel.sub, dk, dparse(e.target.value))}),
+                  h('input', {type:'number', step:dstep, value:dv,
+                    onChange:e=>{ const v = dparse(e.target.value); if (!isNaN(v)) updateParam(sel.step, sel.branch, sel.sub, dk, v); }}),
+                ));
+                rows.push(h('div', {key:oscKey+'_spd', className:'drift-row'},
+                  h('label', null, 'speed'),
+                  h('input', {type:'range', min:0.5, max:20, step:0.5, value:oscSpeed,
+                    onChange:e=>setOsc(parseFloat(e.target.value), oscIrreg)}),
+                  h('input', {type:'number', step:0.5, value:oscSpeed, style:{width:'45px'},
+                    onChange:e=>{ const v=parseFloat(e.target.value); if(!isNaN(v)&&v>0) setOsc(v, oscIrreg); }}),
+                ));
+                rows.push(h('div', {key:oscKey+'_irr', className:'drift-row'},
+                  h('label', null, 'organic'),
+                  h('input', {type:'range', min:0, max:1, step:0.05, value:oscIrreg,
+                    onChange:e=>setOsc(oscSpeed, parseFloat(e.target.value))}),
+                  h('input', {type:'number', step:0.05, value:oscIrreg, style:{width:'45px'},
+                    onChange:e=>{ const v=parseFloat(e.target.value); if(!isNaN(v)) setOsc(oscSpeed, Math.max(0,Math.min(1,v))); }}),
                 ));
               }
             }

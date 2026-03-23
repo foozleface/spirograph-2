@@ -58,7 +58,7 @@ class PolygonModule(TransformModule):
         t_frac = t_in_cycles % 1.0
         
         # Interpolate radius based on overall progress
-        current_radius = self.radius + t_norm * (self.end_radius - self.radius)
+        current_radius = self._interpolate(self.radius, self.end_radius, t_norm, 'radius')
         
         # Progress around this single polygon
         side_progress = (t_frac * self.sides) % self.sides
@@ -66,7 +66,7 @@ class PolygonModule(TransformModule):
         side_frac = side_progress - side_index
         
         # Vertices
-        rot = self.rotation_rad + t_norm * (self.end_rotation_rad - self.rotation_rad)
+        rot = self._interpolate(self.rotation_rad, self.end_rotation_rad, t_norm, 'rotation')
         angle1 = rot + (side_index / self.sides) * 2 * pi
         angle2 = rot + ((side_index + 1) / self.sides) * 2 * pi
         

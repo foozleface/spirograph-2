@@ -44,8 +44,8 @@ class StretchModule(TransformModule):
 
     def transform(self, z: complex, t: float) -> complex:
         t_use = self._normalize_t(t)
-        sx = self.scale_x + (self.end_scale_x - self.scale_x) * t_use
-        sy = self.scale_y + (self.end_scale_y - self.scale_y) * t_use
+        sx = self._interpolate(self.scale_x, self.end_scale_x, t_use, 'scale_x')
+        sy = self._interpolate(self.scale_y, self.end_scale_y, t_use, 'scale_y')
         rel = z - self.origin
         return self.origin + complex(rel.real * sx, rel.imag * sy)
 

@@ -124,7 +124,7 @@ class SpirographRailModule(TransformModule):
         
         # Position of pen relative to gear center
         if self._drifts:
-            hole = self.hole_position + t_norm * (self.end_hole_position - self.hole_position)
+            hole = self._interpolate(self.hole_position, self.end_hole_position, t_norm, 'hole_position')
             pd = hole * self.gear_radius
         else:
             pd = self.pen_distance

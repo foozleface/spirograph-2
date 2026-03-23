@@ -62,8 +62,8 @@ class StarShapeModule(TransformModule):
         t_frac = t_in_cycles % 1.0
         
         # Interpolate radii based on overall progress
-        outer_r = self.outer_radius + t_norm * (self.end_outer_radius - self.outer_radius)
-        inner_r = self.inner_radius + t_norm * (self.end_inner_radius - self.inner_radius)
+        outer_r = self._interpolate(self.outer_radius, self.end_outer_radius, t_norm, 'outer_radius')
+        inner_r = self._interpolate(self.inner_radius, self.end_inner_radius, t_norm, 'inner_radius')
         
         # Total vertices = 2 * points (alternating outer/inner)
         total_vertices = self.points * 2
@@ -79,7 +79,7 @@ class StarShapeModule(TransformModule):
         r2 = inner_r if is_outer else outer_r
         
         # Angles
-        rot = self.rotation_rad + t_norm * (self.end_rotation_rad - self.rotation_rad)
+        rot = self._interpolate(self.rotation_rad, self.end_rotation_rad, t_norm, 'rotation')
         angle1 = rot + (vertex_index / total_vertices) * 2 * pi
         angle2 = rot + ((vertex_index + 1) / total_vertices) * 2 * pi
         

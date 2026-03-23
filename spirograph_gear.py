@@ -103,8 +103,8 @@ class SpirographGearModule(TransformModule):
 
         if self._drifts:
             # Recompute radii with interpolated params at this t
-            pitch = self.tooth_pitch + t_norm * (self.end_tooth_pitch - self.tooth_pitch)
-            hole = self.hole_position + t_norm * (self.end_hole_position - self.hole_position)
+            pitch = self._interpolate(self.tooth_pitch, self.end_tooth_pitch, t_norm, 'tooth_pitch')
+            hole = self._interpolate(self.hole_position, self.end_hole_position, t_norm, 'hole_position')
             R = self.fixed_teeth * pitch / (2 * pi)
             r = self.rolling_teeth * pitch / (2 * pi)
             d = hole * r

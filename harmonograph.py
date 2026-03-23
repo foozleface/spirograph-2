@@ -209,10 +209,10 @@ class HarmonographModule(TransformModule):
         time = t_frac * self.duration
         
         # Interpolate amplitudes for drift
-        a1 = self.amp1 + t_norm * (self.end_amp1 - self.amp1)
-        a2 = self.amp2 + t_norm * (self.end_amp2 - self.amp2)
-        a3 = self.amp3 + t_norm * (self.end_amp3 - self.amp3)
-        a4 = self.amp4 + t_norm * (self.end_amp4 - self.amp4)
+        a1 = self._interpolate(self.amp1, self.end_amp1, t_norm, 'amp1')
+        a2 = self._interpolate(self.amp2, self.end_amp2, t_norm, 'amp2')
+        a3 = self._interpolate(self.amp3, self.end_amp3, t_norm, 'amp3')
+        a4 = self._interpolate(self.amp4, self.end_amp4, t_norm, 'amp4')
 
         # X component (pendulum 1 + pendulum 3)
         x = a1 * np.sin(self.freq1 * 2 * pi * time + self.phase1)

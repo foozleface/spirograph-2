@@ -60,8 +60,8 @@ class ScaleModule(TransformModule):
         """
         t_use = self._normalize_t(t)
 
-        # Current scale factor (linear interpolation)
-        scale = self.start_scale + (self.end_scale - self.start_scale) * t_use
+        # Current scale factor (linear drift or oscillation)
+        scale = self._interpolate(self.start_scale, self.end_scale, t_use, 'start_scale')
 
         # Scale around origin: z' = origin + (z - origin) * scale
         relative = z - self.origin

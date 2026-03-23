@@ -15,7 +15,7 @@ import importlib
 import numpy as np
 from abc import ABC, abstractmethod
 from fractions import Fraction
-from math import gcd
+from math import gcd, sin, cos, pi
 from pathlib import Path
 from typing import List, Tuple, Optional
 import sys
@@ -106,6 +106,40 @@ class TransformModule(ABC):
         else:
             t_use = t
         return apply_easing(t_use, self._easing)
+
+    def _interpolate(self, start: float, end: float, t_norm: float, param_name: str = '') -> float:
+        """Interpolate a parameter value, supporting linear drift or oscillation.
+
+        If an oscillation config exists for this param (osc_<param_name> in INI),
+        oscillate between start and end instead of linear drift.
+
+        Oscillation uses multi-sine for organic motion:
+          base = sin(t * 2π * speed)
+          perturb = sin(t * 2π * speed * φ)  (φ = golden ratio)
+          value = mid + clamp(mix, -1, 1) * amplitude
+        """
+        if not param_name:
+            return start + (end - start) * t_norm
+
+        osc_key = f'osc_{param_name}'
+        osc_val = self._get(osc_key, '')
+        if not osc_val:
+            return start + (end - start) * t_norm
+
+        # Parse "speed,irregularity" e.g. "3,0.3"
+        parts = [float(x.strip()) for x in osc_val.split(',')]
+        speed = parts[0] if len(parts) > 0 else 3.0
+        irreg = parts[1] if len(parts) > 1 else 0.3
+
+        mid = (start + end) / 2.0
+        amp = (end - start) / 2.0
+        phi = 1.618033988749895  # golden ratio
+        base = sin(2 * pi * speed * t_norm)
+        perturb = sin(2 * pi * speed * phi * t_norm)
+        mix = base * (1.0 - irreg) + (base + perturb * 0.5) * irreg
+        # Clamp to [-1, 1]
+        mix = max(-1.0, min(1.0, mix))
+        return mid + mix * amp
 
     @abstractmethod
     def _load_config(self):

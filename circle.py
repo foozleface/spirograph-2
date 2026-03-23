@@ -49,7 +49,7 @@ class CircleModule(TransformModule):
         t_frac = t_in_cycles % 1.0
         
         # Interpolate radius based on overall progress
-        current_radius = self.radius + t_norm * (self.end_radius - self.radius)
+        current_radius = self._interpolate(self.radius, self.end_radius, t_norm, 'radius')
         
         # Angle for this single circle (one full revolution per cycle)
         angle = t_frac * 2 * pi

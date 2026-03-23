@@ -57,8 +57,8 @@ class EllipseModule(TransformModule):
         t_frac = t_in_cycles % 1.0
         
         # Interpolate radii based on overall progress
-        rx = self.radius_x + t_norm * (self.end_radius_x - self.radius_x)
-        ry = self.radius_y + t_norm * (self.end_radius_y - self.radius_y)
+        rx = self._interpolate(self.radius_x, self.end_radius_x, t_norm, 'radius_x')
+        ry = self._interpolate(self.radius_y, self.end_radius_y, t_norm, 'radius_y')
         
         # Angle for this single ellipse (one full revolution per cycle)
         angle = t_frac * 2 * pi
@@ -69,7 +69,7 @@ class EllipseModule(TransformModule):
         point = x + 1j * y
         
         # Apply rotation (interpolated for drift)
-        rot = self.rotation_rad + t_norm * (self.end_rotation_rad - self.rotation_rad)
+        rot = self._interpolate(self.rotation_rad, self.end_rotation_rad, t_norm, 'rotation')
         point *= np.exp(1j * rot)
         
         return z + point

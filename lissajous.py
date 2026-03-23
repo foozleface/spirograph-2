@@ -72,14 +72,14 @@ class LissajousModule(TransformModule):
         t_frac = t_in_cycles % 1.0
         
         # Interpolate amplitudes based on overall progress
-        ax = self.amplitude_x + t_norm * (self.end_amplitude_x - self.amplitude_x)
-        ay = self.amplitude_y + t_norm * (self.end_amplitude_y - self.amplitude_y)
+        ax = self._interpolate(self.amplitude_x, self.end_amplitude_x, t_norm, 'amplitude_x')
+        ay = self._interpolate(self.amplitude_y, self.end_amplitude_y, t_norm, 'amplitude_y')
         
         # Parameter for this single Lissajous trace
         theta = t_frac * self._closure_cycles * 2 * pi
         
         # Lissajous equations
-        phase = self.phase_rad + t_norm * (self.end_phase_rad - self.phase_rad)
+        phase = self._interpolate(self.phase_rad, self.end_phase_rad, t_norm, 'phase')
         x = ax * np.sin(self.freq_x * theta + phase)
         y = ay * np.sin(self.freq_y * theta)
         

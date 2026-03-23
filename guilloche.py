@@ -67,10 +67,10 @@ class GuillocheModule(TransformModule):
         period = float(self._pipeline_period)
         t_norm = t / period if period > 0 else t
 
-        # Drift interpolation
-        inner = self.inner + t_norm * (self.end_inner - self.inner)
-        outer = self.outer + t_norm * (self.end_outer - self.outer)
-        nodes = self.nodes + t_norm * (self.end_nodes - self.nodes)
+        # Drift or oscillation interpolation
+        inner = self._interpolate(self.inner, self.end_inner, t_norm, 'inner')
+        outer = self._interpolate(self.outer, self.end_outer, t_norm, 'outer')
+        nodes = self._interpolate(self.nodes, self.end_nodes, t_norm, 'nodes')
 
         # Map t to angle: full sweep is 2π * div * cycles
         angle = t_norm * 2 * pi * self.div * self.cycles

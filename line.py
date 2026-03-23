@@ -91,7 +91,7 @@ class LineModule(TransformModule):
         t_frac = t_in_cycles % 1.0
         
         # Interpolate line length based on overall progress
-        current_length = self.length + t_norm * (self.end_length - self.length)
+        current_length = self._interpolate(self.length, self.end_length, t_norm, 'length')
         
         # Calculate draw progress based on stroke_time
         if self.stroke_time >= 1.0:

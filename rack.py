@@ -99,7 +99,7 @@ class RackModule(TransformModule):
         
         # Interpolate pen distance for drift
         if self._drifts:
-            hole = self.hole_position + t_norm * (self.end_hole_position - self.hole_position)
+            hole = self._interpolate(self.hole_position, self.end_hole_position, t_norm, 'hole_position')
             pen_d = hole * self.gear_radius
         else:
             pen_d = self.pen_distance

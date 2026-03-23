@@ -74,7 +74,7 @@ class NoiseModule(TransformModule):
 
     def transform(self, z: complex, t: float) -> complex:
         t_use = self._normalize_t(t)
-        amp = self.amplitude + t_use * (self.end_amplitude - self.amplitude)
+        amp = self._interpolate(self.amplitude, self.end_amplitude, t_use, 'amplitude')
 
         if self.mode == 'xy':
             # Independent x/y displacement

@@ -73,7 +73,7 @@ class RoseModule(TransformModule):
         t_frac = t_in_cycles % 1.0
         
         # Interpolate radius based on overall progress
-        current_radius = self.radius + t_norm * (self.end_radius - self.radius)
+        current_radius = self._interpolate(self.radius, self.end_radius, t_norm, 'radius')
         
         # Angle for this single rose trace
         theta = t_frac * self._closure_cycles * 2 * pi

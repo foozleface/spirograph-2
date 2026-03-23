@@ -46,7 +46,7 @@ class DampingModule(TransformModule):
 
     def transform(self, z: complex, t: float) -> complex:
         t_use = self._normalize_t(t)
-        rate = self.decay_rate + t_use * (self.end_decay_rate - self.decay_rate)
+        rate = self._interpolate(self.decay_rate, self.end_decay_rate, t_use, 'decay_rate')
         factor = np.exp(-rate * t_use * self.duration)
         return self.origin + (z - self.origin) * factor
 
