@@ -3286,14 +3286,22 @@ function App() {
               const step = spec.step || (spec.type==='int' ? 1 : 0.1);
               const parse = v => spec.type==='int' ? parseInt(v) : parseFloat(v);
               // Base param row — with optional drift/oscillation toggle
-              // Auto-detect mode from params
-              let driftMode = driftOpen[key] || '';
-              if (!driftMode && hasDrift) {
+              // Determine mode: stored state, or auto-detect from params
+              let driftMode;
+              const storedMode = driftOpen[key];
+              if (storedMode !== undefined) {
+                driftMode = storedMode; // User has explicitly set this
+              } else if (hasDrift) {
+                // Auto-detect from params
                 if (activeMod.params['osc_'+key]) driftMode = 'osc';
                 else if (activeMod.params[driftMap[key]] !== undefined && activeMod.params[driftMap[key]] !== val) driftMode = 'drift';
+                else driftMode = '';
+              } else {
+                driftMode = '';
               }
               const cycleDrift = () => setDriftOpen(prev => {
-                const cur = prev[key] || '';
+                // Use whatever is currently displayed
+                const cur = prev[key] !== undefined ? prev[key] : driftMode;
                 const next = cur === '' ? 'drift' : cur === 'drift' ? 'osc' : '';
                 // Reset osc params when turning off
                 if (next === '' && activeMod.params['osc_'+key]) {
