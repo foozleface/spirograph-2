@@ -9,7 +9,7 @@ The spiral grows outward (or inward) as it rotates.
 
 import numpy as np
 from fractions import Fraction
-from math import pi
+from math import pi, sin
 from main import TransformModule
 
 
@@ -28,10 +28,14 @@ class SpiralShapeModule(TransformModule):
     def _load_config(self):
         """Load spiral configuration."""
         self.start_radius = self._getfloat('start_radius', 0.0)
+        self.end_start_radius = self._getfloat('end_start_radius', self.start_radius)
         self.end_radius = self._getfloat('end_radius', 50.0)
+        self.end_end_radius = self._getfloat('end_end_radius', self.end_radius)
         self.turns = self._getfloat('turns', 3.0)
         self.direction = self._getint('direction', 1)
         self.cycles = self._getfloat('cycles', 1.0)
+        self.lobe = self._getfloat('lobe', 0.0)
+        self.lobe_n = self._getfloat('lobe_n', 1.0)
     
     def transform(self, z: complex, t: float) -> complex:
         """
@@ -50,12 +54,20 @@ class SpiralShapeModule(TransformModule):
         # Position within current cycle [0, 1)
         t_frac = t_in_cycles % 1.0
         
+        # Interpolate drift for start/end radii
+        sr = self._interpolate(self.start_radius, self.end_start_radius, t_norm, 'start_radius')
+        er = self._interpolate(self.end_radius, self.end_end_radius, t_norm, 'end_radius')
+
         # Radius grows linearly within each spiral
-        r = self.start_radius + t_frac * (self.end_radius - self.start_radius)
-        
+        r = sr + t_frac * (er - sr)
+
         # Angle for this single spiral
         angle = self.direction * t_frac * self.turns * 2 * pi
-        
+
+        # Per-revolution lobe: radius varies within each revolution
+        if self.lobe != 0:
+            r += self.lobe * sin(angle * self.lobe_n)
+
         point = r * np.exp(1j * angle)
         
         return z + point

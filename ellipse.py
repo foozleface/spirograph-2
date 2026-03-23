@@ -33,8 +33,8 @@ class EllipseModule(TransformModule):
         self.end_radius_x = self._getfloat('end_radius_x', self.radius_x)
         self.end_radius_y = self._getfloat('end_radius_y', self.radius_y)
         self.cycles = self._getfloat('cycles', 1.0)
-        self.sweep = self._getfloat('sweep', 0.0)
-        self.sweep_n = self._getfloat('sweep_n', 1.0)
+        self.lobe = self._getfloat('lobe', 0.0)
+        self.lobe_n = self._getfloat('lobe_n', 1.0)
         self.rotation_deg = self._getfloat('rotation', 0.0)
         self.end_rotation_deg = self._getfloat('end_rotation', self.rotation_deg)
 
@@ -65,9 +65,9 @@ class EllipseModule(TransformModule):
         # Angle for this single ellipse (one full revolution per cycle)
         angle = t_frac * 2 * pi
 
-        # Per-revolution sweep: radii vary within each revolution
-        if self.sweep != 0:
-            s = self.sweep * sin(angle * self.sweep_n)
+        # Per-revolution lobe: radii vary within each revolution
+        if self.lobe != 0:
+            s = self.lobe * sin(angle * self.lobe_n)
             rx += s
             ry += s
 

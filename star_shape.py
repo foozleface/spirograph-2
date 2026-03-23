@@ -10,7 +10,7 @@ The skip parameter controls how connected the points are.
 
 import numpy as np
 from fractions import Fraction
-from math import pi
+from math import pi, sin
 from main import TransformModule
 
 
@@ -38,6 +38,8 @@ class StarShapeModule(TransformModule):
         self.end_outer_radius = self._getfloat('end_outer_radius', self.outer_radius)
         self.end_inner_radius = self._getfloat('end_inner_radius', self.inner_radius)
         self.cycles = self._getfloat('cycles', 1.0)
+        self.lobe = self._getfloat('lobe', 0.0)
+        self.lobe_n = self._getfloat('lobe_n', 1.0)
         self.rotation_deg = self._getfloat('rotation', -90.0)  # Point up by default
         self.end_rotation_deg = self._getfloat('end_rotation', self.rotation_deg)
 
@@ -64,7 +66,14 @@ class StarShapeModule(TransformModule):
         # Interpolate radii based on overall progress
         outer_r = self._interpolate(self.outer_radius, self.end_outer_radius, t_norm, 'outer_radius')
         inner_r = self._interpolate(self.inner_radius, self.end_inner_radius, t_norm, 'inner_radius')
-        
+
+        # Per-revolution lobe: modulate both radii
+        angle = t_frac * 2 * pi
+        if self.lobe != 0:
+            lobe_mod = self.lobe * sin(angle * self.lobe_n)
+            outer_r += lobe_mod
+            inner_r += lobe_mod
+
         # Total vertices = 2 * points (alternating outer/inner)
         total_vertices = self.points * 2
         

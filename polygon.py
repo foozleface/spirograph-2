@@ -11,7 +11,7 @@ to create smooth edges.
 
 import numpy as np
 from fractions import Fraction
-from math import pi
+from math import pi, sin
 from main import TransformModule
 
 
@@ -34,6 +34,8 @@ class PolygonModule(TransformModule):
         self.radius = self._getfloat('radius', 50.0)
         self.end_radius = self._getfloat('end_radius', self.radius)
         self.cycles = self._getfloat('cycles', 1.0)
+        self.lobe = self._getfloat('lobe', 0.0)
+        self.lobe_n = self._getfloat('lobe_n', 1.0)
         self.rotation_deg = self._getfloat('rotation', 0.0)
         self.end_rotation_deg = self._getfloat('end_rotation', self.rotation_deg)
 
@@ -59,7 +61,14 @@ class PolygonModule(TransformModule):
         
         # Interpolate radius based on overall progress
         current_radius = self._interpolate(self.radius, self.end_radius, t_norm, 'radius')
-        
+
+        # Angle for lobe modulation (one full revolution per cycle)
+        angle = t_frac * 2 * pi
+
+        # Per-revolution lobe: radius varies within each revolution
+        if self.lobe != 0:
+            current_radius += self.lobe * sin(angle * self.lobe_n)
+
         # Progress around this single polygon
         side_progress = (t_frac * self.sides) % self.sides
         side_index = int(side_progress)

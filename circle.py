@@ -29,8 +29,8 @@ class CircleModule(TransformModule):
         """Load circle configuration."""
         self.radius = self._getfloat('radius', 50.0)
         self.end_radius = self._getfloat('end_radius', self.radius)
-        self.sweep = self._getfloat('sweep', 0.0)        # per-revolution: radius varies ±sweep within each revolution
-        self.sweep_n = self._getfloat('sweep_n', 1.0)    # how many times per revolution
+        self.lobe = self._getfloat('lobe', 0.0)        # per-revolution: radius varies ±lobe within each revolution
+        self.lobe_n = self._getfloat('lobe_n', 1.0)    # how many times per revolution
         self.cycles = self._getfloat('cycles', 1.0)
 
     def transform(self, z: complex, t: float) -> complex:
@@ -56,9 +56,9 @@ class CircleModule(TransformModule):
         # Angle for this single circle (one full revolution per cycle)
         angle = t_frac * 2 * pi
 
-        # Per-revolution sweep: radius smoothly varies within each revolution
-        if self.sweep != 0:
-            current_radius += self.sweep * sin(angle * self.sweep_n)
+        # Per-revolution lobe: radius smoothly varies within each revolution
+        if self.lobe != 0:
+            current_radius += self.lobe * sin(angle * self.lobe_n)
 
         # Point on circle
         point = current_radius * np.exp(1j * angle)
