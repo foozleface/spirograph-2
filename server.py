@@ -3150,6 +3150,49 @@ function App() {
             );
           }),
         ),
+
+        // AxiDraw controls in sidebar
+        h('div', {className:'section', style:{overflowY:'auto'}},
+          h('div', {className:'section-title'}, 'AxiDraw'),
+          // Model & Port
+          h('div', {style:{marginBottom:'8px'}},
+            h('select', {value:pOpts.model, style:{width:'100%',marginBottom:'4px'}, onChange:e=>pSet('model',Number(e.target.value))},
+              Object.entries(plotterModels).map(([id, m]) => h('option', {key:id, value:id}, m.label))),
+            h('div', {style:{display:'flex',gap:'4px',alignItems:'center',fontSize:'0.7rem'}},
+              h('span', {style:{color:'var(--muted)'}}, 'Port'),
+              h('input', {type:'text', value:pOpts.port, placeholder:'auto',
+                style:{flex:1,background:'var(--bg)',border:'1px solid var(--border)',color:'var(--text)',borderRadius:'3px',padding:'2px 4px',fontSize:'0.7rem'},
+                onChange:e=>pSet('port',e.target.value)})),
+            plotterModels[pOpts.model] ? h('div', {style:{fontSize:'0.6rem',color:'var(--muted)',marginTop:'2px'}},
+              `${plotterModels[pOpts.model].width}" \u00d7 ${plotterModels[pOpts.model].height}"`) : null,
+          ),
+          // Speed
+          h('div', {style:{fontSize:'0.68rem',color:'var(--muted)',display:'flex',flexDirection:'column',gap:'3px',marginBottom:'6px'}},
+            h('div', {style:{display:'flex',justifyContent:'space-between'}}, h('span',null,'Draw speed'), h('input',{type:'number',min:1,max:110,value:pOpts.penDownSpeed,style:{width:'40px',background:'var(--bg)',border:'1px solid var(--border)',color:'var(--text)',borderRadius:'3px',padding:'1px 3px',fontSize:'0.65rem'},onChange:e=>pSet('penDownSpeed',Number(e.target.value))})),
+            h('div', {style:{display:'flex',justifyContent:'space-between'}}, h('span',null,'Travel speed'), h('input',{type:'number',min:1,max:110,value:pOpts.penUpSpeed,style:{width:'40px',background:'var(--bg)',border:'1px solid var(--border)',color:'var(--text)',borderRadius:'3px',padding:'1px 3px',fontSize:'0.65rem'},onChange:e=>pSet('penUpSpeed',Number(e.target.value))})),
+            h('div', {style:{display:'flex',justifyContent:'space-between'}}, h('span',null,'Pen down'), h('input',{type:'number',min:0,max:100,value:pOpts.penDownPosition,style:{width:'40px',background:'var(--bg)',border:'1px solid var(--border)',color:'var(--text)',borderRadius:'3px',padding:'1px 3px',fontSize:'0.65rem'},onChange:e=>pSet('penDownPosition',Number(e.target.value))})),
+            h('div', {style:{display:'flex',justifyContent:'space-between'}}, h('span',null,'Pen up'), h('input',{type:'number',min:0,max:100,value:pOpts.penUpPosition,style:{width:'40px',background:'var(--bg)',border:'1px solid var(--border)',color:'var(--text)',borderRadius:'3px',padding:'1px 3px',fontSize:'0.65rem'},onChange:e=>pSet('penUpPosition',Number(e.target.value))})),
+          ),
+          // Manual + Plot
+          h('div', {style:{display:'flex',gap:'4px',flexWrap:'wrap',marginBottom:'6px'}},
+            ...[['Pen Up','pen_up'],['Pen Down','pen_down'],['Home','home'],['Motors Off','disable_motors']].map(([label, cmd]) =>
+              h('button', {key:cmd, style:{padding:'2px 6px',fontSize:'0.6rem',background:'var(--card)',border:'1px solid var(--border)',color:'var(--text)',borderRadius:'3px',cursor:'pointer'},
+                onClick: async () => {
+                  try { setStatus(label+'...'); await fetch('/api/plot-manual',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({command:cmd,model:pOpts.model,port:pOpts.port,penUpPosition:pOpts.penUpPosition,penDownPosition:pOpts.penDownPosition})}); setStatus(label+' done'); }
+                  catch(e) { setStatus('Error: '+e.message); }
+                }}, label)),
+          ),
+          h('button', {style:{width:'100%',padding:'8px',background:'var(--accent)',color:'#fff',border:'none',borderRadius:'4px',fontSize:'0.78rem',fontWeight:600,cursor:'pointer'},
+            disabled:plotterPatterns.length===0 || (plotterStatus && plotterStatus.plotting),
+            onClick:plotToAxidraw},
+            plotterStatus && plotterStatus.plotting ? 'Plotting...' : 'Plot to AxiDraw'),
+          plotterStatus && plotterStatus.plotting ? h('div', {style:{marginTop:'4px'}},
+            h('div', {style:{background:'var(--border)',borderRadius:'3px',height:'4px',overflow:'hidden'}},
+              h('div', {style:{width:(plotterStatus.progress*100)+'%',height:'100%',background:'var(--accent)',transition:'width 0.3s'}})),
+            h('div', {style:{fontSize:'0.6rem',color:'var(--muted)',marginTop:'2px'}}, plotterStatus.message),
+            h('button', {style:{marginTop:'4px',padding:'3px 8px',background:'var(--accent2)',color:'#fff',border:'none',borderRadius:'3px',fontSize:'0.65rem',cursor:'pointer'},onClick:plotStop}, 'STOP'),
+          ) : null,
+        ),
       ) : null,
 
       // ---- Pattern editor sidebar (when pattern tab is active) ----
@@ -3540,12 +3583,8 @@ function App() {
             );
           })()),
         ) : null,
-        // Plotter content
-        plotterActive ? h('div', {className:'plotter-content'},
-          h('div', {style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'16px'}},
-            h('h3', null, 'AxiDraw'),
-            h('button', {onClick:()=>setShowPlotter(false), style:{background:'none',border:'none',color:'var(--muted)',fontSize:'1.2rem',cursor:'pointer',padding:'4px'}}, '\u00d7'),
-        ),
+        // Plotter content (placeholder — controls moved to sidebar)
+        plotterActive ? h('div', {className:'plotter-content', style:{display:'none'}},
 
         // Model & Port
         h('div', {className:'pg'},
