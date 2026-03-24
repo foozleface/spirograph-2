@@ -157,6 +157,17 @@ MODULE_DEFS = {
             "cycles":           {"type": "float", "default": 1.0,  "min": 1, "max": 10, "step": 1, "desc": "Repetitions"},
         },
     },
+    "geneva": {
+        "category": "generator",
+        "label": "Geneva",
+        "desc": "Geneva mechanism \u2014 intermittent stepped rotation with dwells",
+        "params": {
+            "slots":     {"type": "int",   "default": 4,    "min": 3,   "max": 8,   "desc": "Slots"},
+            "radius":    {"type": "float", "default": 80.0, "min": 10,  "max": 200, "desc": "Radius"},
+            "pin_ratio": {"type": "float", "default": 0.7,  "min": 0.1, "max": 1.0, "step": 0.05, "desc": "Pin position"},
+            "cycles":    {"type": "float", "default": 1.0,  "min": 1,   "max": 50,  "step": 1, "desc": "Cycles"},
+        },
+    },
     "guilloche": {
         "category": "generator",
         "label": "Guilloche",
