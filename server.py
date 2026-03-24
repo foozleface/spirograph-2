@@ -165,6 +165,8 @@ MODULE_DEFS = {
             "slots":     {"type": "int",   "default": 4,    "min": 3,   "max": 8,   "desc": "Slots"},
             "radius":    {"type": "float", "default": 80.0, "min": 10,  "max": 200, "desc": "Radius"},
             "pin_ratio": {"type": "float", "default": 0.7,  "min": 0.1, "max": 1.0, "step": 0.05, "desc": "Pin position"},
+            "dwell":     {"type": "float", "default": 0.5,  "min": 0.1, "max": 0.9, "step": 0.05, "desc": "Dwell ratio"},
+            "depth":     {"type": "float", "default": 0.4,  "min": 0.0, "max": 1.0, "step": 0.05, "desc": "Transition depth"},
             "cycles":    {"type": "float", "default": 1.0,  "min": 1,   "max": 50,  "step": 1, "desc": "Cycles"},
         },
     },
