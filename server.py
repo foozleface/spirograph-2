@@ -730,12 +730,6 @@ def api_save(req: SaveRequest):
     ini_text = _build_ini(gen_req)
     resolved.write_text(ini_text)
 
-    # Also generate and save SVG alongside
-    try:
-        svg = _run_pipeline(ini_text)
-        resolved.with_suffix(".svg").write_text(svg)
-    except Exception:
-        pass  # SVG generation failure shouldn't block save
 
     return {"saved": name}
 
