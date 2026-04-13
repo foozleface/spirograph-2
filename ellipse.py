@@ -21,6 +21,7 @@ class EllipseModule(TransformModule):
         radius_y: Semi-minor axis (vertical radius)
         end_radius_x: Ending horizontal radius (for animation)
         end_radius_y: Ending vertical radius (for animation)
+        decay: Exponential decay rate (0 = no decay)
         cycles: Number of times around the ellipse
         rotation: Ellipse rotation in degrees
         start_x, start_y: Center position
@@ -35,6 +36,7 @@ class EllipseModule(TransformModule):
         self.cycles = self._getfloat('cycles', 1.0)
         self.lobe = self._getfloat('lobe', 0.0)
         self.lobe_n = self._getfloat('lobe_n', 1.0)
+        self.decay = self._getfloat('decay', 0.0)
         self.rotation_deg = self._getfloat('rotation', 0.0)
         self.end_rotation_deg = self._getfloat('end_rotation', self.rotation_deg)
 
@@ -61,6 +63,12 @@ class EllipseModule(TransformModule):
         # Interpolate radii (global t — oscillation varies across repetitions)
         rx = self._interpolate(self.radius_x, self.end_radius_x, t_norm, 'radius_x')
         ry = self._interpolate(self.radius_y, self.end_radius_y, t_norm, 'radius_y')
+
+        # Apply exponential decay
+        if self.decay > 0:
+            decay_factor = np.exp(-self.decay * t_in_cycles)
+            rx *= decay_factor
+            ry *= decay_factor
 
         # Angle for this single ellipse (one full revolution per cycle)
         angle = t_frac * 2 * pi

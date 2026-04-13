@@ -1588,6 +1588,16 @@ function App() {
   const regenFlag = useRef(false);
   const [regenTrigger, setRegenTrigger] = useState(0);
   const generateRef = useRef(null);
+  const autoRegenTimer = useRef(null);
+  const animRef = useRef(null); // requestAnimationFrame id
+  const [animateMode, setAnimateMode] = useState(true);
+  const [animDuration, setAnimDuration] = useState(5); // seconds
+  const animDurationRef = useRef(5);
+  const [animFrac, setAnimFrac] = useState(1); // current draw fraction
+  const [animRepeat, setAnimRepeat] = useState(false);
+  const animRepeatRef = useRef(false);
+  useEffect(() => { animRepeatRef.current = animRepeat; }, [animRepeat]);
+  useEffect(() => { animDurationRef.current = animDuration; }, [animDuration]);
 
   // Tab system — each tab stores a snapshot; switching saves/restores
   const tabIdCounter = useRef(1);
@@ -1868,6 +1878,10 @@ function App() {
       }
       return next;
     });
+    if (sampling.initial_samples <= 80000) {
+      clearTimeout(autoRegenTimer.current);
+      autoRegenTimer.current = setTimeout(() => generateRef.current?.(), 300);
+    }
   };
 
   // Unified drag system: reorder steps, drag new modules, or extract branches
@@ -2004,6 +2018,7 @@ function App() {
       if (!res.ok) { const e = await res.json(); throw new Error(e.detail || 'Generation failed'); }
       const data = await res.json();
       setPointData(data);
+      if (animateMode) startAnimation();
 
       const totalPts = data.paths.reduce((n, p) => n + p.length, 0);
       setStatus(`Done in ${((Date.now()-t0)/1000).toFixed(1)}s — ${totalPts} points`);
@@ -2015,6 +2030,28 @@ function App() {
   };
   generateRef.current = generate;
 
+  const startAnimation = () => {
+    if (animRef.current) cancelAnimationFrame(animRef.current);
+    let lastTime = performance.now();
+    let frac = 0;
+    const tick = (now) => {
+      const dt = now - lastTime;
+      lastTime = now;
+      const dur = animDurationRef.current * 1000;
+      frac = Math.min(1, frac + dt / dur);
+      setAnimFrac(frac);
+      if (frac < 1) animRef.current = requestAnimationFrame(tick);
+      else if (animRepeatRef.current) { animRef.current = requestAnimationFrame(() => { startAnimation(); }); }
+      else animRef.current = null;
+    };
+    setAnimFrac(0);
+    animRef.current = requestAnimationFrame(tick);
+  };
+
+  // Redraw when animFrac changes
+  useEffect(() => {
+    if (animateMode && pointData) drawCanvas(animFrac);
+  }, [animFrac]);
 
   const plotToAxidraw = async () => {
     if (totalModules === 0) return;
@@ -2157,7 +2194,8 @@ function App() {
   // (addToPlotter, removePlotterPattern, updatePlotterPattern defined above with tab system)
 
   // Canvas rendering
-  const drawCanvas = useCallback(() => {
+  const drawCanvas = useCallback((drawFrac) => {
+    if (drawFrac === undefined) drawFrac = 1;
     const cvs = canvasRef.current;
     if (!cvs) return;
     if (!pointData && !plotterActive) return;
@@ -2211,7 +2249,9 @@ function App() {
     const cyC = offY + pxH / 2;
 
     // Helper: draw a set of paths with given transforms
-    const drawPaths = (paths, pcfg, psc, ox, oy, pOff, pRot, pScale, isSelected) => {
+    // frac = fraction of points to draw (0-1), 1 = all
+    const drawPaths = (paths, pcfg, psc, ox, oy, pOff, pRot, pScale, isSelected, frac) => {
+      if (frac === undefined) frac = 1;
       const pcxC = ox + (pcfg.width * psc) / 2;
       const pcyC = oy + (pcfg.height * psc) / 2;
       ctx.save();
@@ -2223,12 +2263,19 @@ function App() {
       ctx.strokeStyle = pcfg.stroke_color || '#000000';
       ctx.lineWidth = Math.max(0.4, (pcfg.stroke_width || 0.3) * psc);
       ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      const totalPts = paths.reduce((n, p) => n + p.length, 0);
+      const maxPts = Math.floor(totalPts * frac);
+      let drawn = 0;
       for (const path of paths) {
-        if (path.length < 2) continue;
+        if (path.length < 2) { drawn += path.length; continue; }
+        const remaining = maxPts - drawn;
+        if (remaining <= 0) break;
+        const end = Math.min(path.length, remaining);
         ctx.beginPath();
         ctx.moveTo(path[0][0] * psc, path[0][1] * psc);
-        for (let i = 1; i < path.length; i++) ctx.lineTo(path[i][0] * psc, path[i][1] * psc);
+        for (let i = 1; i < end; i++) ctx.lineTo(path[i][0] * psc, path[i][1] * psc);
         ctx.stroke();
+        drawn += end;
       }
       if (isSelected) {
         ctx.strokeStyle = 'rgba(124,92,252,0.6)';
@@ -2256,7 +2303,7 @@ function App() {
 
     // Draw current live pattern (only on pattern tabs, not plotter tab)
     if (pointData && !plotterActive) {
-      drawPaths(pointData.paths, cfg, sc, offX, offY, cvOff, cvRot, cvScale, false);
+      drawPaths(pointData.paths, cfg, sc, offX, offY, cvOff, cvRot, cvScale, false, drawFrac);
     }
 
     // Paper border in plotter mode
@@ -3480,6 +3527,21 @@ function App() {
             onClick:()=>setSampling({...sampling, initial_samples:q.i, output_samples:q.o})},
             q.label)),
         ),
+        h('div', {className:'output-row'},
+          h('label', null, 'Animate'),
+          h('input', {type:'checkbox', checked:animateMode, onChange:e=>{
+            setAnimateMode(e.target.checked);
+            if (!e.target.checked && animRef.current) { cancelAnimationFrame(animRef.current); animRef.current = null; setAnimFrac(1); }
+          }}),
+          animateMode ? h('label', null, 'Speed') : null,
+          animateMode ? h('input', {type:'range', min:0.1, max:40, step:0.1, value:40.1-animDuration,
+            onChange:e=>setAnimDuration(40.1-parseFloat(e.target.value))}) : null,
+          animateMode ? h('span', {style:{fontSize:'0.7rem',color:'var(--muted)'}}, animDuration.toFixed(1) + 's') : null,
+        ),
+        animateMode ? h('div', {className:'output-row'},
+          h('label', null, 'Loop'),
+          h('input', {type:'checkbox', checked:animRepeat, onChange:e=>setAnimRepeat(e.target.checked)}),
+        ) : null,
       ),
 
       // Action buttons
