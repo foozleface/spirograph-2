@@ -11,6 +11,7 @@ import io
 import json
 import sys
 import tempfile
+import threading
 import traceback
 from pathlib import Path
 
@@ -761,6 +762,8 @@ AXIDRAW_MODELS = {
 }
 
 _plotter_status = {"plotting": False, "progress": 0.0, "message": "", "error": ""}
+_plot_stop = threading.Event()
+_plot_ad = None  # reference to active AxiDraw for emergency stop
 
 
 class PlotRequest(BaseModel):
@@ -794,6 +797,9 @@ class PlotRequest(BaseModel):
     cv_offset_x: float = 0.0
     cv_offset_y: float = 0.0
     cv_rotation: float = 0.0
+    # Plotter page placement (percentage of paper, 0=left/top edge)
+    plotter_x: float = -1  # -1 means not set (use cv_offset instead)
+    plotter_y: float = -1
     cv_scale: float = 1.0
 
 
@@ -835,22 +841,40 @@ def api_plot(req: PlotRequest):
         traceback.print_exc()
         raise HTTPException(500, f"Pipeline error: {e}")
 
-    # Apply canvas transforms (rotation, scale, offset) then convert to inch coordinates
+    # The normalize function may expand canvas beyond paper to preserve aspect ratio.
+    # Rescale to fit within the physical drawable area.
     import numpy as np
-    cx_draw, cy_draw = draw_w / 2, draw_h / 2  # center of drawable area
+    actual_w = cfg["width"]
+    actual_h = cfg["height"]
+    fit_scale = min(draw_w / actual_w, draw_h / actual_h)
+
+    # Center of the normalized output and center of the drawable area
+    cx_norm, cy_norm = actual_w / 2, actual_h / 2
+    cx_draw, cy_draw = draw_w / 2, draw_h / 2
+
     rot_rad = np.radians(req.cv_rotation)
     cos_r, sin_r = np.cos(rot_rad), np.sin(rot_rad)
-    sc = req.cv_scale
-    off_x = req.cv_offset_x * draw_w  # offset as inches
-    off_y = req.cv_offset_y * draw_h
+    sc = req.cv_scale * fit_scale
+
+    if req.plotter_x >= 0:
+        # Plotter page placement: plotter_x/y are percentage of paper (0=left/top)
+        # Pattern size in inches after scaling
+        pat_w = actual_w * sc
+        pat_h = actual_h * sc
+        # Pattern center position on paper (plotter_x/y is top-left corner of pattern as % of paper)
+        center_x = (req.plotter_x / 100) * draw_w + pat_w / 2
+        center_y = (req.plotter_y / 100) * draw_h + pat_h / 2
+    else:
+        # Canvas offset mode (original behavior)
+        center_x = cx_draw + req.cv_offset_x * draw_w
+        center_y = cy_draw + req.cv_offset_y * draw_h
 
     segments = []
     for pts in normalized:
-        # Translate to center, scale+rotate, translate back, apply offset
-        centered = pts - complex(cx_draw, cy_draw)
+        centered = pts - complex(cx_norm, cy_norm)
         rotated = (centered.real * cos_r - centered.imag * sin_r) + 1j * (centered.real * sin_r + centered.imag * cos_r)
         scaled = rotated * sc
-        final = scaled + complex(cx_draw + off_x, cy_draw + off_y)
+        final = scaled + complex(center_x, center_y)
         coords = [(float(p.real) + req.margin,
                     float(p.imag) + req.margin) for p in final]
         segments.append(coords)
@@ -859,15 +883,49 @@ def api_plot(req: PlotRequest):
     if total_points == 0:
         raise HTTPException(400, "No points generated")
 
+    # Debug: log coordinate bounds
+    all_coords = [c for seg in segments for c in seg]
+    xs = [c[0] for c in all_coords]
+    ys = [c[1] for c in all_coords]
+    print(f"Plot bounds: x=[{min(xs):.2f}, {max(xs):.2f}] y=[{min(ys):.2f}, {max(ys):.2f}] inches")
+    print(f"  Model {req.model}: {model_info['width']}x{model_info['height']}\" drawable={draw_w:.2f}x{draw_h:.2f}\"")
+    print(f"  cv_offset=({req.cv_offset_x:.3f}, {req.cv_offset_y:.3f}) cv_scale={req.cv_scale:.3f} cv_rotation={req.cv_rotation:.1f}")
+    print(f"  margin={req.margin} segments={len(segments)} points={total_points}")
+
     # Plot in a background thread
     import threading
 
     def _plot_thread():
-        _plotter_status.update(plotting=True, progress=0.0, message="Connecting...", error="")
+        global _plot_ad
+        _plot_stop.clear()
+        _plotter_status.update(plotting=True, progress=0.0, message="Building SVG...", error="")
         try:
             from pyaxidraw import axidraw
+
+            # Build SVG from segments (inches -> 96 DPI pixels)
+            DPI = 96
+            svg_w = model_info["width"] * DPI
+            svg_h = model_info["height"] * DPI
+            paths_svg = []
+            for seg in segments:
+                if len(seg) < 2:
+                    continue
+                parts = [f"M {seg[0][0]*DPI:.2f},{seg[0][1]*DPI:.2f}"]
+                for x, y in seg[1:]:
+                    parts.append(f"L {x*DPI:.2f},{y*DPI:.2f}")
+                paths_svg.append(" ".join(parts))
+
+            svg = f'<?xml version="1.0" encoding="UTF-8"?>\n'
+            svg += f'<svg xmlns="http://www.w3.org/2000/svg" width="{svg_w:.1f}" height="{svg_h:.1f}">\n'
+            for d in paths_svg:
+                svg += f'  <path d="{d}" fill="none" stroke="black" stroke-width="1"/>\n'
+            svg += '</svg>\n'
+
+            _plotter_status["message"] = f"Plotting {total_points} points in {len(segments)} segments..."
+
             ad = axidraw.AxiDraw()
-            ad.interactive()
+            _plot_ad = ad
+            ad.plot_setup(svg)
             ad.options.model = req.model
             ad.options.speed_pendown = req.penDownSpeed
             ad.options.speed_penup = req.penUpSpeed
@@ -876,40 +934,22 @@ def api_plot(req: PlotRequest):
             ad.options.accel = req.accelFactor
             ad.options.const_speed = req.constSpeed
             ad.options.auto_rotate = req.autoRotate
+            ad.options.penlift = 3
             if req.port:
                 ad.options.port = req.port
 
-            if not ad.connect():
-                _plotter_status.update(plotting=False, error="Failed to connect to AxiDraw")
-                return
+            ad.plot_run()
+            _plot_ad = None
 
-            _plotter_status["message"] = f"Plotting {total_points} points in {len(segments)} segments..."
-            points_done = 0
-
-            for seg_idx, seg in enumerate(segments):
-                if len(seg) < 2:
-                    continue
-                # Move to start of segment (pen up)
-                ad.moveto(seg[0][0], seg[0][1])
-                # Draw segment (pen down via lineto)
-                for x, y in seg[1:]:
-                    ad.lineto(x, y)
-                    points_done += 1
-                    if points_done % 500 == 0:
-                        _plotter_status["progress"] = points_done / total_points
-                        _plotter_status["message"] = f"Segment {seg_idx+1}/{len(segments)} — {int(100*points_done/total_points)}%"
-                # Pen up after segment
-                ad.penup()
-
-            # Return home
-            _plotter_status["message"] = "Returning home..."
-            ad.moveto(0, 0)
-            ad.disconnect()
-            _plotter_status.update(plotting=False, progress=1.0, message="Done!", error="")
+            if _plot_stop.is_set():
+                _plotter_status.update(plotting=False, message="Stopped", error="")
+            else:
+                _plotter_status.update(plotting=False, progress=1.0, message="Done!", error="")
 
         except ImportError:
             _plotter_status.update(plotting=False, error="pyaxidraw not installed. Run: pip install https://cdn.evilmadscientist.com/dl/ad/public/AxiDraw_API.zip")
         except Exception as e:
+            _plot_ad = None
             traceback.print_exc()
             _plotter_status.update(plotting=False, error=str(e))
 
@@ -919,8 +959,33 @@ def api_plot(req: PlotRequest):
 
 @app.post("/api/plot-stop")
 def api_plot_stop():
-    """Emergency stop."""
-    _plotter_status.update(plotting=False, message="Stopped", error="Stop requested")
+    """Emergency stop — pen up and return home."""
+    _plot_stop.set()
+    _plotter_status.update(plotting=False, message="Stopping...", error="Stop requested")
+    global _plot_ad
+    if _plot_ad:
+        try:
+            _plot_ad.disconnect()
+        except Exception:
+            pass
+        _plot_ad = None
+    # Pen up + home via fresh interactive connection
+    def _home():
+        import time; time.sleep(1)  # wait for plot thread to release port
+        try:
+            from pyaxidraw import axidraw
+            ad = axidraw.AxiDraw()
+            ad.interactive()
+            ad.options.port = "/dev/ttyACM0"
+            ad.options.penlift = 3
+            if ad.connect():
+                ad.penup()
+                ad.moveto(0, 0)
+                ad.disconnect()
+                _plotter_status["message"] = "Stopped — returned home"
+        except Exception:
+            pass
+    threading.Thread(target=_home, daemon=True).start()
     return {"status": "stopped"}
 
 
@@ -945,6 +1010,7 @@ def api_plot_manual(cmd: ManualCommand):
         ad.options.model = cmd.model
         ad.options.pen_pos_up = cmd.penUpPosition
         ad.options.pen_pos_down = cmd.penDownPosition
+        ad.options.penlift = 3
         if cmd.port:
             ad.options.port = cmd.port
         if not ad.connect():
@@ -1689,10 +1755,15 @@ function App() {
           : p);
       }
       const id = ++placedIdCounter.current;
-      const n = prev.length;
-      const slotW = Math.min(30, 90 / Math.max(1, n + 1));
+      // Center the pattern on the paper
+      const pm = plotterModels[pOpts.model];
+      const paperAR = pm ? pm.width / pm.height : 23.42 / 8.58;
+      const patWidthPct = (pointData.config.width / pointData.config.height) / paperAR * 100;
+      const patHeightPct = 100;
+      const cx = 50 - patWidthPct / 2;
+      const cy = 50 - patHeightPct / 2;
       return [...prev, {id, sourceTabId: activeTabId, paths: pointData.paths,
-        config: pointData.config, x: n * slotW, y: 0, scale: 1.0, rotation: cvRot, name: tabName}];
+        config: pointData.config, x: cx, y: cy, scale: 1.0, rotation: cvRot, name: tabName}];
     });
     setStatus('Added to plotter');
   };
@@ -1710,7 +1781,7 @@ function App() {
   const [plotterStatus, setPlotterStatus] = useState(null);
   const plotPollRef = useRef(null);
   const [pOpts, setPOpts] = useState({
-    model: 3, port: '',
+    model: 3, port: '/dev/ttyACM0',
     penDownSpeed: 25, penUpSpeed: 75, accelFactor: 75, constSpeed: false,
     penUpPosition: 60, penDownPosition: 30,
     penLiftRate: 150, penLowerRate: 150,
@@ -1756,7 +1827,8 @@ function App() {
   };
 
   // Add a new step — with type (from drag/click) or null (placeholder)
-  const addStep = (type, atIdx) => {
+  window._spiro = window._spiro || {};
+  const addStep = window._spiro.addStep = (type, atIdx) => {
     const mod = type && modules ? makeMod(type) : null;
     const idx = atIdx != null ? atIdx : steps.length;
     setSteps(prev => [...prev.slice(0, idx), { kind: 'single', mod }, ...prev.slice(idx)]);
@@ -1992,7 +2064,7 @@ function App() {
   const onDrop = (e) => { e.preventDefault(); doDrop(); setDragSrc(null); setDropTarget(null); };
   const onDragEnd = () => { setDragSrc(null); setDropTarget(null); };
 
-  const generate = async () => {
+  const generate = window._spiro.generate = async () => {
     if (totalModules === 0) return;
     setGenerating(true);
     setStatus('Generating...');
@@ -2053,43 +2125,91 @@ function App() {
     if (animateMode && pointData) drawCanvas(animFrac);
   }, [animFrac]);
 
-  const plotToAxidraw = async () => {
-    if (totalModules === 0) return;
-    const stepsData = steps
-      .filter(s => s.kind === 'single' ? s.mod !== null : s.branches.some(b => b.some(m => m !== null)))
-      .map(s => {
-        if (s.kind === 'single') return { kind: 'single', params: s.mod.params };
-        return { kind: 'group', branches: s.branches.map(b => b.filter(m => m !== null).map(m => m.params)).filter(b => b.length > 0) };
+  const plotToAxidraw = window._spiro.plotToAxidraw = async () => {
+    console.log('plotToAxidraw: totalModules=' + totalModules + ' plotterPatterns=' + plotterPatterns.length);
+
+    // Determine what to plot: plotter page patterns or current pipeline
+    const patternsToPlot = [];
+
+    if (plotterActive && plotterPatterns.length > 0) {
+      // Plot each placed pattern with its placement transform
+      for (const pp of plotterPatterns) {
+        // Recover the tab's pipeline state from its snapshot
+        const snap = tabSnapshots.current[pp.sourceTabId];
+        if (!snap || !snap.steps) continue;
+        const snapSteps = snap.steps
+          .filter(s => s.kind === 'single' ? s.mod !== null : s.branches.some(b => b.some(m => m !== null)))
+          .map(s => {
+            if (s.kind === 'single') return { kind: 'single', params: s.mod.params };
+            return { kind: 'group', branches: s.branches.map(b => b.filter(m => m !== null).map(m => m.params)).filter(b => b.length > 0) };
+          });
+        if (snapSteps.length === 0) continue;
+        // pp.x, pp.y are in % of paper (0=left/top edge, 50=center)
+        // cv_offset is fraction of draw area as shift from center
+        patternsToPlot.push({
+          steps: snapSteps,
+          output: snap.output || output,
+          sampling: snap.sampling || sampling,
+          symmetry: snap.symmetry && (snap.symmetry.n_fold > 1 || snap.symmetry.mirror) ? snap.symmetry : {},
+          plotter_x: pp.x,
+          plotter_y: pp.y,
+          cv_rotation: pp.rotation || 0,
+          cv_scale: pp.scale || 1.0,
+        });
+      }
+    } else if (totalModules > 0) {
+      // Plot current pipeline from main canvas
+      const stepsData = steps
+        .filter(s => s.kind === 'single' ? s.mod !== null : s.branches.some(b => b.some(m => m !== null)))
+        .map(s => {
+          if (s.kind === 'single') return { kind: 'single', params: s.mod.params };
+          return { kind: 'group', branches: s.branches.map(b => b.filter(m => m !== null).map(m => m.params)).filter(b => b.length > 0) };
+        });
+      patternsToPlot.push({
+        steps: stepsData, output, sampling,
+        symmetry: symmetry.n_fold > 1 || symmetry.mirror ? symmetry : {},
+        cv_offset_x: canvasRef.current ? cvOff.x / canvasRef.current.clientWidth : 0,
+        cv_offset_y: canvasRef.current ? cvOff.y / canvasRef.current.clientHeight : 0,
+        cv_rotation: cvRot, cv_scale: cvScale,
       });
-    const body = {
-      steps: stepsData, output, sampling,
-      symmetry: symmetry.n_fold > 1 || symmetry.mirror ? symmetry : {},
-      moire: moire.enabled ? { module_idx: moire.module_idx, param: moire.param, copies: moire.copies, range: moire.range } : {},
-      ...pOpts,
-      cv_offset_x: canvasRef.current ? cvOff.x / canvasRef.current.clientWidth : 0,
-      cv_offset_y: canvasRef.current ? cvOff.y / canvasRef.current.clientHeight : 0,
-      cv_rotation: cvRot, cv_scale: cvScale,
-    };
+    } else {
+      return;
+    }
+
     try {
       setStatus('Sending to AxiDraw...');
-      const res = await fetch('/api/plot', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) { const e = await res.json(); throw new Error(e.detail || 'Plot failed'); }
-      const data = await res.json();
-      setStatus(`Plotting ${data.total_points} points in ${data.segments} segments...`);
-      // Poll for progress
-      if (plotPollRef.current) clearInterval(plotPollRef.current);
-      plotPollRef.current = setInterval(async () => {
-        const sr = await fetch('/api/plotter-status');
-        const st = await sr.json();
-        setPlotterStatus(st);
-        if (st.error) setStatus('Plotter error: ' + st.error);
-        else if (st.message) setStatus(st.message);
-        if (!st.plotting) { clearInterval(plotPollRef.current); plotPollRef.current = null; }
-      }, 1000);
+      let totalPts = 0, totalSegs = 0;
+      for (const pat of patternsToPlot) {
+        const body = {
+          ...pat,
+          moire: {},
+          ...pOpts,
+        };
+        const res = await fetch('/api/plot', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) { const e = await res.json(); throw new Error(e.detail || 'Plot failed'); }
+        const data = await res.json();
+        totalPts += data.total_points;
+        totalSegs += data.segments;
+        setStatus(`Plotting ${totalPts} points in ${totalSegs} segments...`);
+        // Wait for this pattern to finish before starting next
+        await new Promise((resolve) => {
+          const poll = setInterval(async () => {
+            const sr = await fetch('/api/plotter-status');
+            const st = await sr.json();
+            setPlotterStatus(st);
+            if (st.error) setStatus('Plotter error: ' + st.error);
+            else if (st.message) setStatus(st.message);
+            if (!st.plotting) { clearInterval(poll); resolve(); }
+          }, 1000);
+          plotPollRef.current = poll;
+        });
+      }
+      setStatus('Done!');
     } catch (e) {
+      console.error('plotToAxidraw error:', e);
       setStatus('Plot error: ' + e.message);
     }
   };
@@ -3085,7 +3205,7 @@ function App() {
     } catch {}
   };
 
-  const loadIniFile = async (filePath) => {
+  const loadIniFile = window._spiro.loadIniFile = async (filePath) => {
     setGenerating(true);
     setStatus('Loading ' + filePath + '...');
     const t0 = Date.now();
