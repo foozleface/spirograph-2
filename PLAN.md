@@ -138,7 +138,7 @@ All seven tasks are in. What changed, in one line each:
 * Alerts: Home Assistant, MQTT, webhook — per layer and at the end.
 * `server.py` is gone; `launch.sh` opens the window.
 
-`./run_tests.sh` — 273 checks across six gates, no hardware and no network.
+`./run_tests.sh` — 273 checks across seven gates, no hardware and no network.
 
 ### Not carried over from the web UI
 
