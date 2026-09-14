@@ -149,3 +149,29 @@ All seven tasks are in. What changed, in one line each:
   `spiro/pipeline/` as data if it comes back, not in a panel.
 * **Per-pattern tabs.** Replaced by placing several patterns on one sheet,
   which is what they were being used for.
+
+---
+
+# Round two
+
+Asked for after the first seven landed:
+
+> ok - I want a "clear" button for the current plot. I also want distinct
+> screens for the paper so we can have a larger screen view of the current
+> plot. I also like the file browser, but it would be nice to have a quicker
+> way to choose from the existing plots.
+
+- [ ] **R1 — clear the paper.** A button that takes everything off the sheet,
+  asking first when there is something to lose, plus the menu item and the
+  shortcut. Distinct from File > New, which clears the *pattern* being built.
+
+- [ ] **R2 — room for the paper.** Two ways, because "a larger screen view"
+  can mean either:
+  * *Paper only* — hide both side panels, so the sheet has the whole window.
+  * *Paper in its own window* — detach the canvas into a top-level window that
+    can be dragged to a second monitor and made fullscreen. The same widget
+    is reparented, never a copy, so there is still one canvas and one truth.
+
+- [ ] **R3 — pick a pattern quickly.** A Files tab beside Build and Effects:
+  every `.ini` in the project, what its pipeline is, filtered as you type,
+  one click to load. Plus a recent-files list in the File menu.
