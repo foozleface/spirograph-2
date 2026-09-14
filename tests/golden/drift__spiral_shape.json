@@ -1,6 +1,6 @@
 {
  "name": "drift/spiral_shape",
- "ini": "[pipeline]\nmodules = s0\n\n[s0]\nstart_radius = 0.0\nend_start_radius = 3.0\nend_radius = 50.0\nend_end_radius = 88.0\nturns = 3.0\nlobe = 0.0\nlobe_n = 1.0\ncycles = 1.0\ntype = spiral_shape\n\n[output]\nwidth = 800\nheight = 800\nstroke_width = 0.3\nstroke_color = #000000\nbackground_color = #ffffff\nmargin = 0.08\nfilename = /dev/null\n\n[sampling]\ninitial_samples = 12000\noutput_samples = 2000\nuse_arc_length = true\n",
+ "ini": "[pipeline]\nmodules = s0\n\n[s0]\nstart_radius = 0.0\nend_start_radius = 3.0\nend_radius = 50.0\nend_end_radius = 88.0\nturns = 3.0\ndirection = 1\nlobe = 0.0\nlobe_n = 1.0\ncycles = 1.0\ntype = spiral_shape\n\n[output]\nwidth = 800\nheight = 800\nstroke_width = 0.3\nstroke_color = #000000\nbackground_color = #ffffff\nmargin = 0.08\nfilename = /dev/null\n\n[sampling]\ninitial_samples = 12000\noutput_samples = 2000\nuse_arc_length = true\n",
  "fingerprint": {
   "paths": 1,
   "points": 2000,

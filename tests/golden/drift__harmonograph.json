@@ -1,6 +1,6 @@
 {
  "name": "drift/harmonograph",
- "ini": "[pipeline]\nmodules = s0\n\n[s0]\nfreq1 = 2.0\namp1 = 100.0\nend_amp1 = 173.0\nphase1 = 0.0\ndecay1 = 0.0\nfreq2 = 3.0\namp2 = 100.0\nend_amp2 = 173.0\nphase2 = 90.0\ndecay2 = 0.0\nfreq3 = 0.0\namp3 = 0.0\nend_amp3 = 3.0\nphase3 = 0.0\ndecay3 = 0.0\nduration = 60.0\ncycles = 1.0\ntype = harmonograph\n\n[output]\nwidth = 800\nheight = 800\nstroke_width = 0.3\nstroke_color = #000000\nbackground_color = #ffffff\nmargin = 0.08\nfilename = /dev/null\n\n[sampling]\ninitial_samples = 12000\noutput_samples = 2000\nuse_arc_length = true\n",
+ "ini": "[pipeline]\nmodules = s0\n\n[s0]\nfreq1 = 2.0\namp1 = 100.0\nend_amp1 = 173.0\nphase1 = 0.0\ndecay1 = 0.0\nfreq2 = 3.0\namp2 = 100.0\nend_amp2 = 173.0\nphase2 = 90.0\ndecay2 = 0.0\nfreq3 = 0.0\namp3 = 0.0\nend_amp3 = 3.0\nphase3 = 0.0\ndecay3 = 0.0\nfreq4 = 0.0\namp4 = 0.0\nend_amp4 = 3.0\nphase4 = 0.0\ndecay4 = 0.0\nduration = 60.0\ncycles = 1.0\ntype = harmonograph\n\n[output]\nwidth = 800\nheight = 800\nstroke_width = 0.3\nstroke_color = #000000\nbackground_color = #ffffff\nmargin = 0.08\nfilename = /dev/null\n\n[sampling]\ninitial_samples = 12000\noutput_samples = 2000\nuse_arc_length = true\n",
  "fingerprint": {
   "paths": 1,
   "points": 2000,

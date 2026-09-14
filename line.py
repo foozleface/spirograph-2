@@ -51,11 +51,19 @@ class LineModule(TransformModule):
         self.length = self._getfloat('length', 100.0)
         self.end_length = self._getfloat('end_length', self.length)
         
-        # Position parameters
+        # Position parameters. The direction is either an explicit end point
+        # or, when none is given, `rotation` degrees from the start.
         self.start_x = self._getfloat('start_x', 0.0)
         self.start_y = self._getfloat('start_y', 0.0)
-        self.end_x = self._getfloat('end_x', self.length)
-        self.end_y = self._getfloat('end_y', 0.0)
+        self.rotation = self._getfloat('rotation', 0.0)
+        if self.config.has_option(self.section, 'end_x') or \
+                self.config.has_option(self.section, 'end_y'):
+            self.end_x = self._getfloat('end_x', self.length)
+            self.end_y = self._getfloat('end_y', 0.0)
+        else:
+            rad = self.rotation * np.pi / 180
+            self.end_x = self.start_x + self.length * np.cos(rad)
+            self.end_y = self.start_y + self.length * np.sin(rad)
         
         # Timing parameters
         self.cycles = self._getfloat('cycles', 1.0)

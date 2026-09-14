@@ -11,6 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np  # noqa: E402
 
 from spiro.pipeline import build_ini, defaults_for, module_names, run  # noqa: E402
+from spiro.pipeline.document import Document  # noqa: E402
 from spiro.pipeline.engine import normalize  # noqa: E402
 from spiro.pipeline.registry import MODULE_DEFS  # noqa: E402
 
@@ -68,16 +69,40 @@ check("defaults_for rejects an unknown module",
       raises(KeyError, lambda: defaults_for("nope")))
 
 
+def _keys_read_by(module_file, class_name):
+    """The config keys a module class reads, from its own source."""
+    import re
+    src = open(os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))), module_file + ".py")).read()
+    body = src.split("class " + class_name, 1)[1].split("\nclass ", 1)[0]
+    return set(re.findall(r"self\._get(?:float|int|boolean)?\('([a-z0-9_]+)'", body))
+
+
+from spiro.pipeline.registry import TYPE_TO_MODULE, valid_keys as _valid  # noqa: E402
+_gaps = {}
+for _type in MODULE_DEFS:
+    _file = TYPE_TO_MODULE.get(_type, _type)
+    _class = "".join(w.capitalize() for w in _file.split("_")) + "Module"
+    if _type == "rail_slide":
+        _file, _class = "spirograph_rail", "SpirographRailTransformModule"
+    if _type == "oscillating_rotation":
+        _file, _class = "rotation", "OscillatingRotationModule"
+    _missing = _keys_read_by(_file, _class) - _valid(_type)
+    if _missing:
+        _gaps[_type] = sorted(_missing)
+check("every key a module reads is in the registry", not _gaps, _gaps)
+
+
 # -- the INI writer ---------------------------------------------------------- #
 
 print("INI writer:")
 
 SPEC = {
     "steps": [
-        {"kind": "single", "params": {"type": "circle", "radius": 1.0, "closed": True}},
+        {"kind": "single", "params": {"type": "circle", "radius": 1.0, "cycles": 3}},
         {"kind": "group", "branches": [
-            [{"type": "rotation", "total_degrees": 90}, {"type": "scale", "factor": 2}],
-            [{"type": "arc", "arc_radius": 2.5}]]},
+            [{"type": "rotation", "total_degrees": 90}, {"type": "scale", "end_scale": 2}],
+            [{"type": "arc", "radius": 2.5, "normalize": True}]]},
     ],
     "symmetry": {"n_fold": 6, "mirror": True},
 }
@@ -88,7 +113,7 @@ check("the pipeline line names the steps in order",
 check("a group's branches are separated by a pipe",
       "modules = grp1_b0_m0, grp1_b0_m1 | grp1_b1_m0" in text)
 check("booleans are written the way configparser reads them",
-      "closed = true" in text and "mirror = true" in text
+      "normalize = true" in text and "mirror = true" in text
       and "True" not in text)
 check("a UI type name is mapped to its implementation module",
       "type = surface" in build_ini(steps=[{"kind": "single",
@@ -110,6 +135,23 @@ check("two legacy arms become two groups",
       "modules = arm_0, arm_1" in build_ini(
           arms=[[{"type": "circle"}], [{"type": "ellipse"}]]))
 check("the INI is parseable", parses(text))
+
+# Every key a module reads is in the registry, and a key it does not read is
+# refused — the modules read their defaults for anything unknown, so a
+# misspelling is a drawing that quietly differs from its file.
+from spiro.pipeline.registry import valid_keys  # noqa: E402
+check("a misspelt parameter is refused, by name",
+      raises(ValueError, lambda: build_ini(steps=[{"kind": "single", "params": {
+          "type": "arc", "arc_radius": 100}}])))
+check("an unknown module type is refused",
+      raises(ValueError, lambda: build_ini(steps=[{"kind": "single", "params": {
+          "type": "gearbox"}}])))
+check("easing and oscillating drift are accepted everywhere they apply",
+      {"easing", "osc_radius"} <= valid_keys("circle")
+      and "osc_total_degrees" not in valid_keys("rotation"))
+check("a renamed key is read the new way",
+      Document.from_ini("[pipeline]\nmodules = a\n[a]\ntype = circle\nsweep = 3\n"
+                        ).steps[0]["params"].get("lobe") == 3)
 
 
 # -- the engine -------------------------------------------------------------- #

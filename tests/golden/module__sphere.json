@@ -1,6 +1,6 @@
 {
  "name": "module/sphere",
- "ini": "[pipeline]\nmodules = s0\n\n[s0]\nsurface = sphere\nmajor_radius = 100.0\nv_lines = 40\nscale = 1.0\ncycles = 1.0\ntype = surface\n\n[output]\nwidth = 800\nheight = 800\nstroke_width = 0.3\nstroke_color = #000000\nbackground_color = #ffffff\nmargin = 0.08\nfilename = /dev/null\n\n[sampling]\ninitial_samples = 12000\noutput_samples = 2000\nuse_arc_length = true\n",
+ "ini": "[pipeline]\nmodules = s0\n\n[s0]\nsurface = sphere\nmajor_radius = 100.0\nv_lines = 40\nscale = 1.0\ncycles = 1.0\nview_angle_x = 20.0\nview_angle_y = 0.0\nview_angle_z = 0.0\ntype = surface\n\n[output]\nwidth = 800\nheight = 800\nstroke_width = 0.3\nstroke_color = #000000\nbackground_color = #ffffff\nmargin = 0.08\nfilename = /dev/null\n\n[sampling]\ninitial_samples = 12000\noutput_samples = 2000\nuse_arc_length = true\n",
  "fingerprint": {
   "paths": 1,
   "points": 2000,

@@ -315,7 +315,7 @@ What is wrong, in order of damage:
   keeps the points after every step (`Drawing.stages`), which is what the
   window's visual aids are built on. Golden gate: unchanged output.
 
-- [ ] **E3 — every knob, validated.** The registry lists what the modules
+- [x] **E3 — every knob, validated.** The registry lists what the modules
   read, with the pointless ones marked hidden; `build_ini` refuses a
   parameter no module reads; easing and oscillating drift become registry
   entries. The recipes are corrected and their goldens re-recorded on purpose.

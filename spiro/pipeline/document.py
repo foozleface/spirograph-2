@@ -12,7 +12,7 @@ from itertools import count
 from pathlib import Path
 
 from spiro.pipeline.ini import (OUTPUT_DEFAULTS, SAMPLING_DEFAULTS, build_ini)
-from spiro.pipeline.registry import MODULE_DEFS
+from spiro.pipeline.registry import MODULE_DEFS, modernise
 
 # Which UI type a `surface` section really is — the reverse of the registry's
 # TYPE_TO_MODULE, keyed by the module's own `surface` parameter.
@@ -52,7 +52,7 @@ def _section_params(config, name):
     params.setdefault("type", name)
     if params["type"] == "surface":
         params["type"] = _SURFACE_TO_TYPE.get(str(params.get("surface", "")), "torus")
-    return params
+    return modernise(params)
 
 
 @dataclass

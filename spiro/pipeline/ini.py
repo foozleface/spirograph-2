@@ -17,7 +17,7 @@ Steps run in series. A group's branches run *simultaneously* from the origin
 and their outputs sum — independent drawing arms on one machine.
 """
 
-from spiro.pipeline.registry import TYPE_TO_MODULE
+from spiro.pipeline.registry import TYPE_TO_MODULE, valid_keys
 
 OUTPUT_DEFAULTS = {
     "width": 800, "height": 800, "stroke_width": 0.3,
@@ -54,7 +54,19 @@ def _fmt(value):
 
 
 def _emit(lines, section, params):
-    """One module's section, with the UI's type name mapped to its module."""
+    """One module's section, with the UI's type name mapped to its module.
+
+    Refuses a key the module does not read. The modules fall back to their
+    defaults for anything they are not given, so a misspelt key is not an
+    error there — it is a drawing that quietly differs from its file.
+    """
+    module_type = params.get("type")
+    allowed = valid_keys(module_type)
+    if allowed is None:
+        raise ValueError("unknown module type %r in section %s" % (module_type, section))
+    unknown = sorted(set(params) - allowed)
+    if unknown:
+        raise ValueError("%s does not read: %s" % (module_type, ", ".join(unknown)))
     lines.append("[%s]" % section)
     for key, value in params.items():
         if key == "type" and value in TYPE_TO_MODULE:

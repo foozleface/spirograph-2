@@ -7,8 +7,62 @@ why the same table can serve a Qt panel, a web page and a test.
 Each entry is ``type -> {category, label, desc, params}``; each parameter is
 ``name -> {type, default, min, max, step, desc}``. A parameter carrying
 ``drift_for`` is the *end* value of another parameter: the pipeline interpolates
-from the base value to this one over the course of the draw.
+from the base value to this one over the course of the draw. One marked
+``advanced`` is real but rarely wanted — the window folds those away; one
+marked ``hidden`` is read by the module but not worth a knob at all.
+
+The table is exhaustive: every key a module reads is here, and
+:func:`valid_keys` is what the INI writer checks a parameter against. A key
+that is not here is a mistake, and it is refused rather than silently read
+as its default — which is how a third of the recipes came to draw something
+other than what they said.
+
+Every module also reads the common keys (``easing``; ``normalize`` on the
+transforms that offer it; ``osc_<name>`` beside any drifting parameter), see
+:data:`COMMON_PARAMS` and :func:`valid_keys`.
 """
+
+# Read by the base class for every module: the timing curve applied to the
+# module's own clock.
+EASING_MODES = ["linear", "ease_in", "ease_out", "ease_in_out", "sine"]
+
+COMMON_PARAMS = {
+    "easing": {"type": "choice", "choices": EASING_MODES, "default": "linear",
+               "desc": "Timing curve", "advanced": True},
+}
+
+# A drifting parameter may oscillate between its two values instead of
+# sliding once: ``osc_<name> = speed, irregularity``. Speed is how many times
+# it goes there and back over the draw; irregularity (0-1) mixes in two
+# incommensurate cosines so it wanders rather than ticks.
+OSC_PREFIX = "osc_"
+
+def _adv(**kw):
+    kw["advanced"] = True
+    return kw
+
+_ORIGIN = {
+    "origin_x": {"type": "float", "default": 0.0, "min": -300, "max": 300, "desc": "Centre X", "advanced": True},
+    "origin_y": {"type": "float", "default": 0.0, "min": -300, "max": 300, "desc": "Centre Y", "advanced": True},
+}
+_CENTER = {
+    "center_x": {"type": "float", "default": 0.0, "min": -300, "max": 300, "desc": "Centre X", "advanced": True},
+    "center_y": {"type": "float", "default": 0.0, "min": -300, "max": 300, "desc": "Centre Y", "advanced": True},
+}
+_NORMALIZE = {"normalize": {"type": "bool", "default": True, "desc": "Own clock spans the whole draw", "advanced": True}}
+_VIEW = {
+    "view_angle_x": {"type": "float", "default": 20.0,  "min": -90, "max": 90, "desc": "View tilt X"},
+    "view_angle_y": {"type": "float", "default": 0.0,   "min": -90, "max": 90, "desc": "View tilt Y"},
+    "view_angle_z": {"type": "float", "default": 0.0,   "min": -90, "max": 90, "desc": "View tilt Z"},
+}
+# The surface parametrisation ranges, in radians. Real, but a partial
+# surface is rarely what anyone wants from a knob.
+_UV = {
+    "u_min": {"type": "float", "default": 0.0, "min": -50, "max": 50, "desc": "u from", "hidden": True},
+    "u_max": {"type": "float", "default": 6.283185307179586, "min": -50, "max": 50, "desc": "u to", "hidden": True},
+    "v_min": {"type": "float", "default": 0.0, "min": -50, "max": 50, "desc": "v from", "hidden": True},
+    "v_max": {"type": "float", "default": 6.283185307179586, "min": -50, "max": 50, "desc": "v to", "hidden": True},
+}
 
 MODULE_DEFS = {
     "spirograph_gear": {
@@ -24,6 +78,7 @@ MODULE_DEFS = {
             "end_hole_position": {"type": "float", "default": 0.7,  "min": 0.0, "max": 1.5, "step": 0.05, "desc": "End value", "drift_for": "hole_position"},
             "inside":            {"type": "bool",  "default": True,  "desc": "Inside (hypo) vs outside (epi)"},
             "cycles":            {"type": "float", "default": 1.0,  "min": 1,   "max": 50, "step": 1, "desc": "Repetitions"},
+            "rotations":         {"type": "int",   "default": 0,    "min": 0,   "max": 200, "desc": "Turns around the fixed gear (0 = until it closes)", "advanced": True},
         },
     },
     "harmonograph": {
@@ -46,8 +101,18 @@ MODULE_DEFS = {
             "end_amp3": {"type": "float", "default": 0.0, "min": 0, "max": 200, "desc": "End value", "drift_for": "amp3"},
             "phase3": {"type": "float", "default": 0.0,   "min": 0,   "max": 360, "desc": "Pendulum 3 phase°"},
             "decay3": {"type": "float", "default": 0.0,   "min": 0,   "max": 0.1, "step": 0.005, "desc": "Pendulum 3 decay"},
+            "freq4":  {"type": "float", "default": 0.0,   "min": 0,   "max": 10, "step": 0.1, "desc": "Pendulum 4 freq (0=off)"},
+            "amp4":   {"type": "float", "default": 0.0,   "min": 0,   "max": 200, "desc": "Pendulum 4 amp"},
+            "end_amp4": {"type": "float", "default": 0.0, "min": 0, "max": 200, "desc": "End value", "drift_for": "amp4"},
+            "phase4": {"type": "float", "default": 0.0,   "min": 0,   "max": 360, "desc": "Pendulum 4 phase°"},
+            "decay4": {"type": "float", "default": 0.0,   "min": 0,   "max": 0.1, "step": 0.005, "desc": "Pendulum 4 decay"},
             "duration": {"type": "float", "default": 60.0, "min": 10, "max": 200, "desc": "Simulation duration"},
             "cycles":   {"type": "float", "default": 1.0,  "min": 1, "max": 10, "step": 1, "desc": "Repetitions"},
+            # The presets predate the recipes and override the pendulums
+            # above; kept readable for old files, not offered.
+            "preset":    {"type": "str",   "default": "", "desc": "Legacy preset", "hidden": True},
+            "base_freq": {"type": "float", "default": 2.0, "min": 0.1, "max": 10, "desc": "Rotary preset base", "hidden": True},
+            "detune":    {"type": "float", "default": 0.01, "min": 0, "max": 1, "desc": "Rotary preset detune", "hidden": True},
         },
     },
     "lissajous": {
@@ -132,6 +197,7 @@ MODULE_DEFS = {
             "end_radius":       {"type": "float", "default": 50.0, "min": 5, "max": 200, "desc": "End radius"},
             "end_end_radius":   {"type": "float", "default": 50.0, "min": 5, "max": 200, "desc": "End value", "drift_for": "end_radius"},
             "turns":            {"type": "float", "default": 3.0,  "min": 0.5, "max": 20, "step": 0.5, "desc": "Turns"},
+            "direction":        {"type": "choice", "choices": [1, -1], "default": 1, "desc": "Winding (1 anticlockwise, -1 clockwise)", "advanced": True},
             "lobe":             {"type": "float", "default": 0.0,  "min": -100, "max": 100, "step": 1, "desc": "Lobe \u00b1"},
             "lobe_n":           {"type": "float", "default": 1.0,  "min": 0.5, "max": 20, "step": 0.5, "desc": "Lobes per rev"},
             "cycles":           {"type": "float", "default": 1.0,  "min": 1, "max": 10, "step": 1, "desc": "Repetitions"},
@@ -180,6 +246,18 @@ MODULE_DEFS = {
             "normalize":     {"type": "bool",  "default": True,   "desc": "Normalize timing"},
         },
     },
+    "oscillating_rotation": {
+        "category": "transform",
+        "label": "Rocking",
+        "desc": "Rock the pattern back and forth about a centre, like a pendulum",
+        "params": {
+            "amplitude_degrees":    {"type": "float", "default": 45.0, "min": 0, "max": 360, "desc": "Swing each way°"},
+            "oscillations":         {"type": "float", "default": 1.0,  "min": 0.5, "max": 100, "step": 0.5, "desc": "Swings over the draw"},
+            "rotate_around_origin": {"type": "bool",  "default": True,  "desc": "About the origin", "advanced": True},
+            **_CENTER,
+            **_NORMALIZE,
+        },
+    },
     "scale": {
         "category": "transform",
         "label": "Scale",
@@ -187,6 +265,7 @@ MODULE_DEFS = {
         "params": {
             "start_scale": {"type": "float", "default": 1.0, "min": 0.01, "max": 5, "step": 0.1, "desc": "Start scale"},
             "end_scale":   {"type": "float", "default": 1.0, "min": 0.01, "max": 5, "step": 0.1, "desc": "End value", "drift_for": "start_scale"},
+            **_ORIGIN,
             "normalize":   {"type": "bool",  "default": True, "desc": "Normalize timing"},
         },
     },
@@ -211,6 +290,7 @@ MODULE_DEFS = {
             "start_angle": {"type": "float", "default": 0.0,   "min": 0,  "max": 360, "desc": "Start angle°"},
             "sweep_angle": {"type": "float", "default": 180.0, "min": 10, "max": 720, "desc": "Sweep°"},
             "cycles":      {"type": "float", "default": 1.0,   "min": 1,  "max": 10, "step": 1, "desc": "Cycles"},
+            **_CENTER,
             "normalize":   {"type": "bool",  "default": True,  "desc": "Normalize timing"},
         },
     },
@@ -223,7 +303,23 @@ MODULE_DEFS = {
             "outer_radius": {"type": "float", "default": 160.0, "min": 10, "max": 300, "desc": "Outer radius"},
             "start_angle":  {"type": "float", "default": 0.0,   "min": 0,  "max": 360, "desc": "Start angle°"},
             "sweep_angle":  {"type": "float", "default": 720.0, "min": 10, "max": 2880, "desc": "Sweep°"},
+            "cycles":       {"type": "float", "default": 1.0,   "min": 1,  "max": 10, "step": 1, "desc": "Cycles"},
+            **_CENTER,
             "normalize":    {"type": "bool",  "default": True,   "desc": "Normalize timing"},
+        },
+    },
+    "rail_slide": {
+        "category": "transform",
+        "label": "Rail Slide",
+        "desc": "Slide pattern back and forth along a straight rail",
+        "params": {
+            "rail_length": {"type": "float", "default": 200.0, "min": 10, "max": 500, "desc": "Rail length"},
+            "passes":      {"type": "int",   "default": 2,     "min": 1,  "max": 20, "desc": "Passes (odd ones return)"},
+            "rail_angle":  {"type": "float", "default": 0.0,   "min": 0,  "max": 360, "desc": "Rail angle"},
+            "cycles":      {"type": "float", "default": 1.0,   "min": 1,  "max": 20, "step": 1, "desc": "Cycles"},
+            "scale":       {"type": "float", "default": 1.0,   "min": 0.1, "max": 5, "step": 0.1, "desc": "Scale", "advanced": True},
+            "gear_teeth":  {"type": "int",   "default": 40,    "min": 5,  "max": 100, "desc": "Gear teeth", "hidden": True},
+            "tooth_pitch": {"type": "float", "default": 1.0,   "min": 0.1, "max": 5, "desc": "Tooth pitch", "hidden": True},
         },
     },
     "torus": {
@@ -240,6 +336,11 @@ MODULE_DEFS = {
             "view_angle_z": {"type": "float", "default": 0.0,   "min": -90, "max": 90, "desc": "View tilt Z"},
             "scale":        {"type": "float", "default": 1.0,   "min": 0.1, "max": 5, "step": 0.1, "desc": "Scale"},
             "cycles":       {"type": "float", "default": 1.0,   "min": 1,  "max": 10, "step": 1, "desc": "Cycles"},
+            **_UV,
+            "twists":       {"type": "float", "default": 0.0, "min": 0, "max": 8, "desc": "Unused for this surface", "hidden": True},
+            "width":        {"type": "float", "default": 60.0, "min": 5, "max": 200, "desc": "Unused for this surface", "hidden": True},
+            "length":       {"type": "float", "default": 200.0, "min": 1, "max": 500, "desc": "Unused", "hidden": True},
+            "pitch":        {"type": "float", "default": 50.0, "min": 0, "max": 300, "desc": "Unused for this surface", "hidden": True},
         },
         "_module": "surface",
     },
@@ -257,6 +358,11 @@ MODULE_DEFS = {
             "view_angle_z": {"type": "float", "default": 0.0,   "min": -90, "max": 90, "desc": "View tilt Z"},
             "scale":        {"type": "float", "default": 1.0,   "min": 0.1, "max": 5, "step": 0.1, "desc": "Scale"},
             "cycles":       {"type": "float", "default": 1.0,   "min": 1,  "max": 10, "step": 1, "desc": "Cycles"},
+            **_UV,
+            "twists":       {"type": "float", "default": 0.0, "min": 0, "max": 8, "desc": "Unused for this surface", "hidden": True},
+            "minor_radius": {"type": "float", "default": 40.0, "min": 5, "max": 150, "desc": "Unused for this surface", "hidden": True},
+            "length":       {"type": "float", "default": 200.0, "min": 1, "max": 500, "desc": "Unused", "hidden": True},
+            "pitch":        {"type": "float", "default": 50.0, "min": 0, "max": 300, "desc": "Unused for this surface", "hidden": True},
         },
         "_module": "surface",
     },
@@ -274,6 +380,11 @@ MODULE_DEFS = {
             "view_angle_z": {"type": "float", "default": 0.0,   "min": -90, "max": 90, "desc": "View tilt Z"},
             "scale":        {"type": "float", "default": 1.0,   "min": 0.1, "max": 5, "step": 0.1, "desc": "Scale"},
             "cycles":       {"type": "float", "default": 1.0,   "min": 1,  "max": 10, "step": 1, "desc": "Cycles"},
+            **_UV,
+            "twists":       {"type": "float", "default": 0.0, "min": 0, "max": 8, "desc": "Unused for this surface", "hidden": True},
+            "width":        {"type": "float", "default": 60.0, "min": 5, "max": 200, "desc": "Unused for this surface", "hidden": True},
+            "length":       {"type": "float", "default": 200.0, "min": 1, "max": 500, "desc": "Unused", "hidden": True},
+            "pitch":        {"type": "float", "default": 50.0, "min": 0, "max": 300, "desc": "Unused for this surface", "hidden": True},
         },
         "_module": "surface",
     },
@@ -287,6 +398,13 @@ MODULE_DEFS = {
             "v_lines":      {"type": "int",   "default": 40,    "min": 5,  "max": 200, "desc": "Line density"},
             "scale":        {"type": "float", "default": 1.0,   "min": 0.1, "max": 5, "step": 0.1, "desc": "Scale"},
             "cycles":       {"type": "float", "default": 1.0,   "min": 1,  "max": 10, "step": 1, "desc": "Cycles"},
+            **_VIEW,
+            **_UV,
+            "twists":       {"type": "float", "default": 0.0, "min": 0, "max": 8, "desc": "Unused for this surface", "hidden": True},
+            "minor_radius": {"type": "float", "default": 40.0, "min": 5, "max": 150, "desc": "Unused for this surface", "hidden": True},
+            "width":        {"type": "float", "default": 60.0, "min": 5, "max": 200, "desc": "Unused for this surface", "hidden": True},
+            "length":       {"type": "float", "default": 200.0, "min": 1, "max": 500, "desc": "Unused", "hidden": True},
+            "pitch":        {"type": "float", "default": 50.0, "min": 0, "max": 300, "desc": "Unused for this surface", "hidden": True},
         },
         "_module": "surface",
     },
@@ -304,6 +422,11 @@ MODULE_DEFS = {
             "view_angle_z": {"type": "float", "default": 0.0,   "min": -90, "max": 90, "desc": "View tilt Z"},
             "scale":        {"type": "float", "default": 1.0,   "min": 0.1, "max": 5, "step": 0.1, "desc": "Scale"},
             "cycles":       {"type": "float", "default": 1.0,   "min": 1,  "max": 10, "step": 1, "desc": "Cycles"},
+            **_UV,
+            "twists":       {"type": "float", "default": 0.0, "min": 0, "max": 8, "desc": "Unused for this surface", "hidden": True},
+            "width":        {"type": "float", "default": 60.0, "min": 5, "max": 200, "desc": "Unused for this surface", "hidden": True},
+            "length":       {"type": "float", "default": 200.0, "min": 1, "max": 500, "desc": "Unused", "hidden": True},
+            "pitch":        {"type": "float", "default": 50.0, "min": 0, "max": 300, "desc": "Unused for this surface", "hidden": True},
         },
         "_module": "surface",
     },
@@ -322,6 +445,10 @@ MODULE_DEFS = {
             "view_angle_z": {"type": "float", "default": 0.0,   "min": -90, "max": 90, "desc": "View tilt Z"},
             "scale":        {"type": "float", "default": 1.0,   "min": 0.1, "max": 5, "step": 0.1, "desc": "Scale"},
             "cycles":       {"type": "float", "default": 1.0,   "min": 1,  "max": 10, "step": 1, "desc": "Cycles"},
+            **_UV,
+            "minor_radius": {"type": "float", "default": 40.0, "min": 5, "max": 150, "desc": "Unused for this surface", "hidden": True},
+            "length":       {"type": "float", "default": 200.0, "min": 1, "max": 500, "desc": "Unused", "hidden": True},
+            "pitch":        {"type": "float", "default": 50.0, "min": 0, "max": 300, "desc": "Unused for this surface", "hidden": True},
         },
         "_module": "surface",
     },
@@ -340,6 +467,10 @@ MODULE_DEFS = {
             "view_angle_z": {"type": "float", "default": 0.0,   "min": -90, "max": 90, "desc": "View tilt Z"},
             "scale":        {"type": "float", "default": 1.0,   "min": 0.1, "max": 5, "step": 0.1, "desc": "Scale"},
             "cycles":       {"type": "float", "default": 1.0,   "min": 1,  "max": 10, "step": 1, "desc": "Cycles"},
+            "pitch":        {"type": "float", "default": 50.0, "min": 0, "max": 300, "desc": "Rise per turn"},
+            **_UV,
+            "minor_radius": {"type": "float", "default": 40.0, "min": 5, "max": 150, "desc": "Unused for this surface", "hidden": True},
+            "length":       {"type": "float", "default": 200.0, "min": 1, "max": 500, "desc": "Unused", "hidden": True},
         },
         "_module": "surface",
     },
@@ -352,7 +483,12 @@ MODULE_DEFS = {
             "end_length":  {"type": "float", "default": 100.0, "min": 1,   "max": 500, "desc": "End value", "drift_for": "length"},
             "cycles":      {"type": "float", "default": 1.0,   "min": 1,   "max": 50, "step": 1, "desc": "Cycles"},
             "stroke_time": {"type": "float", "default": 1.0,   "min": 0.01, "max": 1, "step": 0.01, "desc": "Stroke time (0-1)"},
-            "rotation":    {"type": "float", "default": 0.0,   "min": 0,   "max": 360, "desc": "Direction"},
+            "rotation":    {"type": "float", "default": 0.0,   "min": 0,   "max": 360, "desc": "Direction°"},
+            "idle_at":     {"type": "choice", "choices": ["start", "end"], "default": "start", "desc": "Where the pen waits", "advanced": True},
+            "start_x":     {"type": "float", "default": 0.0,   "min": -300, "max": 300, "desc": "Start X", "advanced": True},
+            "start_y":     {"type": "float", "default": 0.0,   "min": -300, "max": 300, "desc": "Start Y", "advanced": True},
+            "end_x":       {"type": "float", "default": 0.0,   "min": -300, "max": 300, "desc": "End X (0,0 = use length and direction)", "advanced": True},
+            "end_y":       {"type": "float", "default": 0.0,   "min": -300, "max": 300, "desc": "End Y", "advanced": True},
         },
     },
     "ellipse": {
@@ -368,6 +504,7 @@ MODULE_DEFS = {
             "end_rotation": {"type": "float", "default": 0.0,  "min": 0,  "max": 360, "desc": "End value", "drift_for": "rotation"},
             "lobe":         {"type": "float", "default": 0.0,  "min": -100, "max": 100, "step": 1, "desc": "Lobe \u00b1"},
             "lobe_n":       {"type": "float", "default": 1.0,  "min": 0.5, "max": 20, "step": 0.5, "desc": "Lobes per rev"},
+            "decay":        {"type": "float", "default": 0.0,  "min": 0,  "max": 2, "step": 0.05, "desc": "Shrink per cycle"},
             "cycles":       {"type": "float", "default": 1.0,  "min": 1,  "max": 500, "step": 1, "desc": "Cycles"},
         },
     },
@@ -400,6 +537,7 @@ MODULE_DEFS = {
             "passes":        {"type": "int",   "default": 2,     "min": 1, "max": 20, "desc": "Passes"},
             "cycles":        {"type": "float", "default": 1.0,   "min": 1, "max": 20, "step": 1, "desc": "Cycles"},
             "rail_angle":    {"type": "float", "default": 0.0,   "min": 0, "max": 360, "desc": "Rail angle"},
+            "scale":         {"type": "float", "default": 1.0,   "min": 0.1, "max": 5, "step": 0.1, "desc": "Scale", "advanced": True},
         },
     },
     "bend": {
@@ -410,6 +548,9 @@ MODULE_DEFS = {
             "radius":      {"type": "float", "default": 200.0, "min": 10,  "max": 500, "desc": "Bend radius"},
             "start_angle": {"type": "float", "default": 0.0,   "min": -180, "max": 360, "desc": "Start angle"},
             "sweep_angle": {"type": "float", "default": 90.0,  "min": 10,  "max": 720, "desc": "Sweep"},
+            "direction":   {"type": "choice", "choices": [1, -1], "default": 1, "desc": "Y outward (1) or inward (-1)", "advanced": True},
+            "x_range":     {"type": "float", "default": 0.0,   "min": 0,   "max": 2000, "desc": "X span that fills the sweep (0 = radius × sweep)", "advanced": True},
+            **_CENTER,
         },
     },
     "damping": {
@@ -420,6 +561,8 @@ MODULE_DEFS = {
             "decay_rate":     {"type": "float", "default": 0.02, "min": 0, "max": 0.2, "step": 0.005, "desc": "Decay rate"},
             "end_decay_rate": {"type": "float", "default": 0.02, "min": 0, "max": 0.2, "step": 0.005, "desc": "End value", "drift_for": "decay_rate"},
             "duration":       {"type": "float", "default": 60.0, "min": 1, "max": 200, "desc": "Duration"},
+            **_ORIGIN,
+            **_NORMALIZE,
         },
     },
     "noise": {
@@ -431,6 +574,8 @@ MODULE_DEFS = {
             "end_amplitude": {"type": "float", "default": 5.0,  "min": 0,   "max": 50, "desc": "End value", "drift_for": "amplitude"},
             "frequency":     {"type": "float", "default": 50.0, "min": 1,   "max": 500, "desc": "Frequency"},
             "seed":          {"type": "int",   "default": 42,   "min": 0,   "max": 9999, "desc": "Seed"},
+            "mode":          {"type": "choice", "choices": ["radial", "xy"], "default": "radial", "desc": "Radial (bumpy edge) or xy (shaky hand)"},
+            **_NORMALIZE,
         },
     },
     "stretch": {
@@ -442,6 +587,8 @@ MODULE_DEFS = {
             "end_scale_x": {"type": "float", "default": 1.0, "min": 0.1, "max": 10, "step": 0.1, "desc": "End value", "drift_for": "scale_x"},
             "scale_y":     {"type": "float", "default": 1.0, "min": 0.1, "max": 10, "step": 0.1, "desc": "Y scale"},
             "end_scale_y": {"type": "float", "default": 1.0, "min": 0.1, "max": 10, "step": 0.1, "desc": "End value", "drift_for": "scale_y"},
+            **_ORIGIN,
+            **_NORMALIZE,
         },
     },
 }
@@ -457,6 +604,21 @@ TYPE_TO_MODULE = {
 }
 
 
+# Keys that changed name. Applied when a file is read, so a pattern saved
+# under the old spelling still draws what it drew — rather than the module
+# quietly reading its default, which is what happened to every file that
+# said `sweep` after the rename to `lobe`.
+RENAMED_KEYS = {
+    "sweep": "lobe", "sweep_n": "lobe_n",
+    "end_sweep": "end_lobe",
+}
+
+
+def modernise(params):
+    """A params dict with every renamed key spelled the current way."""
+    return {RENAMED_KEYS.get(key, key): value for key, value in params.items()}
+
+
 def module_names(category=None):
     """Every module type, optionally just the generators or just the transforms."""
     return [name for name, spec in MODULE_DEFS.items()
@@ -464,11 +626,42 @@ def module_names(category=None):
 
 
 def defaults_for(module_type):
-    """A fresh parameter dict for a module, ready to be edited."""
+    """A fresh parameter dict for a module, ready to be edited.
+
+    Hidden parameters are left out unless they carry the module's identity
+    (a surface's ``surface`` key): a file should say what was chosen, not
+    restate every default the module has."""
     spec = MODULE_DEFS.get(module_type)
     if not spec:
         raise KeyError("unknown module type: %s" % module_type)
     params = {"type": module_type}
     for name, p in spec["params"].items():
+        if p.get("hidden") and name != "surface":
+            continue
         params[name] = p["default"]
     return params
+
+
+def drift_bases(module_type):
+    """The parameters of a module that have an ``end_`` twin — the ones that
+    may also carry ``osc_<name>``."""
+    spec = MODULE_DEFS[module_type]
+    return {p["drift_for"] for p in spec["params"].values() if "drift_for" in p}
+
+
+def valid_keys(module_type):
+    """Every key a module's INI section may hold, or None for an unknown type."""
+    spec = MODULE_DEFS.get(module_type)
+    if not spec:
+        return None
+    keys = {"type"} | set(spec["params"]) | set(COMMON_PARAMS)
+    keys |= {OSC_PREFIX + base for base in drift_bases(module_type)}
+    return keys
+
+
+def by_module_file():
+    """UI type names grouped by the Python module that implements them."""
+    out = {}
+    for name in MODULE_DEFS:
+        out.setdefault(TYPE_TO_MODULE.get(name, name), []).append(name)
+    return out

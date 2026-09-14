@@ -1,6 +1,6 @@
 {
  "name": "drift/ellipse",
- "ini": "[pipeline]\nmodules = s0\n\n[s0]\nradius_x = 50.0\nend_radius_x = 88.0\nradius_y = 30.0\nend_radius_y = 54.0\nrotation = 0.0\nend_rotation = 3.0\nlobe = 0.0\nlobe_n = 1.0\ncycles = 1.0\ntype = ellipse\n\n[output]\nwidth = 800\nheight = 800\nstroke_width = 0.3\nstroke_color = #000000\nbackground_color = #ffffff\nmargin = 0.08\nfilename = /dev/null\n\n[sampling]\ninitial_samples = 12000\noutput_samples = 2000\nuse_arc_length = true\n",
+ "ini": "[pipeline]\nmodules = s0\n\n[s0]\nradius_x = 50.0\nend_radius_x = 88.0\nradius_y = 30.0\nend_radius_y = 54.0\nrotation = 0.0\nend_rotation = 3.0\nlobe = 0.0\nlobe_n = 1.0\ndecay = 0.0\ncycles = 1.0\ntype = ellipse\n\n[output]\nwidth = 800\nheight = 800\nstroke_width = 0.3\nstroke_color = #000000\nbackground_color = #ffffff\nmargin = 0.08\nfilename = /dev/null\n\n[sampling]\ninitial_samples = 12000\noutput_samples = 2000\nuse_arc_length = true\n",
  "fingerprint": {
   "paths": 1,
   "points": 2000,

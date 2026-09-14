@@ -1,6 +1,6 @@
 {
  "name": "module/spirograph_gear",
- "ini": "[pipeline]\nmodules = s0\n\n[s0]\nfixed_teeth = 96\nrolling_teeth = 36\ntooth_pitch = 1.0\nend_tooth_pitch = 1.0\nhole_position = 0.7\nend_hole_position = 0.7\ninside = true\ncycles = 1.0\ntype = spirograph_gear\n\n[output]\nwidth = 800\nheight = 800\nstroke_width = 0.3\nstroke_color = #000000\nbackground_color = #ffffff\nmargin = 0.08\nfilename = /dev/null\n\n[sampling]\ninitial_samples = 12000\noutput_samples = 2000\nuse_arc_length = true\n",
+ "ini": "[pipeline]\nmodules = s0\n\n[s0]\nfixed_teeth = 96\nrolling_teeth = 36\ntooth_pitch = 1.0\nend_tooth_pitch = 1.0\nhole_position = 0.7\nend_hole_position = 0.7\ninside = true\ncycles = 1.0\nrotations = 0\ntype = spirograph_gear\n\n[output]\nwidth = 800\nheight = 800\nstroke_width = 0.3\nstroke_color = #000000\nbackground_color = #ffffff\nmargin = 0.08\nfilename = /dev/null\n\n[sampling]\ninitial_samples = 12000\noutput_samples = 2000\nuse_arc_length = true\n",
  "fingerprint": {
   "paths": 1,
   "points": 2000,

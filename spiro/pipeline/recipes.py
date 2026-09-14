@@ -77,7 +77,7 @@ def rot(degrees):
 
 
 def arc(radius, sweep):
-    return single("arc", arc_radius=radius, sweep_angle=sweep, start_angle=0,
+    return single("arc", radius=radius, sweep_angle=sweep, start_angle=0,
                   cycles=1)
 
 
@@ -109,6 +109,10 @@ def stretch(x, y):
 # Pendulums three and four, silenced. A two-pendulum harmonograph is a
 # different instrument from a four-pendulum one and most of these want the
 # simpler one.
+#
+# Phases are in degrees — the module reads degrees. The first port of these
+# recipes wrote radians, which the module read as a degree or two, so the
+# four-pendulum figures came out with their pendulums nearly in phase.
 QUIET = {"freq3": 0, "amp3": 0, "phase3": 0, "decay3": 0,
          "freq4": 0, "amp4": 0, "phase4": 0, "decay4": 0}
 
@@ -129,8 +133,8 @@ def _slow_decay(r):
         "harmonograph",
         freq1=a, freq2=b + r.jitter(0.006), freq3=c, freq4=d + r.jitter(0.004),
         amp1=100, amp2=r.f(70, 90), amp3=r.f(40, 60), amp4=r.f(30, 50),
-        phase1=0, phase2=r.f(0.5, 1.57), phase3=r.f(1.0, 2.0),
-        phase4=r.f(1.5, 2.5),
+        phase1=0, phase2=r.f(29, 90), phase3=r.f(57, 115),
+        phase4=r.f(86, 143),
         decay1=r.f(0.001, 0.004), decay2=r.f(0.001, 0.004),
         decay3=r.f(0.001, 0.004), decay4=r.f(0.001, 0.004),
         duration=r.f(100, 150), cycles=1)], "stroke_width": 0.1}
@@ -144,7 +148,7 @@ def _seven_five(r):
         freq1=a, freq2=b + r.jitter(0.006), freq3=r.pick([3, 2]),
         freq4=r.pick([4, 5]) + r.jitter(0.01),
         amp1=100, amp2=80, amp3=60, amp4=50,
-        phase1=0, phase2=1.5708, phase3=r.f(0.3, 0.7), phase4=r.f(1.5, 2.5),
+        phase1=0, phase2=90, phase3=r.f(17, 40), phase4=r.f(86, 143),
         decay1=r.f(0.003, 0.005), decay2=r.f(0.002, 0.004),
         decay3=r.f(0.004, 0.006), decay4=r.f(0.003, 0.005),
         duration=r.f(50, 80), cycles=1)], "stroke_width": 0.1}
@@ -156,7 +160,7 @@ def _primes(r):
         "harmonograph",
         freq1=2, freq2=3 + r.jitter(0.01), freq3=5, freq4=7 + r.jitter(0.006),
         amp1=100, amp2=80, amp3=60, amp4=50,
-        phase1=0, phase2=1.5708, phase3=r.f(0.3, 0.7), phase4=r.f(1.5, 2.5),
+        phase1=0, phase2=90, phase3=r.f(17, 40), phase4=r.f(86, 143),
         decay1=r.f(0.003, 0.005), decay2=r.f(0.002, 0.004),
         decay3=r.f(0.004, 0.006), decay4=r.f(0.003, 0.005),
         duration=60, cycles=1)], "stroke_width": 0.1}
@@ -170,7 +174,7 @@ def _beats(r):
         freq1=base, freq2=base + r.f(0.03, 0.07),
         freq3=base + 1, freq4=base + 1 + r.f(0.04, 0.08),
         amp1=100, amp2=80, amp3=60, amp4=40,
-        phase1=0, phase2=1.5708, phase3=r.f(0.5, 1.5), phase4=r.f(2.0, 3.0),
+        phase1=0, phase2=90, phase3=r.f(29, 86), phase4=r.f(115, 172),
         decay1=r.f(0.001, 0.003), decay2=r.f(0.002, 0.004),
         decay3=r.f(0.001, 0.002), decay4=r.f(0.001, 0.003),
         duration=r.f(80, 120), cycles=1)], "stroke_width": 0.1}
@@ -184,7 +188,7 @@ def _fast_decay(r):
         freq1=a, freq2=b + 0.005, freq3=r.pick([5, 3]),
         freq4=r.pick([7, 4]) + 0.003,
         amp1=120, amp2=100, amp3=80, amp4=60,
-        phase1=0, phase2=1.5708, phase3=0.5, phase4=2.0,
+        phase1=0, phase2=90, phase3=29, phase4=115,
         decay1=r.f(0.015, 0.025), decay2=r.f(0.012, 0.02),
         decay3=r.f(0.02, 0.03), decay4=r.f(0.015, 0.025),
         duration=r.f(15, 30), cycles=1)], "stroke_width": 0.15}
@@ -223,7 +227,7 @@ def _fuzzy_orbits(r):
     cycles = r.i(15, 25) if radius < 20 else r.i(4, 8)
     return {"steps": [group(
         [mod("harmonograph", freq1=a, amp1=100, phase1=0, decay1=r.f(0.004, 0.008),
-             freq2=b + 0.005, amp2=80, phase2=1.5708, decay2=r.f(0.003, 0.006),
+             freq2=b + 0.005, amp2=80, phase2=90, decay2=r.f(0.003, 0.006),
              duration=r.f(35, 50), cycles=1, **QUIET)],
         [mod("circle", radius=radius, cycles=cycles)])], "stroke_width": 0.12}
 
@@ -249,7 +253,7 @@ def _decay_shell(r):
     a, b = r.pick([(2, 3), (3, 4), (5, 4)])
     return {"steps": [group(
         [mod("harmonograph", freq1=a, amp1=100, phase1=0, decay1=r.f(0.004, 0.009),
-             freq2=b + 0.005, amp2=85, phase2=1.5708, decay2=r.f(0.004, 0.009),
+             freq2=b + 0.005, amp2=85, phase2=90, decay2=r.f(0.004, 0.009),
              duration=r.f(35, 55), cycles=r.i(2, 4), **QUIET)],
         [mod("circle", radius=r.f(15, 30), cycles=r.i(6, 14))],
         [mod("translation", start_x=0, end_x=r.f(60, 140), start_y=0, end_y=0,
@@ -398,8 +402,8 @@ def _gear_polygon(r):
 def _nautilus(r):
     a, b = r.pick([(5, 6), (7, 8), (9, 8), (7, 6), (5, 4)])
     return {"steps": [
-        single("lissajous", freq_x=a, freq_y=b, amp_x=r.f(100, 140),
-               amp_y=r.f(100, 140), phase=r.f(40, 80), cycles=r.i(2, 4)),
+        single("lissajous", freq_x=a, freq_y=b, amplitude_x=r.f(100, 140),
+               amplitude_y=r.f(100, 140), phase=r.f(40, 80), cycles=r.i(2, 4)),
         scale(1.0, r.f(0.2, 0.4)),
         rot(r.pick([120, 180, 270]))], "stroke_width": 0.1}
 
@@ -408,8 +412,8 @@ def _nautilus(r):
 def _lissajous_high(r):
     a, b = r.pick([(6, 5), (7, 8), (9, 8), (8, 7), (7, 6)])
     return {"steps": [
-        single("lissajous", freq_x=a, freq_y=b, amp_x=r.f(100, 140),
-               amp_y=r.f(100, 140), phase=r.f(30, 80), cycles=r.i(2, 4)),
+        single("lissajous", freq_x=a, freq_y=b, amplitude_x=r.f(100, 140),
+               amplitude_y=r.f(100, 140), phase=r.f(30, 80), cycles=r.i(2, 4)),
         noise(r.f(1, 2.5), r.f(8, 14))], "stroke_width": 0.1}
 
 
@@ -417,8 +421,8 @@ def _lissajous_high(r):
 def _lissajous_damped(r):
     a, b = r.pick([(5, 4), (7, 6), (4, 3), (9, 8)])
     return {"steps": [
-        single("lissajous", freq_x=a, freq_y=b, amp_x=r.f(90, 130),
-               amp_y=r.f(90, 130), phase=r.f(40, 75), cycles=r.i(2, 4)),
+        single("lissajous", freq_x=a, freq_y=b, amplitude_x=r.f(90, 130),
+               amplitude_y=r.f(90, 130), phase=r.f(40, 75), cycles=r.i(2, 4)),
         damp(r.f(0.008, 0.015), r.f(40, 60)),
         stretch(r.f(1.3, 2.0), 1.0)], "stroke_width": 0.12}
 
@@ -467,7 +471,7 @@ def _ellipse_deep(r):
 def _rose(r):
     petals, denom = r.pick([(5, 3), (7, 3), (7, 4), (8, 3), (5, 2)])
     return {"steps": [
-        single("rose", petals=petals, denom=denom, radius=r.f(100, 140), cycles=1),
+        single("rose", k_num=petals, k_den=denom, radius=r.f(100, 140), cycles=1),
         rot(r.pick([36, 45, 60, 72]))],
         "stroke_width": 0.15, "symmetry": r.pick([0, 0, 3, 5]) or None}
 
@@ -476,7 +480,7 @@ def _rose(r):
 def _rose_noise(r):
     petals, denom = r.pick([(5, 2), (7, 3), (8, 3), (5, 3), (7, 4)])
     return {"steps": [
-        single("rose", petals=petals, denom=denom, radius=r.f(100, 140),
+        single("rose", k_num=petals, k_den=denom, radius=r.f(100, 140),
                cycles=r.i(2, 4)),
         noise(r.f(2, 4), r.f(6, 12)),
         damp(r.f(0.01, 0.02), r.f(40, 60))], "stroke_width": 0.12}
@@ -489,8 +493,9 @@ def _trefoil(r):
     kind = r.pick(["torus", "figure8", "mobius", "klein"])
     return {"steps": [
         single("klein_bottle" if kind == "klein" else kind, surface=kind,
-               major_radius=r.f(100, 150), minor_radius=r.f(35, 65),
-               width=r.f(40, 80), v_lines=r.i(30, 60),
+               major_radius=r.f(100, 150), v_lines=r.i(30, 60),
+               **({"width": r.f(40, 80)} if kind == "mobius"
+                  else {"minor_radius": r.f(35, 65)}),
                view_angle_x=r.f(20, 50), view_angle_y=r.f(10, 40),
                view_angle_z=r.f(-15, 15)),
         rot(360)], "stroke_width": 0.12}
@@ -650,8 +655,8 @@ def _guilloche_group(r):
 @recipe("Cloud lobes — a rack, bent")
 def _rack_bend(r):
     return {"steps": [
-        single("rack", teeth=r.i(25, 40), tooth_pitch=r.f(4, 7),
-               hole_position=r.f(0.6, 0.8), straight_length=r.f(150, 250),
+        single("rack", gear_teeth=r.i(25, 40), tooth_pitch=r.f(4, 7),
+               hole_position=r.f(0.6, 0.8), straight_teeth=r.i(30, 60),
                cycles=r.i(2, 4)),
         bend(r.f(170, 230), r.pick([180, 200, 240])),
         rot(r.pick([180, 270]))], "stroke_width": 0.15}
@@ -660,8 +665,8 @@ def _rack_bend(r):
 @recipe("Rack, bent and turned")
 def _rack_bend_rot(r):
     return {"steps": [
-        single("rack", teeth=r.i(20, 40), tooth_pitch=r.f(4, 8),
-               hole_position=r.f(0.6, 0.8), straight_length=r.f(150, 250),
+        single("rack", gear_teeth=r.i(20, 40), tooth_pitch=r.f(4, 8),
+               hole_position=r.f(0.6, 0.8), straight_teeth=r.i(30, 60),
                cycles=r.i(2, 5)),
         bend(r.f(150, 250), r.pick([180, 200, 240])),
         rot(r.pick([180, 270, 360]))], "stroke_width": 0.12}
@@ -670,8 +675,8 @@ def _rack_bend_rot(r):
 @recipe("Rack up a spiral")
 def _rack_spiral(r):
     return {"steps": [
-        single("rack", teeth=r.i(25, 40), tooth_pitch=r.f(3, 6),
-               hole_position=r.f(0.55, 0.75), straight_length=r.f(120, 200),
+        single("rack", gear_teeth=r.i(25, 40), tooth_pitch=r.f(3, 6),
+               hole_position=r.f(0.55, 0.75), straight_teeth=r.i(25, 50),
                cycles=r.i(3, 5)),
         spiral_arc(r.f(20, 35), r.f(150, 200), r.pick([720, 1080]))],
         "stroke_width": 0.1}
@@ -680,7 +685,7 @@ def _rack_spiral(r):
 @recipe("Rail along an arc")
 def _rail_arc(r):
     return {"steps": [
-        single("spirograph_rail", rolling_teeth=r.i(25, 45), tooth_pitch=r.f(3, 6),
+        single("spirograph_rail", gear_teeth=r.i(25, 45), tooth_pitch=r.f(3, 6),
                hole_position=r.f(0.55, 0.8), rail_length=r.f(200, 400),
                cycles=r.i(1, 3)),
         arc(r.f(150, 250), r.pick([180, 270])),
@@ -690,7 +695,7 @@ def _rail_arc(r):
 @recipe("Rail, stretched wide")
 def _rail_wide(r):
     return {"steps": [
-        single("spirograph_rail", rolling_teeth=r.i(30, 50), tooth_pitch=r.f(3, 5),
+        single("spirograph_rail", gear_teeth=r.i(30, 50), tooth_pitch=r.f(3, 5),
                hole_position=r.f(0.6, 0.8), rail_length=r.f(250, 400),
                cycles=r.i(1, 3)),
         stretch(r.f(1.5, 2.5), r.f(0.8, 1.2)),
@@ -762,7 +767,7 @@ def _star_ellipse(r):
 @recipe("Textured spiral from a line")
 def _line_spiral(r):
     return {"steps": [
-        single("line", length=r.f(80, 180), angle=0, cycles=r.i(2, 4)),
+        single("line", length=r.f(80, 180), rotation=0, cycles=r.i(2, 4)),
         spiral_arc(r.f(15, 25), r.f(140, 180), r.pick([720, 1080, 1440])),
         noise(r.f(2, 5), r.f(4, 8))], "stroke_width": 0.12}
 
@@ -770,7 +775,7 @@ def _line_spiral(r):
 @recipe("Line, bent and turned")
 def _line_bend(r):
     return {"steps": [
-        single("line", length=r.f(100, 250), angle=r.f(0, 30), cycles=r.i(2, 5)),
+        single("line", length=r.f(100, 250), rotation=r.f(0, 30), cycles=r.i(2, 5)),
         bend(r.f(120, 250), r.pick([120, 180, 240, 270])),
         rot(r.pick([180, 270, 360]))], "stroke_width": 0.12}
 
@@ -778,7 +783,7 @@ def _line_bend(r):
 @recipe("Line, deep chain")
 def _line_deep(r):
     return {"steps": [
-        single("line", length=r.f(80, 180), angle=0, cycles=r.i(2, 4)),
+        single("line", length=r.f(80, 180), rotation=0, cycles=r.i(2, 4)),
         damp(r.f(0.008, 0.018), r.f(30, 55)),
         stretch(r.f(1.2, 2.0), r.f(0.8, 1.2)),
         spiral_arc(r.f(15, 25), r.f(140, 190), r.pick([720, 1080])),
