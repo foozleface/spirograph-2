@@ -126,9 +126,13 @@ class SheetPanel(QWidget):
         self.sel_y = _mm_box(-2000, 2000)
         self.sel_w = _mm_box(0.1, 2000)
         self.sel_rot = QDoubleSpinBox()
-        self.sel_rot.setRange(-360, 720)
+        self.sel_rot.setRange(0, 360)
         self.sel_rot.setDecimals(1)
-        self.sel_rot.setSingleStep(15)
+        self.sel_rot.setSingleStep(1)       # a degree an arrow; type any tenth
+        self.sel_rot.setToolTip(
+            "Turn, in degrees. The arrows step one degree; type a tenth if you "
+            "need one. On the paper, drag the knob above the item — shift "
+            "snaps to fifteen — or press [ and ].")
         self.sel_rot.setSuffix("°")
         self.sel_rot.setWrapping(True)
         for box in (self.sel_x, self.sel_y, self.sel_w, self.sel_rot):

@@ -22,7 +22,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from pathlib import Path  # noqa: E402
 
-from PySide6.QtCore import QEventLoop, QTimer  # noqa: E402
+from PySide6.QtCore import QEvent, QEventLoop, Qt, QTimer  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from spiro.ui import theme  # noqa: E402
@@ -222,6 +222,35 @@ window.left_tabs.setCurrentWidget(window.design)
 window._place()
 pump(200)
 snap(window, "paper-after-place")
+
+print("turning it on the paper:")
+import math  # noqa: E402
+
+from PySide6.QtGui import QMouseEvent  # noqa: E402
+
+item = window.scene.items[-1]
+item.move_to(240, 110)
+item.set_width(110)
+window.canvas.fit()
+window.canvas.select(item.item_id)
+window._scene_changed()
+pump(120)
+snap(window.canvas, "paper-turn-knob")
+knob = window.canvas.rotate_knob(item)
+rad = math.radians(58 - 90)
+target = window.canvas.to_px(item.x_mm + 70 * math.cos(rad),
+                             item.y_mm + 70 * math.sin(rad))
+window.canvas.mousePressEvent(QMouseEvent(QEvent.MouseButtonPress, knob, knob,
+                                          Qt.LeftButton, Qt.LeftButton, Qt.NoModifier))
+window.canvas.mouseMoveEvent(QMouseEvent(QEvent.MouseMove, target, target,
+                                         Qt.NoButton, Qt.LeftButton, Qt.NoModifier))
+pump(80)
+snap(window.canvas, "paper-turning-protractor")
+window.canvas.mouseReleaseEvent(QMouseEvent(QEvent.MouseButtonRelease, target, target,
+                                            Qt.LeftButton, Qt.NoButton, Qt.NoModifier))
+pump(80)
+snap(window, "paper-turned")
+print("  turned to %.1f deg" % item.rotation_deg)
 
 print("surprise me:")
 window._randomize()

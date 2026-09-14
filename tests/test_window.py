@@ -482,6 +482,86 @@ check("pressing it repeatedly does not sit on one recipe", len(picks) >= 10, len
 check("it remembers what it has used recently",
       len(window.recent_recipes) == len(set(window.recent_recipes)))
 
+# -- turning a placed item ---------------------------------------------------------------- #
+
+print("the turn handle:")
+import math  # noqa: E402
+
+from PySide6.QtGui import QMouseEvent  # noqa: E402
+
+window.sheet.clear_paper(confirm=False)
+window.drawing = None
+window._render_now()
+wait_for(lambda: window.drawing)
+window._place()
+turned = window.scene.items[-1]
+turned.move_to(200.0, 110.0)
+turned.set_width(80.0)
+turned.rotate_to(0.0)
+window.canvas.fit()
+window.canvas.select(turned.item_id)
+canvas = window.canvas
+pump(40)
+
+
+def drag_knob(to_angle_deg, modifier=Qt.NoModifier, radius_mm=60.0):
+    """Press the knob, drag to an angle measured from the item's centre,
+    release — the way a hand does it."""
+    knob = canvas.rotate_knob(turned)
+    rad = math.radians(to_angle_deg - 90.0)
+    target = canvas.to_px(turned.x_mm + radius_mm * math.cos(rad),
+                          turned.y_mm + radius_mm * math.sin(rad))
+    canvas.mousePressEvent(QMouseEvent(QEvent.MouseButtonPress, knob, knob,
+                                       Qt.LeftButton, Qt.LeftButton, modifier))
+    canvas.mouseMoveEvent(QMouseEvent(QEvent.MouseMove, target, target,
+                                      Qt.NoButton, Qt.LeftButton, modifier))
+    canvas.mouseReleaseEvent(QMouseEvent(QEvent.MouseButtonRelease, target, target,
+                                         Qt.LeftButton, Qt.NoButton, modifier))
+
+
+centre = canvas.to_px(turned.x_mm, turned.y_mm)
+knob = canvas.rotate_knob(turned)
+check("the turn knob stands above an unturned item",
+      close(knob.x(), centre.x(), 0.01) and knob.y() < centre.y())
+check("the pointer finds it", canvas._on_rotate_knob(knob, turned))
+check("and does not find it across the sheet",
+      not canvas._on_rotate_knob(centre, turned))
+
+drag_knob(90.0)
+check("dragging the knob a quarter turn turns the item",
+      close(turned.rotation_deg, 90.0, 0.51), turned.rotation_deg)
+knob = canvas.rotate_knob(turned)
+centre = canvas.to_px(turned.x_mm, turned.y_mm)
+check("and the knob comes round with it",
+      knob.x() > centre.x() and close(knob.y(), centre.y(), 0.01))
+
+drag_knob(37.4)
+check("a turn lands on a whole degree", close(turned.rotation_deg, 37.0, 1e-9),
+      turned.rotation_deg)
+drag_knob(37.4, Qt.ShiftModifier)
+check("and on a multiple of fifteen with shift",
+      close(turned.rotation_deg, 30.0, 1e-9), turned.rotation_deg)
+drag_knob(-7.0)
+check("turning past zero wraps rather than going negative",
+      0 <= turned.rotation_deg < 360 and close(turned.rotation_deg, 353.0, 1e-9),
+      turned.rotation_deg)
+
+before = (turned.x_mm, turned.y_mm, turned.w_mm)
+drag_knob(200.0)
+check("a turn moves and resizes nothing",
+      (turned.x_mm, turned.y_mm, turned.w_mm) == before)
+window.sheet.select(turned.item_id)
+pump(40)
+check("the sheet's turn box follows the handle",
+      close(window.sheet.sel_rot.value(), turned.rotation_deg, 0.05),
+      (window.sheet.sel_rot.value(), turned.rotation_deg))
+window.sheet.sel_rot.setValue(123.4)
+pump(40)
+check("and typing a tenth of a degree turns it back",
+      close(turned.rotation_deg, 123.4, 1e-9), turned.rotation_deg)
+check("the box steps a degree at a time", window.sheet.sel_rot.singleStep() == 1)
+window.sheet.clear_paper(confirm=False)
+
 # -- the machine overlay's geometry ------------------------------------------------------- #
 
 print("the machine:")

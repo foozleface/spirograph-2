@@ -28,8 +28,10 @@ per millimetre, and every pattern on it is drawn through the same transform
 that writes the SVG the plotter gets — so a pattern 90 mm wide sitting 120 mm
 from the left edge is drawn 90 mm wide, 120 mm from the left edge, and *plots
 there*. Drag moves it by the millimetres the pointer crossed; the corner handle
-resizes it. Arrow keys nudge by one, shift by a tenth; `[` and `]` turn by a
-degree, shift by fifteen. A scale bar at the bottom says what the zoom means.
+resizes it; the knob standing above its top edge turns it, snapping to a whole
+degree, or to fifteen with shift, with a protractor drawn while you turn. Arrow
+keys nudge by one, shift by a tenth; `[` and `]` turn by a degree, shift by
+fifteen; and the Turn box on the right takes an exact angle down to a tenth. A scale bar at the bottom says what the zoom means.
 Anything that reaches past the drawable area turns red and says so before you
 plot it.
 

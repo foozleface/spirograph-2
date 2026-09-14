@@ -16,8 +16,8 @@ re-fitting a hundred thousand points.
 import math
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import (QBrush, QColor, QFont, QPainter, QPainterPath, QPen,
-                           QPolygonF, QTransform)
+from PySide6.QtGui import (QBrush, QColor, QCursor, QFont, QPainter,
+                           QPainterPath, QPen, QPixmap, QPolygonF, QTransform)
 from PySide6.QtWidgets import QWidget
 
 from spiro.ui import theme
@@ -29,7 +29,10 @@ from spiro.ui.zooming import WheelZoom
 FAST_POINTS = 8000
 
 HANDLE_PX = 7.0           # the corner grab square
+ROTATE_PX = 22.0          # how far the turn knob stands off the top edge
+KNOB_PX = 5.0             # the turn knob's radius
 MIN_SIZE_MM = 2.0
+SNAP_DEG = 15.0           # what shift snaps a turn to
 
 
 class PaperCanvas(QWidget):
@@ -218,6 +221,23 @@ class PaperCanvas(QWidget):
         handle = self.to_px(*_corners(item)[2])
         painter.drawRect(QRectF(handle.x() - HANDLE_PX / 2, handle.y() - HANDLE_PX / 2,
                                 HANDLE_PX, HANDLE_PX))
+
+        # the turn knob, on a stalk from the middle of the top edge
+        rad = math.radians(item.rotation_deg)
+        edge = self.to_px(item.x_mm + item.h_mm / 2 * math.sin(rad),
+                          item.y_mm - item.h_mm / 2 * math.cos(rad))
+        knob = self.rotate_knob(item)
+        turning = bool(self._drag) and self._drag.get("mode") == "rotate" \
+            and self._drag.get("item") is item
+        if turning:
+            self._paint_protractor(painter, item, knob)
+        painter.setPen(QPen(theme.SELECT, 1.2))
+        painter.setBrush(Qt.NoBrush)
+        painter.drawLine(edge, knob)
+        painter.setBrush(QBrush(theme.SELECT if turning else QColor(theme.PANEL)))
+        painter.setPen(QPen(theme.SELECT, 1.5))
+        painter.drawEllipse(knob, KNOB_PX, KNOB_PX)
+
         painter.setBrush(Qt.NoBrush)
         painter.setPen(QPen(QColor(theme.MUTED), 1))
         font = QFont("monospace", 8)
@@ -230,15 +250,44 @@ class PaperCanvas(QWidget):
                          label)
         painter.restore()
 
+    def _paint_protractor(self, painter, item, knob):
+        """While turning: the circle the knob runs on, a tick every fifteen
+        degrees, and the angle read off at the knob."""
+        centre = self.to_px(item.x_mm, item.y_mm)
+        radius = math.hypot(knob.x() - centre.x(), knob.y() - centre.y())
+        painter.save()
+        painter.setBrush(Qt.NoBrush)
+        painter.setPen(QPen(QColor(theme.SELECT.red(), theme.SELECT.green(),
+                                   theme.SELECT.blue(), 90), 1, Qt.DashLine))
+        painter.drawEllipse(centre, radius, radius)
+        for degrees in range(0, 360, int(SNAP_DEG)):
+            quarter = degrees % 90 == 0
+            angle = math.radians(degrees - 90)
+            direction = QPointF(math.cos(angle), math.sin(angle))
+            inner = radius - (7 if quarter else 4)
+            painter.setPen(QPen(QColor(theme.SELECT.red(), theme.SELECT.green(),
+                                       theme.SELECT.blue(), 200 if quarter else 110),
+                                1.6 if quarter else 1))
+            painter.drawLine(centre + direction * inner, centre + direction * radius)
+        painter.setPen(QPen(theme.SELECT, 1))
+        painter.drawLine(centre, knob)
+        painter.setFont(QFont("monospace", 9))
+        painter.drawText(knob + QPointF(KNOB_PX + 4, -KNOB_PX),
+                         "%.0f°" % item.rotation_deg)
+        painter.restore()
+
     def _caption_at(self, item, metrics, label):
         """Where the caption goes: above the item's box, but kept on screen.
 
         An item near the right edge would otherwise write off the side of the
         sheet, and one near the top would write above it. Both are nudged back
         rather than clipped, because the caption is how you read off where the
-        thing actually is."""
+        thing actually is. It also keeps clear of the turn knob, which stands
+        off the top edge and would otherwise be written through."""
         x0, y0 = item.bounds_mm()[:2]
         point = self.to_px(x0, y0) + QPointF(0, -5)
+        knob = self.rotate_knob(item)
+        point.setY(min(point.y(), knob.y() - KNOB_PX - 5))
         width = metrics.horizontalAdvance(label)
         right = self.to_px(self.scene.paper.width_mm, 0).x()
         if point.x() + width > right:
@@ -278,6 +327,15 @@ class PaperCanvas(QWidget):
             return
 
         selected = self.scene.find(self.selected_id) if self.selected_id else None
+        if selected is not None and self._on_rotate_knob(pos, selected):
+            # Remember where on the knob it was grabbed, so the item does not
+            # jump to meet the pointer.
+            self._drag = {"mode": "rotate", "item": selected,
+                          "grab": self._angle_at(mm, selected) - selected.rotation_deg}
+            self._interacting = True
+            self.setCursor(_rotate_cursor())
+            self.update()
+            return
         if selected is not None and self._on_handle(pos, selected):
             self._drag = {"mode": "resize", "item": selected,
                           "start": mm, "w0": selected.w_mm}
@@ -297,7 +355,11 @@ class PaperCanvas(QWidget):
         pos = event.position()
         if self._drag is None:
             selected = self.scene.find(self.selected_id) if self.selected_id else None
-            if selected is not None and self._on_handle(pos, selected):
+            if selected is not None and self._on_rotate_knob(pos, selected):
+                self.setCursor(_rotate_cursor())
+                self.statusMessage.emit(
+                    "Drag to turn %s — shift snaps to %g°" % (selected.name, SNAP_DEG))
+            elif selected is not None and self._on_handle(pos, selected):
                 self.setCursor(Qt.SizeFDiagCursor)
             else:
                 mm = self.to_mm(pos)
@@ -314,7 +376,15 @@ class PaperCanvas(QWidget):
 
         mm = self.to_mm(pos)
         item = self._drag["item"]
-        if self._drag["mode"] == "move":
+        if self._drag["mode"] == "rotate":
+            # A whole degree by default — the angles people mean are whole
+            # ones — and multiples of fifteen with shift. The spin box beside
+            # the sheet takes tenths for the times a degree is not enough.
+            angle = self._angle_at(mm, item) - self._drag["grab"]
+            snap = SNAP_DEG if event.modifiers() & Qt.ShiftModifier else 1.0
+            item.rotate_to(round(angle / snap) * snap)
+            self.statusMessage.emit("%s at %.0f°" % (item.name, item.rotation_deg))
+        elif self._drag["mode"] == "move":
             dx = mm.x() - self._drag["start"].x()
             dy = mm.y() - self._drag["start"].y()
             if event.modifiers() & Qt.ShiftModifier:      # lock to one axis
@@ -400,6 +470,54 @@ class PaperCanvas(QWidget):
         handle = self.to_px(*_corners(item)[2])
         return (abs(pos.x() - handle.x()) <= HANDLE_PX
                 and abs(pos.y() - handle.y()) <= HANDLE_PX)
+
+    def rotate_knob(self, item):
+        """Where the turn knob sits, in widget pixels.
+
+        Straight out from the middle of the item's top edge, along the item's
+        own up — so the knob turns with the thing it turns, which is what
+        makes it read as a handle rather than a dot on the sheet.
+        """
+        rad = math.radians(item.rotation_deg)
+        reach = item.h_mm / 2 + ROTATE_PX / max(self.px_per_mm, 1e-9)
+        return self.to_px(item.x_mm + reach * math.sin(rad),
+                          item.y_mm - reach * math.cos(rad))
+
+    def _on_rotate_knob(self, pos, item):
+        knob = self.rotate_knob(item)
+        return (abs(pos.x() - knob.x()) <= KNOB_PX + 3
+                and abs(pos.y() - knob.y()) <= KNOB_PX + 3)
+
+    def _angle_at(self, mm, item):
+        """The turn that would put the knob under the pointer."""
+        return math.degrees(math.atan2(mm.y() - item.y_mm,
+                                       mm.x() - item.x_mm)) + 90.0
+
+
+_ROTATE_CURSOR = None
+
+
+def _rotate_cursor():
+    """A curved arrow, drawn once. Qt has no rotate cursor of its own, and a
+    plain crosshair over a turn handle says nothing."""
+    global _ROTATE_CURSOR
+    if _ROTATE_CURSOR is None:
+        pix = QPixmap(26, 26)
+        pix.fill(Qt.transparent)
+        painter = QPainter(pix)
+        painter.setRenderHint(QPainter.Antialiasing)
+        box = QRectF(6, 6, 14, 14)
+        head = QPolygonF([QPointF(13, 2), QPointF(13, 10), QPointF(19, 6)])
+        for color, width in ((QColor(0, 0, 0, 200), 5.0), (QColor("#ffffff"), 2.0)):
+            painter.setPen(QPen(color, width, Qt.SolidLine, Qt.RoundCap))
+            painter.setBrush(Qt.NoBrush)
+            painter.drawArc(box, 60 * 16, 280 * 16)
+            painter.setPen(QPen(color, width * 0.6))
+            painter.setBrush(QBrush(color))
+            painter.drawPolygon(head)
+        painter.end()
+        _ROTATE_CURSOR = QCursor(pix, 13, 13)
+    return _ROTATE_CURSOR
 
 
 def _append(path, points, stride):
