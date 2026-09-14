@@ -165,9 +165,13 @@ class PlotPanel(QWidget):
 
         self.pen_prompt = QFrame()
         self.pen_prompt.setObjectName("panel")
+        self.pen_prompt.setStyleSheet(
+            "QFrame#panel { background: %s; border: 1px solid %s; border-radius: 5px; }"
+            % (theme.PANEL_HI, theme.ACCENT))
         prompt_layout = QVBoxLayout(self.pen_prompt)
         prompt_layout.setContentsMargins(8, 8, 8, 8)
         self.pen_prompt_text = QLabel("")
+        self.pen_prompt_text.setTextFormat(Qt.RichText)
         self.pen_prompt_text.setWordWrap(True)
         prompt_layout.addWidget(self.pen_prompt_text)
         go_on = QPushButton("Pen changed — carry on")

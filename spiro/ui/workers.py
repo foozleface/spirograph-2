@@ -59,9 +59,13 @@ class PlotWorker(QObject):
     failed = Signal(str)
     estimate = Signal(object)             # per-layer seconds
 
-    def __init__(self, state=None):
+    def __init__(self, state=None, make_driver=None):
         super().__init__()
         self.state = state or axirun.LayerState()
+        # How a driver is built. Overridden by the gate, which puts a recorder
+        # in the machine's place — the pen-change handshake is the part worth
+        # testing and it must not need an AxiDraw plugged in.
+        self.make_driver = make_driver or self._in_process_driver
         self.driver = None
         self._stop = threading.Event()
         self._continue = threading.Event()
@@ -129,19 +133,12 @@ class PlotWorker(QObject):
         self._previous = None
         self.pause_between_layers = bool(pause_between_layers) and not dry_run
         try:
-            if not axidriver.available():
+            if self.make_driver is self._in_process_driver and not axidriver.available():
                 self.failed.emit("AxiDraw Python sources not found — install the "
                                  "AxiDraw API into .venv (launch.sh does it).")
                 return
 
-            def on_progress(**kw):
-                self.progress.emit(kw.get("phase") or "", kw.get("done_mm") or 0.0,
-                                   kw.get("total_mm") or 0.0,
-                                   kw.get("fraction") or 0.0,
-                                   kw.get("remaining") or 0.0)
-
-            self.driver = axidriver.InProcessDriver(on_progress=on_progress,
-                                                    on_message=self.message.emit)
+            self.driver = self.make_driver(self._on_progress, self.message.emit)
             if dry_run:
                 # preview=True never opens the port; the same code path
                 # otherwise, so a dry run really does rehearse the plot.
@@ -162,6 +159,16 @@ class PlotWorker(QObject):
         finally:
             self.driver = None
             self.busy = False
+
+    @staticmethod
+    def _in_process_driver(on_progress, on_message):
+        return axidriver.InProcessDriver(on_progress=on_progress,
+                                         on_message=on_message)
+
+    def _on_progress(self, **kw):
+        self.progress.emit(kw.get("phase") or "", kw.get("done_mm") or 0.0,
+                           kw.get("total_mm") or 0.0, kw.get("fraction") or 0.0,
+                           kw.get("remaining") or 0.0)
 
     # -- the pen change ------------------------------------------------------- #
 

@@ -425,12 +425,17 @@ class MainWindow(QMainWindow):
                               _hms(result.get("seconds"))))
 
     def _ask_for_pen(self, index, layer, previous):
+        """The plotting thread is blocked in here until one of these buttons
+        is pressed, so this is the moment the operator walks over."""
+        nib = layer.get("label") or "the next"
+        was = (previous or {}).get("label")
         self.right_tabs.setCurrentWidget(self.plot)
         self.plot.ask_for_pen(
-            "Put in the %s pen, then carry on.\nNext layer: %s."
-            % (layer.get("label") or "next", layer.get("label") or index + 1))
-        self.status_left.setText("Waiting for the %s pen…"
-                                 % (layer.get("label") or "next"))
+            "%sPut in the <b>%s</b> pen and press on.<br>"
+            "%s paths, about %s."
+            % ("<b>%s</b> is done. " % was if was else "",
+               nib, layer.get("paths") or "?", _hms(layer.get("estSec"))))
+        self.status_left.setText("Waiting for the %s pen…" % nib)
 
     def _pen_change_done(self, go_on):
         self.plot.pen_prompt_done()
