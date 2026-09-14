@@ -109,7 +109,7 @@ Each task ends with a commit and a push.
   plots the layers in order and `LayerState` remembers which are on the paper.
   *Done when:* two items on two pens plot as two layers with a pause between them.
 
-- [ ] **T6 — notifications.** Wire `axiplot.notify` in: settings for Home
+- [x] **T6 — notifications.** Wire `axiplot.notify` in: settings for Home
   Assistant (URL, token or token file, service, level), MQTT and webhook, a Test
   button, and `plot_job(notifier=…)` so each finished layer buzzes a phone.
   *Done when:* the Test button reports success against the configured service,

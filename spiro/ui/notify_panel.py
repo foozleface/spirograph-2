@@ -12,6 +12,9 @@ the token in a file with sane permissions and point at it, which is what
 axiplot's HomeAssistantNotifier already resolves.
 """
 
+import configparser
+import os
+
 from PySide6.QtCore import QSettings, Signal
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QGroupBox, QLabel,
                                QLineEdit, QPushButton, QVBoxLayout, QWidget)
@@ -19,6 +22,11 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QGroupBox, QLabel,
 from axiplot import notify
 from spiro.ui import theme
 from spiro.ui.widgets import row
+
+
+# The BUSY plotter GUI on this machine keeps the same three transports under
+# an [ha] section here. Importing beats retyping a broker password.
+BUSY_CONF = "~/.config/busy-python/plotter.conf"
 
 
 class NotifyPanel(QWidget):
@@ -101,6 +109,14 @@ class NotifyPanel(QWidget):
         self.hook_url = self._field(inner, "URL", "hook_url", "https://ntfy.sh/...")
         layout.addWidget(box)
 
+        self.import_button = QPushButton("Import from the BUSY plotter")
+        self.import_button.setToolTip(
+            "Copy the broker, topic and service already configured in "
+            + BUSY_CONF)
+        self.import_button.setEnabled(os.path.exists(os.path.expanduser(BUSY_CONF)))
+        self.import_button.clicked.connect(self.import_busy_settings)
+        layout.addWidget(self.import_button)
+
         test = QPushButton("Send a test alert")
         test.clicked.connect(self.send_test)
         layout.addWidget(test)
@@ -138,6 +154,45 @@ class NotifyPanel(QWidget):
             self.settings.setValue(name, "true" if box.isChecked() else "false")
         self.settings.setValue("ha_level", self.ha_level.currentText())
         self.settings.setValue("mqtt_level", self.mqtt_level.currentText())
+
+    def import_busy_settings(self):
+        """Seed the fields from the BUSY plotter's own configuration.
+
+        Explicit, and only on the button: copying someone's broker password
+        into a second settings store is not something to do behind their back.
+        """
+        path = os.path.expanduser(BUSY_CONF)
+        config = configparser.ConfigParser()
+        try:
+            config.read(path)
+            section = dict(config.items("ha"))
+        except Exception as exc:
+            self._report("Could not read %s: %s" % (BUSY_CONF, exc), theme.ERR)
+            return
+
+        moved = []
+        pairs = ((self.mqtt_host, "mqtthost"), (self.mqtt_user, "mqttuser"),
+                 (self.mqtt_pass, "mqttpass"), (self.mqtt_topic, "mqtttopic"),
+                 (self.ha_url, "url"), (self.ha_service, "service"),
+                 (self.ha_token, "token"))
+        for widget, key in pairs:
+            value = (section.get(key) or "").strip()
+            if value:
+                widget.setText(value)
+                moved.append(key)
+        if section.get("level"):
+            self.mqtt_level.setCurrentText(section["level"])
+            self.ha_level.setCurrentText(section["level"])
+
+        transport = (section.get("transport") or "").strip()
+        self.mqtt_enabled.setChecked(transport == "mqtt"
+                                     or bool(section.get("mqtthost")))
+        self.ha_enabled.setChecked(transport == "rest" and bool(section.get("url")))
+        self.enabled.setChecked(section.get("enabled") in ("1", "true", "True"))
+        self.save_settings()
+        self._report("Imported %d setting%s from the BUSY plotter."
+                     % (len(moved), "" if len(moved) == 1 else "s"),
+                     theme.OK if moved else theme.WARN)
 
     # -- the notifier ------------------------------------------------------------------- #
 
