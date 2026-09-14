@@ -1,6 +1,10 @@
 """The window.
 
-Design on the left, the paper in the middle, the machine on the right. It owns
+Design on the left, the machine on the right, and in the middle two tabs:
+**Render**, the pattern being built on its own, and **Paper**, the sheet it is
+placed on. A sheet — paper, pens, every placed pattern with its INI, position,
+size and angle — saves to a ``.sheet.json`` and opens again as the same
+arrangement, the curves regenerated in the background. The window owns
 the two worker threads — one that generates, one that plots — and it is the
 only place in the program that decides when either of them runs, because a
 serial port needs exactly one owner and a hundred-thousand-point pipeline needs
@@ -23,7 +27,7 @@ from axiplot import awake
 from axiplot import run as axirun
 from spiro.pipeline import PLOT_SAMPLING, recipes
 from spiro.pipeline.document import Document
-from spiro.scene import Paper, Scene
+from spiro.scene import SHEET_SUFFIX, Paper, Scene, item_inis
 from spiro.ui import theme
 from spiro.ui.canvas_view import PaperCanvas
 from spiro.ui.design_panel import DesignPanel
@@ -32,6 +36,7 @@ from spiro.ui.library_panel import LibraryPanel
 from spiro.ui.notify_panel import NotifyPanel
 from spiro.ui.paper_window import PaperWindow
 from spiro.ui.plot_panel import PlotPanel
+from spiro.ui.render_view import RenderView
 from spiro.ui.sheet_panel import SheetPanel
 from spiro.ui.workers import PlotWorker, RenderWorker, manual_command
 
@@ -60,7 +65,12 @@ class MainWindow(QMainWindow):
         # The last few recipes, so pressing the button repeatedly explores
         # rather than circles. Forty is most of them.
         self.recent_recipes = []
-        self._pending_plot = None        # what to do once the Ultra render lands
+        # Batch re-renders in flight: token -> (what to do with the drawings,
+        # what to say while they arrive). A plot's Ultra pass and a sheet
+        # being opened both go through here.
+        self._pending_batches = {}
+        self._pending_plot = None        # the batch token a plot is waiting on
+        self.sheet_path = None           # the .sheet.json the paper came from
         self.inhibitor = awake.SleepInhibitor("A plot is running", "Spirograph")
         self._plot_started = 0.0
 
@@ -82,6 +92,7 @@ class MainWindow(QMainWindow):
         self.left_tabs = left
 
         self.canvas = PaperCanvas(self.scene)
+        self.render = RenderView()
         self.sheet = SheetPanel(self.scene)
         self.plot = PlotPanel(QSettings("spirograph-2", "plotter"))
         self.notify = NotifyPanel(QSettings("spirograph-2", "notify"))
@@ -92,8 +103,9 @@ class MainWindow(QMainWindow):
         right.addTab(self.notify, "Alerts")
         self.right_tabs = right
 
-        self.centre = QWidget()
-        centre_layout = QVBoxLayout(self.centre)
+        # The paper's home: the canvas, or a note saying where it went.
+        self.paper_host = QWidget()
+        centre_layout = QVBoxLayout(self.paper_host)
         centre_layout.setContentsMargins(0, 0, 0, 0)
         centre_layout.setSpacing(0)
         centre_layout.addWidget(self.canvas, 1)
@@ -103,6 +115,12 @@ class MainWindow(QMainWindow):
         self.detached_note.setAlignment(Qt.AlignCenter)
         self.detached_note.setVisible(False)
         centre_layout.addWidget(self.detached_note, 1)
+
+        self.centre = QTabWidget()
+        self.centre.addTab(self.render, "Render")
+        self.centre.addTab(self.paper_host, "Paper")
+        self.centre.setDocumentMode(True)
+        self.centre.currentChanged.connect(self._centre_tab_changed)
 
         self.splitter = QSplitter(Qt.Horizontal)
         for widget in (left, self.centre, right):
@@ -129,10 +147,20 @@ class MainWindow(QMainWindow):
                 ("&New", QKeySequence.New, self._new_document),
                 ("&Open…", QKeySequence.Open, self._open),
                 ("&Save", QKeySequence.Save, self._save),
-                ("Save &as…", QKeySequence.SaveAs, self._save_as),
-                ("Export sheet as &SVG…", "Ctrl+E", self._export_svg)):
+                ("Save &as…", QKeySequence.SaveAs, self._save_as)):
             action = QAction(label, self)
             action.setShortcut(shortcut)
+            action.triggered.connect(fn)
+            file_menu.addAction(action)
+        file_menu.addSeparator()
+        for label, shortcut, fn in (
+                ("Open s&heet…", "Ctrl+Shift+O", self._open_sheet_dialog),
+                ("Save shee&t", "Ctrl+Shift+S", self._save_sheet),
+                ("Save sheet as…", "", self._save_sheet_as),
+                ("Export sheet as &SVG…", "Ctrl+E", self._export_svg)):
+            action = QAction(label, self)
+            if shortcut:
+                action.setShortcut(shortcut)
             action.triggered.connect(fn)
             file_menu.addAction(action)
         file_menu.addSeparator()
@@ -143,9 +171,11 @@ class MainWindow(QMainWindow):
 
         view_menu = self.menuBar().addMenu("&View")
         for label, shortcut, fn in (
-                ("&Fit the sheet", "Ctrl+0", lambda: self.canvas.fit()),
-                ("Zoom &in", QKeySequence.ZoomIn, lambda: self.canvas.zoom_by(1.2)),
-                ("Zoom &out", QKeySequence.ZoomOut, lambda: self.canvas.zoom_by(1 / 1.2)),
+                ("&Render", "Ctrl+1", lambda: self.centre.setCurrentWidget(self.render)),
+                ("&Paper", "Ctrl+2", lambda: self.centre.setCurrentWidget(self.paper_host)),
+                ("&Fit the sheet", "Ctrl+0", self._fit_current),
+                ("Zoom &in", QKeySequence.ZoomIn, lambda: self._zoom_current(1.2)),
+                ("Zoom &out", QKeySequence.ZoomOut, lambda: self._zoom_current(1 / 1.2)),
                 ("Toggle &grid", "Ctrl+G", self._toggle_grid)):
             action = QAction(label, self)
             action.setShortcut(shortcut)
@@ -221,6 +251,9 @@ class MainWindow(QMainWindow):
         self.sheet.paperChanged.connect(self._paper_changed)
         self.sheet.cleared.connect(
             lambda: self.status_left.setText("The paper is clear."))
+        self.sheet.editRequested.connect(self._edit_item)
+        self.sheet.saveSheetRequested.connect(self._save_sheet_as)
+        self.sheet.openSheetRequested.connect(self._open_sheet_dialog)
 
         self.plot.plotRequested.connect(self._start_plot)
         self.plot.previewRequested.connect(self._start_preview)
@@ -272,7 +305,9 @@ class MainWindow(QMainWindow):
 
     def _open_path(self, path):
         """Load a pattern file — from the Files tab, the dialog, or the
-        command line."""
+        command line. A sheet file goes to the paper instead."""
+        if str(path).endswith(SHEET_SUFFIX):
+            return self._open_sheet(path)
         try:
             loaded = Document.load(path)
         except Exception as exc:
@@ -284,6 +319,7 @@ class MainWindow(QMainWindow):
         self.design.show_recipe(None)
         self.effects.reload()
         self.library.select(path)
+        self.centre.setCurrentWidget(self.render)
         self._update_title()
         self._schedule_render()
         self.status_left.setText("Opened %s" % Path(path).name)
@@ -303,6 +339,7 @@ class MainWindow(QMainWindow):
         self.document.renew()
 
         self.left_tabs.setCurrentWidget(self.design)
+        self.centre.setCurrentWidget(self.render)
         self.design.refresh(select=0)
         self.design.show_recipe(made["name"])
         self.effects.reload()
@@ -318,6 +355,8 @@ class MainWindow(QMainWindow):
         """Hide the side panels so the sheet has the window."""
         if on and self._panel_sizes is None:
             self._panel_sizes = self.splitter.sizes()
+        if on:
+            self.centre.setCurrentWidget(self.paper_host)
         for index in (0, 2):
             self.splitter.widget(index).setVisible(not on)
         if not on and self._panel_sizes:
@@ -402,10 +441,163 @@ class MainWindow(QMainWindow):
     def _document_label(self):
         return self.document.path.name if self.document.path else "untitled"
 
+    def _sheet_label(self):
+        return self.sheet_path.name if self.sheet_path else ""
+
     def _update_title(self):
-        self.setWindowTitle("Spirograph — %s" % self._document_label())
+        title = self._document_label()
+        if self.sheet_path:
+            title += "  ·  " + self._sheet_label()
+        self.setWindowTitle("Spirograph — %s" % title)
+        self.centre.setTabText(1, "Paper — %s" % self._sheet_label()
+                               if self.sheet_path else "Paper")
         if self.paper_window is not None:
-            self.paper_window.retitle(self._document_label())
+            self.paper_window.retitle(self._sheet_label() or self._document_label())
+
+    def _fit_current(self):
+        if self.centre.currentWidget() is self.render:
+            self.render.fit()
+        else:
+            self.canvas.fit()
+
+    def _zoom_current(self, factor):
+        if self.centre.currentWidget() is self.render:
+            self.render.zoom_by(factor)
+        else:
+            self.canvas.zoom_by(factor)
+
+    def _centre_tab_changed(self, _index):
+        if self.centre.currentWidget() is self.paper_host:
+            self.canvas.setFocus()
+        else:
+            self.render.setFocus()
+
+    # -- the sheet as a file ------------------------------------------------------ #
+
+    def _save_sheet(self):
+        if self.sheet_path is None:
+            return self._save_sheet_as()
+        self._write_sheet(self.sheet_path)
+
+    def _save_sheet_as(self):
+        if not self.scene.items:
+            self.status_left.setText("Nothing on the paper to save.")
+            return
+        suggested = self.sheet_path or (ROOT / ("sheet" + SHEET_SUFFIX))
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save the sheet", str(suggested),
+            "Sheet files (*%s)" % SHEET_SUFFIX)
+        if not path:
+            return
+        if not path.endswith(SHEET_SUFFIX):
+            path = path[:-5] if path.endswith(".json") else path
+            path += SHEET_SUFFIX
+        self._write_sheet(path)
+
+    def _write_sheet(self, path):
+        path = self.scene.save(path, extra={"paper_setup": self.sheet.paper_setup()})
+        self.sheet_path = path
+        self.library.refresh()
+        self.library.select(path)
+        self._update_title()
+        self.status_left.setText("Saved %s — %d pattern%s"
+                                 % (path.name, len(self.scene.items),
+                                    "" if len(self.scene.items) == 1 else "s"))
+
+    def _open_sheet_dialog(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Open a sheet", str(ROOT), "Sheet files (*%s)" % SHEET_SUFFIX)
+        if path:
+            self._open_sheet(path)
+
+    def _open_sheet(self, path):
+        """Bring back a saved arrangement.
+
+        The file holds the INI of each pattern, not its points, so every item
+        is regenerated — in the background, at the preview quality, since a
+        sheet saved after a plot carries Ultra INIs and a hundred thousand
+        points apiece is a slow way to look at a layout. The plot path
+        upgrades them again when it needs to.
+        """
+        try:
+            data = Scene.read(path)
+        except Exception as exc:
+            QMessageBox.warning(self, "Could not open the sheet", str(exc))
+            return
+        quality = self.design.quality_sampling()
+        try:
+            inis = [Document.from_ini(text).to_ini(quality)
+                    for text in item_inis(data)]
+        except Exception as exc:
+            QMessageBox.warning(self, "Could not open the sheet",
+                                "A pattern in it does not read: %s" % exc)
+            return
+        self.centre.setCurrentWidget(self.paper_host)
+        self.right_tabs.setCurrentWidget(self.sheet)
+        count = len(inis)
+        self._run_batch(
+            inis,
+            lambda drawings: self._sheet_ready(Path(path), data, drawings),
+            "opening %s — %d pattern%s to regenerate"
+            % (Path(path).name, count, "" if count == 1 else "s"))
+
+    def _sheet_ready(self, path, data, drawings):
+        self.scene.apply_dict(data, drawings)
+        if data.get("paper_setup"):
+            self.sheet.restore_paper_setup(data["paper_setup"])
+        self.sheet_path = path
+        self.canvas.invalidate()
+        self.canvas.select(None)
+        self.sheet.refresh()
+        self.canvas.fit()
+        self._scene_changed()
+        self.library.select(path)
+        self._update_title()
+        self.status_left.setText(
+            "Opened %s — %d pattern%s on %s"
+            % (path.name, len(self.scene.items),
+               "" if len(self.scene.items) == 1 else "s",
+               self.scene.paper.describe()))
+
+    def _edit_item(self, item_id):
+        """Bring a placed pattern's pipeline into Build.
+
+        The item and the document are then linked the way a freshly placed
+        one is: an edit in Build regenerates the item in place. That is how a
+        sheet opened from a file becomes editable again — its items arrive
+        with no document behind them.
+        """
+        item = self.scene.find(item_id)
+        if item is None:
+            return
+        text = getattr(item.drawing, "ini_text", "")
+        if not text:
+            self.status_left.setText("%s has no pipeline to edit." % item.name)
+            return
+        try:
+            loaded = Document.from_ini(text, name=item.name)
+        except Exception as exc:
+            QMessageBox.warning(self, "Could not read the pattern", str(exc))
+            return
+        self.document.__dict__.update(loaded.__dict__)
+        self.document.path = None
+        self.document.name = item.name
+        if item.source is None:
+            item.source = self.document.renew()
+        else:
+            self.document.token = item.source
+        # Preview at the panel's quality, not whatever the item was last
+        # generated at — a plotted item carries an Ultra INI.
+        self.document.sampling.update(self.design.quality_sampling())
+        self.design.refresh(select=0 if self.document.steps else None)
+        self.design.show_recipe(None)
+        self.effects.reload()
+        self.left_tabs.setCurrentWidget(self.design)
+        self.centre.setCurrentWidget(self.render)
+        self._update_title()
+        self._schedule_render()
+        self.status_left.setText("Editing %s — changes redraw it on the paper."
+                                 % item.name)
 
     # -- generating ------------------------------------------------------------------ #
 
@@ -415,6 +607,7 @@ class MainWindow(QMainWindow):
     def _render_now(self):
         if self.document.is_empty():
             self.drawing = None
+            self.render.set_drawing(None)
             return
         self.render_token += 1
         self.status_left.setText("Generating…")
@@ -429,11 +622,12 @@ class MainWindow(QMainWindow):
         if token != self.render_token:
             return                       # superseded by a later edit
         self.drawing = drawing
-        self.status_left.setText(
-            "%s — %d paths, %s points, %.0f x %.0f units"
-            % (self.document.describe_step(0) if self.document.steps else "pattern",
-               len(drawing.paths), "{:,}".format(drawing.point_count),
-               drawing.width, drawing.height))
+        caption = ("%s — %d paths, %s points, %.0f x %.0f units"
+                   % (self.document.describe_step(0) if self.document.steps else "pattern",
+                      len(drawing.paths), "{:,}".format(drawing.point_count),
+                      drawing.width, drawing.height))
+        self.status_left.setText(caption)
+        self.render.set_drawing(drawing, "%s   ·   %s" % (self.document.name, caption))
         # Re-generating replaces the drawing behind any item that came from
         # this document, so an edit is visible on the paper immediately.
         touched = False
@@ -447,11 +641,12 @@ class MainWindow(QMainWindow):
             self._scene_changed()
 
     def _render_failed(self, token, message):
-        if self._pending_plot and token == self._pending_plot[0]:
-            self._pending_plot = None
-            self.plot.set_running(False)
-            self.status_left.setText("Could not re-generate for the plot: %s"
-                                     % message)
+        if token in self._pending_batches:
+            _, label = self._pending_batches.pop(token)
+            if token == self._pending_plot:
+                self._pending_plot = None
+                self.plot.set_running(False)
+            self.status_left.setText("Could not re-generate (%s): %s" % (label, message))
             return
         if token == self.render_token:
             self.status_left.setText("Generator error: %s" % message)
@@ -468,6 +663,7 @@ class MainWindow(QMainWindow):
         self.sheet.refresh(select=item.item_id)
         self.canvas.select(item.item_id)
         self.canvas.invalidate()
+        self.centre.setCurrentWidget(self.paper_host)
         self.status_left.setText(
             "Placed %s — %.0f x %.0f mm at %.0f, %.0f on pen %d"
             % (item.name, item.w_mm, item.h_mm, item.x_mm, item.y_mm, item.pen + 1))
@@ -563,28 +759,42 @@ class MainWindow(QMainWindow):
             text = getattr(item.drawing, "ini_text", "")
             inis.append(Document.from_ini(text).to_ini(PLOT_SAMPLING)
                         if text else text)
-        self.plot_token += 1
-        self._pending_plot = (self.plot_token, then)
         self.plot.set_running(True)
         self.plot.set_progress(0, "re-generating at plot quality…")
-        self.status_left.setText(
-            "Re-generating %d pattern%s at plot quality — a preview is sampled "
-            "for the screen, a plot for the paper."
+        self._pending_plot = self._run_batch(
+            inis, then,
+            "re-generating %d pattern%s at plot quality — a preview is sampled "
+            "for the screen, a plot for the paper"
             % (len(inis), "" if len(inis) == 1 else "s"))
-        self.batchRequested.emit(self.plot_token, inis)
         return True
 
+    def _run_batch(self, inis, then, label):
+        """Generate several INIs off the UI thread, then ``then(drawings)``.
+        Returns the token the batch will report under."""
+        self.plot_token += 1
+        self._pending_batches[self.plot_token] = (then, label)
+        self.status_left.setText(label[0].upper() + label[1:] + "…")
+        self.batchRequested.emit(self.plot_token, inis)
+        return self.plot_token
+
     def _plot_drawings_progress(self, token, done, total):
-        if self._pending_plot and token == self._pending_plot[0]:
+        if token not in self._pending_batches:
+            return
+        _, label = self._pending_batches[token]
+        self.status_left.setText("%s — %d/%d" % (label[0].upper() + label[1:],
+                                                 done, total))
+        if token == self._pending_plot:
             self.plot.set_progress(done / max(total, 1),
                                    "re-generating %d/%d…" % (done, total))
 
     def _plot_drawings_ready(self, token, drawings):
-        if not self._pending_plot or token != self._pending_plot[0]:
+        entry = self._pending_batches.pop(token, None)
+        if entry is None:
             return
-        _, then = self._pending_plot
-        self._pending_plot = None
-        self.sheet.refresh(select=self.sheet.selected_id())
+        then, _ = entry
+        if token == self._pending_plot:
+            self._pending_plot = None
+            self.sheet.refresh(select=self.sheet.selected_id())
         then(drawings)
 
     def _start_preview(self):

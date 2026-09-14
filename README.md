@@ -9,24 +9,29 @@ A modular system for creating complex mathematical art through composed transfor
 ## The app
 
 ```bash
-./run_gui.sh              # open an empty pattern
-./run_gui.sh some.ini     # open a pattern file
+./run_gui.sh                    # open an empty pattern
+./run_gui.sh some.ini           # open a pattern file
+./run_gui.sh some.sheet.json    # open a saved sheet — patterns placed on paper
 ```
 
 (`./launch.sh` still works and hands over to the same thing.)
 
-Three columns: **build** the pattern on the left, arrange it on the **paper**
-in the middle, drive the **machine** on the right.
+Three columns: **build** the pattern on the left, look at it and arrange it in
+the middle, drive the **machine** on the right.
 
 ![the app](docs/app.png)
 
-The middle column is a real sheet. It is drawn at a known number of pixels per
-millimetre, and every pattern on it is drawn through the same transform that
-writes the SVG the plotter gets — so a pattern 90 mm wide sitting 120 mm from
-the left edge is drawn 90 mm wide, 120 mm from the left edge, and *plots there*.
-Drag moves it by the millimetres the pointer crossed. Arrow keys nudge by one,
-shift by a tenth. A scale bar at the bottom says what the zoom means. Anything
-that reaches past the drawable area turns red and says so before you plot it.
+The middle column has two tabs. **Render** (`Ctrl+1`) is the pattern being
+built, on its own, redrawn as you change it — no millimetres, just the shape.
+**Paper** (`Ctrl+2`) is a real sheet. It is drawn at a known number of pixels
+per millimetre, and every pattern on it is drawn through the same transform
+that writes the SVG the plotter gets — so a pattern 90 mm wide sitting 120 mm
+from the left edge is drawn 90 mm wide, 120 mm from the left edge, and *plots
+there*. Drag moves it by the millimetres the pointer crossed; the corner handle
+resizes it. Arrow keys nudge by one, shift by a tenth; `[` and `]` turn by a
+degree, shift by fifteen. A scale bar at the bottom says what the zoom means.
+Anything that reaches past the drawable area turns red and says so before you
+plot it.
 
 On first run the script builds `.venv/` and installs PySide6, NumPy and the
 [AxiDraw API](https://cdn.evilmadscientist.com/dl/ad/public/AxiDraw_API.zip);
@@ -49,15 +54,24 @@ does not repeat itself until it has been through most of them.
 threshold or angular), and moiré, which runs the whole pipeline several times
 with one parameter nudged so the copies interfere.
 
-**Files** — every `.ini` in the project with its pipeline beside it, filtered
-as you type, one click to load.
+**Files** — every `.ini` in the project with its pipeline beside it, and every
+`.sheet.json` with what is on it, filtered as you type, one click to load.
 
 ![the file list](docs/files.png)
 
 **Sheet** — pick an AxiDraw model or a paper size, set a margin, and place as
 many patterns as you like. Each one carries a **pen**; the pen list says what
-that pen number means in ink and in name. *Clear* takes everything off the
-sheet and leaves the pattern, the pens and the paper as they are.
+that pen number means in ink and in name. The selected pattern's centre,
+width and angle are there as numbers for when dragging is not exact enough.
+*Edit* brings a placed pattern's pipeline back into Build, linked, so a change
+there redraws it on the paper. *Clear* takes everything off the sheet and
+leaves the pattern, the pens and the paper as they are.
+
+**Save sheet** (`Ctrl+Shift+S`) writes the whole arrangement — the paper, the
+pens, and every pattern with its pipeline, position, size, angle and pen — to
+a `.sheet.json`. **Open sheet** (`Ctrl+Shift+O`, or one click in Files) brings
+it back exactly, regenerating the curves in the background. The file holds
+pipelines, not points, so it is a few kilobytes however much is on the paper.
 
 **Plot** — speeds, pen positions, path reordering, manual jogging. *Estimate*
 motion-plans every layer without opening the serial port. *Dry run* rehearses
@@ -101,7 +115,7 @@ One millimetre is one unit throughout, and one user unit in the SVG that
 reaches the machine. There are no percentages of a widget anywhere in it.
 
 ```bash
-./run_tests.sh            # every gate: 324 checks, no hardware, no network
+./run_tests.sh            # every gate: 362 checks, no hardware, no network
 ./run_tests.sh scene      # just one
 ```
 

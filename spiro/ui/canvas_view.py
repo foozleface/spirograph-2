@@ -5,7 +5,8 @@ of pixels per millimetre, and it draws each item through the very transform
 that :meth:`PlacedItem.affine` hands the SVG writer — so a pattern 90 mm wide
 sitting 120 mm from the left edge is *drawn* 90 mm wide, 120 mm from the left
 edge, and plots there. Dragging moves the item by the millimetres the pointer
-moved across the paper, not by a percentage of a widget.
+moved across the paper, not by a percentage of a widget. Arrow keys nudge,
+``[`` and ``]`` turn.
 
 The curves are cached in the item's own frame (a box `aspect` wide and 1 tall)
 and placed with a QTransform, so a drag costs a matrix multiply rather than
@@ -221,6 +222,8 @@ class PaperCanvas(QWidget):
         painter.setFont(font)
         label = "%s   %.0f x %.0f mm   @ %.0f, %.0f" % (
             item.name, item.w_mm, item.h_mm, item.x_mm, item.y_mm)
+        if item.rotation_deg % 360:
+            label += "   %.0f°" % item.rotation_deg
         painter.drawText(self._caption_at(item, painter.fontMetrics(), label),
                          label)
         painter.restore()
@@ -322,9 +325,13 @@ class PaperCanvas(QWidget):
                                     % (item.name, item.x_mm, item.y_mm))
         else:
             # Resize from the centre: the corner follows the pointer, so the
-            # width is twice the pointer's distance from the centre along x.
-            width = 2 * abs(mm.x() - item.x_mm)
-            item.set_width(max(width, MIN_SIZE_MM))
+            # width is twice the pointer's distance from the centre along the
+            # item's own x axis — its own, so a turned item resizes along its
+            # turned edge rather than the sheet's.
+            rad = math.radians(-item.rotation_deg)
+            dx, dy = mm.x() - item.x_mm, mm.y() - item.y_mm
+            along = dx * math.cos(rad) - dy * math.sin(rad)
+            item.set_width(max(2 * abs(along), MIN_SIZE_MM))
             self.statusMessage.emit("%s %.1f x %.1f mm"
                                     % (item.name, item.w_mm, item.h_mm))
         self.itemChanged.emit(item.item_id)
@@ -349,8 +356,17 @@ class PaperCanvas(QWidget):
         step = 0.1 if event.modifiers() & Qt.ShiftModifier else 1.0
         moves = {Qt.Key_Left: (-step, 0), Qt.Key_Right: (step, 0),
                  Qt.Key_Up: (0, -step), Qt.Key_Down: (0, step)}
+        turns = {Qt.Key_BracketLeft: -1, Qt.Key_BracketRight: 1}
         if item is not None and event.key() in moves:
             item.move_by(*moves[event.key()])
+            self.itemChanged.emit(item.item_id)
+            self.update()
+        elif item is not None and event.key() in turns:
+            # [ and ] turn by a degree; with shift, by fifteen — the angles a
+            # person actually wants are multiples of fifteen.
+            item.rotate_by(turns[event.key()]
+                           * (15.0 if event.modifiers() & Qt.ShiftModifier else 1.0))
+            self.statusMessage.emit("%s at %.0f°" % (item.name, item.rotation_deg))
             self.itemChanged.emit(item.item_id)
             self.update()
         elif event.key() in (Qt.Key_Plus, Qt.Key_Equal):

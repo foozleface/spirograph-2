@@ -29,6 +29,9 @@ class SheetPanel(QWidget):
     selectionChanged = Signal(object)     # item_id or None
     paperChanged = Signal()
     cleared = Signal()
+    editRequested = Signal(object)        # item_id: bring its pattern into Build
+    saveSheetRequested = Signal()
+    openSheetRequested = Signal()
 
     def __init__(self, scene, parent=None):
         super().__init__(parent)
@@ -111,8 +114,48 @@ class SheetPanel(QWidget):
         self.clear.setObjectName("danger")
         self.clear.setToolTip("Take everything off the sheet (Ctrl+Shift+Backspace)")
         self.clear.clicked.connect(self.clear_paper)
-        layout.addWidget(row(self.centre, self.fit, self.duplicate, 1,
+        self.edit = QPushButton("Edit")
+        self.edit.setToolTip("Bring this pattern's pipeline into Build, so an "
+                             "edit there redraws it here")
+        self.edit.clicked.connect(self._edit_selected)
+        layout.addWidget(row(self.edit, self.centre, self.fit, self.duplicate, 1,
                              self.remove, self.clear, spacing=4))
+
+        # -- the selected item, in numbers ----------------------------------- #
+        # Dragging is for roughly; these are for exactly. Centre in mm from
+        # the sheet's top-left, width in mm (the height follows the pattern's
+        # own shape), and the angle about the centre.
+        self.sel_x = _mm_box(-2000, 2000)
+        self.sel_y = _mm_box(-2000, 2000)
+        self.sel_w = _mm_box(0.1, 2000)
+        self.sel_rot = QDoubleSpinBox()
+        self.sel_rot.setRange(-360, 720)
+        self.sel_rot.setDecimals(1)
+        self.sel_rot.setSingleStep(15)
+        self.sel_rot.setSuffix("°")
+        self.sel_rot.setWrapping(True)
+        for box in (self.sel_x, self.sel_y, self.sel_w, self.sel_rot):
+            box.valueChanged.connect(self._selected_edited)
+        self.selected_box = QWidget()
+        sel = QVBoxLayout(self.selected_box)
+        sel.setContentsMargins(0, 0, 0, 0)
+        sel.setSpacing(3)
+        sel.addWidget(row(QLabel("Centre"), 1, self.sel_x, self.sel_y, spacing=4))
+        sel.addWidget(row(QLabel("Width"), 1, self.sel_w, QLabel("Turn"),
+                          self.sel_rot, spacing=4))
+        layout.addWidget(self.selected_box)
+        self.selected_box.setEnabled(False)
+
+        # -- the sheet as a file ---------------------------------------------- #
+        self.save_sheet = QPushButton("Save sheet…")
+        self.save_sheet.setToolTip(
+            "Write the paper, the pens and every pattern with its position, "
+            "size and angle to a file (Ctrl+Shift+S)")
+        self.save_sheet.clicked.connect(self.saveSheetRequested.emit)
+        self.open_sheet = QPushButton("Open sheet…")
+        self.open_sheet.setToolTip("Bring back a saved arrangement (Ctrl+Shift+O)")
+        self.open_sheet.clicked.connect(self.openSheetRequested.emit)
+        layout.addWidget(row(self.open_sheet, self.save_sheet, 1, spacing=4))
 
         # -- pens --------------------------------------------------------------- #
         layout.addWidget(theme.hline())
@@ -159,6 +202,36 @@ class SheetPanel(QWidget):
             self.paper_note.setStyleSheet("color: %s;" % theme.MUTED)
         self.paperChanged.emit()
         self.refresh()
+
+    def paper_setup(self):
+        """How the paper was chosen — what a sheet file has to remember so
+        the combos come back the way they were, not just the millimetres."""
+        choice = self.preset.currentData()
+        return {"model": self.current_model(),
+                "preset": list(choice) if choice else None,
+                "margin_mm": self.margin.value()}
+
+    def restore_paper_setup(self, setup):
+        """Put the combos back the way :meth:`paper_setup` found them and
+        apply the paper. Missing keys keep what is there."""
+        self._syncing = True
+        try:
+            model = setup.get("model")
+            for index in range(self.model.count()):
+                if self.model.itemData(index) == model:
+                    self.model.setCurrentIndex(index)
+                    break
+            preset = setup.get("preset")
+            wanted = tuple(preset) if preset else None
+            for index in range(self.preset.count()):
+                if self.preset.itemData(index) == wanted:
+                    self.preset.setCurrentIndex(index)
+                    break
+            if "margin_mm" in setup:
+                self.margin.setValue(float(setup["margin_mm"]))
+        finally:
+            self._syncing = False
+        self._apply_paper()
 
     def _model_changed(self, _index):
         if not self._syncing:
@@ -217,6 +290,42 @@ class SheetPanel(QWidget):
 
             if select is not None and item.item_id == select:
                 self.items.selectRow(index)
+        self._refresh_selected()
+
+    def _refresh_selected(self):
+        """The numeric editors follow the selection, without echoing back."""
+        item = self._selected_item()
+        was = self._syncing
+        self._syncing = True
+        try:
+            self.selected_box.setEnabled(item is not None)
+            if item is None:
+                return
+            for box, value in ((self.sel_x, item.x_mm), (self.sel_y, item.y_mm),
+                               (self.sel_w, item.w_mm),
+                               (self.sel_rot, item.rotation_deg)):
+                box.blockSignals(True)
+                box.setValue(value)
+                box.blockSignals(False)
+        finally:
+            self._syncing = was
+
+    def _selected_edited(self, _value):
+        if self._syncing:
+            return
+        item = self._selected_item()
+        if item is None:
+            return
+        item.move_to(self.sel_x.value(), self.sel_y.value())
+        item.set_width(self.sel_w.value())
+        item.rotate_to(self.sel_rot.value())
+        self._refresh_items(item.item_id)
+        self.sceneChanged.emit()
+
+    def _edit_selected(self):
+        item = self._selected_item()
+        if item is not None:
+            self.editRequested.emit(item.item_id)
 
     def _set_visible(self, item, on):
         item.visible = on
@@ -231,6 +340,7 @@ class SheetPanel(QWidget):
     def _row_selected(self):
         if self._syncing:
             return
+        self._refresh_selected()
         self.selectionChanged.emit(self.selected_id())
 
     def selected_id(self):
@@ -251,6 +361,7 @@ class SheetPanel(QWidget):
                     break
         finally:
             self._syncing = False
+        self._refresh_selected()
 
     def _selected_item(self):
         item_id = self.selected_id()
@@ -372,3 +483,12 @@ class SheetPanel(QWidget):
         self.scene.pens.append(Pen(color, label))
         self.refresh(select=self.selected_id())
         self.sceneChanged.emit()
+
+
+def _mm_box(low, high):
+    box = QDoubleSpinBox()
+    box.setRange(low, high)
+    box.setDecimals(1)
+    box.setSuffix(" mm")
+    box.setFixedWidth(88)
+    return box

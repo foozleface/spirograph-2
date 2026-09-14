@@ -3,6 +3,8 @@
 The web UI had a file browser and it was the fastest way to get somewhere
 interesting; a modal Open dialog is not. This is the list, always there: every
 `.ini` under the project, what its pipeline actually is, filtered as you type.
+Sheet files (`*.sheet.json`, a whole arrangement on paper) are listed beside
+them; opening one is the window's call, on the file's suffix.
 
 Reading a hundred INI files to summarise them is cheap — they are a few hundred
 bytes each — but it is done once and cached against the file's modification
@@ -19,6 +21,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QFileDialog, QHeaderView,
                                QWidget)
 
 from spiro.pipeline.document import Document
+from spiro.scene import SHEET_SUFFIX, Scene
 from spiro.ui import theme
 from spiro.ui.widgets import row
 
@@ -42,7 +45,7 @@ class LibraryPanel(QWidget):
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(6)
 
-        layout.addWidget(theme.h2("Patterns"))
+        layout.addWidget(theme.h2("Patterns and sheets"))
         self.filter = QLineEdit()
         self.filter.setPlaceholderText("Filter by name or module…")
         self.filter.setClearButtonEnabled(True)
@@ -99,7 +102,9 @@ class LibraryPanel(QWidget):
             dirs[:] = sorted(d for d in dirs
                              if d not in SKIP and not d.startswith("."))
             for name in sorted(names):
-                if name.endswith(".ini") and not name.startswith("_"):
+                if name.startswith("_"):
+                    continue
+                if name.endswith(".ini") or name.endswith(SHEET_SUFFIX):
                     found.append(Path(folder) / name)
         return found
 
@@ -113,6 +118,8 @@ class LibraryPanel(QWidget):
         if cached and cached[0] == stamp:
             return cached[1]
         try:
+            if path.name.endswith(SHEET_SUFFIX):
+                return self._sheet_summary(path, stamp)
             document = Document.load(path)
             steps = [document.describe_step(i) for i in range(len(document.steps))]
             text = " → ".join(steps) or "empty"
@@ -120,6 +127,24 @@ class LibraryPanel(QWidget):
                 text += "   ⟲%s" % document.symmetry["n_fold"]
             if "moire" in document.extras:
                 text += "   moiré"
+        except Exception as exc:
+            text = "could not read it: %s" % exc
+        self._summaries[path] = (stamp, text)
+        return text
+
+    def _sheet_summary(self, path, stamp):
+        """A sheet in a line: how many patterns, on what paper."""
+        try:
+            data = Scene.read(path)
+            items = data.get("items", [])
+            paper = data.get("paper", {})
+            text = "sheet · %d pattern%s on %s" % (
+                len(items), "" if len(items) == 1 else "s",
+                paper.get("label") or "%g x %g mm" % (paper.get("width_mm", 0),
+                                                       paper.get("height_mm", 0)))
+            names = ", ".join(entry.get("name", "?") for entry in items[:6])
+            if names:
+                text += " — " + names + (", …" if len(items) > 6 else "")
         except Exception as exc:
             text = "could not read it: %s" % exc
         self._summaries[path] = (stamp, text)
@@ -142,8 +167,13 @@ class LibraryPanel(QWidget):
                 else:
                     parent = self.tree.invisibleRootItem()
                 folders[folder] = parent
-            entry = QTreeWidgetItem(parent, [path.stem, self._summary(path)])
+            is_sheet = path.name.endswith(SHEET_SUFFIX)
+            stem = path.name[:-len(SHEET_SUFFIX)] if is_sheet else path.stem
+            entry = QTreeWidgetItem(parent, [stem, self._summary(path)])
             entry.setData(0, Qt.UserRole, str(path))
+            if is_sheet:
+                entry.setForeground(0, theme.SELECT)
+                entry.setToolTip(0, "A sheet: patterns placed on paper")
             entry.setToolTip(1, entry.text(1))
             total += 1
         self.count.setText("%d pattern%s" % (total, "" if total == 1 else "s"))
@@ -197,9 +227,10 @@ class LibraryPanel(QWidget):
             self.openRequested.emit(path)
 
     def _open_elsewhere(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Open a pattern",
-                                              str(self.root),
-                                              "Pattern files (*.ini)")
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Open a pattern or a sheet", str(self.root),
+            "Patterns and sheets (*.ini *%s);;Pattern files (*.ini);;"
+            "Sheet files (*%s)" % (SHEET_SUFFIX, SHEET_SUFFIX))
         if path:
             self.openRequested.emit(path)
 

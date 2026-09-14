@@ -12,7 +12,9 @@ the only geometry, is what makes the preview and the plot the same drawing.
 """
 
 import hashlib
+import json
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from spiro.scene.item import PlacedItem
 from spiro.scene.paper import Paper
@@ -27,6 +29,11 @@ DEFAULT_PEN_COLORS = [
 ]
 
 
+SHEET_FORMAT = "spirograph-sheet"
+SHEET_VERSION = 1
+SHEET_SUFFIX = ".sheet.json"
+
+
 @dataclass
 class Pen:
     """One nib. ``color`` is both the swatch and the key the SVG is split on,
@@ -38,6 +45,11 @@ class Pen:
 
     def to_dict(self):
         return {"color": self.color, "label": self.label, "include": self.include}
+
+    @classmethod
+    def from_dict(cls, data):
+        return cls(str(data.get("color", "#000000")), str(data.get("label", "")),
+                   bool(data.get("include", True)))
 
 
 def default_pens(n=2):
@@ -220,13 +232,81 @@ class Scene:
                          "names": [i.name for i in items]})
         return rows
 
-    def to_dict(self):
-        return {"paper": {"width_mm": self.paper.width_mm,
+    # -- the sheet file ---------------------------------------------------------- #
+    #
+    # A sheet is the whole arrangement: the paper, the pens, and every item
+    # with the INI that made it and where it sits. Saving one and opening it
+    # later gives back the same set of patterns at the same size, position and
+    # angle, on the same pens — the curves are regenerated from the INI, so the
+    # file stays a few kilobytes however many points are on the paper.
+
+    def to_dict(self, extra=None):
+        data = {"format": SHEET_FORMAT, "version": SHEET_VERSION,
+                "paper": {"width_mm": self.paper.width_mm,
                           "height_mm": self.paper.height_mm,
                           "margin_mm": self.paper.margin_mm,
                           "label": self.paper.label},
                 "pens": [p.to_dict() for p in self.pens],
                 "items": [i.to_dict() for i in self.items]}
+        if extra:
+            data.update(extra)
+        return data
+
+    def save(self, path, extra=None):
+        """Write the sheet as JSON. ``extra`` is for the caller's own keys —
+        the window records how the paper was chosen, which the scene does not
+        know."""
+        path = Path(path)
+        path.write_text(json.dumps(self.to_dict(extra), indent=2) + "\n")
+        return path
+
+    @staticmethod
+    def read(path):
+        """The dict a sheet file holds, checked for being one. The items'
+        INIs are in ``data["items"][n]["ini"]``; run them (see
+        :func:`item_inis`) and hand the drawings to :meth:`apply_dict`."""
+        data = json.loads(Path(path).read_text())
+        if not isinstance(data, dict) or data.get("format") != SHEET_FORMAT:
+            raise ValueError("%s is not a sheet file" % path)
+        if int(data.get("version", 0)) > SHEET_VERSION:
+            raise ValueError("%s was written by a newer version (sheet format %s)"
+                             % (path, data.get("version")))
+        for index, entry in enumerate(data.get("items", [])):
+            if not entry.get("ini"):
+                raise ValueError("item %d (%s) has no INI to regenerate from"
+                                 % (index + 1, entry.get("name", "?")))
+        return data
+
+    def apply_dict(self, data, drawings):
+        """Replace the paper, pens and items with a sheet file's, in place.
+
+        In place because the canvas and the panels hold *this* scene; a new
+        one would leave them looking at the old. ``drawings`` are the items'
+        INIs regenerated, in file order.
+        """
+        if len(drawings) != len(data.get("items", [])):
+            raise ValueError("%d drawings for %d items"
+                             % (len(drawings), len(data.get("items", []))))
+        paper = data.get("paper") or {}
+        self.paper = Paper(float(paper.get("width_mm", self.paper.width_mm)),
+                           float(paper.get("height_mm", self.paper.height_mm)),
+                           float(paper.get("margin_mm", 0.0)),
+                           str(paper.get("label", "")))
+        pens = [Pen.from_dict(p) for p in data.get("pens", [])]
+        self.pens = pens or default_pens(2)
+        self.items = [PlacedItem.from_dict(entry, drawing)
+                      for entry, drawing in zip(data["items"], drawings)]
+        self.ensure_pens(max((i.pen for i in self.items), default=-1) + 1)
+        return self
+
+    @classmethod
+    def from_dict(cls, data, drawings):
+        return cls().apply_dict(data, drawings)
+
+
+def item_inis(data):
+    """The INI of every item in a sheet file's dict, in order."""
+    return [entry["ini"] for entry in data.get("items", [])]
 
 
 def _path_data(points):

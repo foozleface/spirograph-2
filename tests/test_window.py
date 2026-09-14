@@ -10,6 +10,9 @@ Two of them matter enough to pin down:
 * **Placing, dragging and plotting agree.** The same property the scene gate
   checks, but reached the way a person reaches it: generate, place, drag, and
   read back what the plot job says.
+* **A sheet comes back as it was saved.** Save the paper, clear it, open the
+  file: the same patterns at the same position, size, angle and pen — and
+  editable again.
 
 Run:  .venv/bin/python tests/test_window.py
 """
@@ -21,6 +24,8 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+from pathlib import Path  # noqa: E402
 
 import numpy as np  # noqa: E402
 from PySide6.QtCore import QEventLoop, Qt, QTimer  # noqa: E402
@@ -44,6 +49,7 @@ def close(a, b, tol=0.05):
 
 
 app = QApplication.instance() or QApplication([])
+ROOT_DIR = Path(__file__).resolve().parents[1]
 
 
 def pump(ms=60):
@@ -324,6 +330,128 @@ if target is not None:
           and window.document.path.name == target.text(0) + ".ini")
     check("and the pipeline panel shows its steps",
           window.design.steps.count() == len(window.document.steps))
+
+# -- render and paper are two tabs --------------------------------------------------------- #
+
+print("two tabs:")
+check("the centre is Render and Paper",
+      [window.centre.tabText(i) for i in range(window.centre.count())][:2]
+      == ["Render", "Paper"])
+window.drawing = None
+window._render_now()
+wait_for(lambda: window.drawing)
+check("the render view shows the pattern being built",
+      window.render.drawing is window.drawing)
+check("and says what it is", window.document.name in window.render.caption)
+window.centre.setCurrentWidget(window.render)
+window._place()
+check("placing switches to the paper", window.centre.currentWidget() is window.paper_host)
+placed = window.scene.items[-1]
+window.sheet.select(placed.item_id)
+pump(30)
+check("the sheet panel's editors follow the selection",
+      close(window.sheet.sel_x.value(), placed.x_mm, 0.1)
+      and close(window.sheet.sel_w.value(), placed.w_mm, 0.1))
+window.sheet.sel_rot.setValue(30)
+window.sheet.sel_x.setValue(150)
+pump(30)
+check("typing an angle turns the item", close(placed.rotation_deg, 30.0, 1e-9))
+check("typing a position moves it", close(placed.x_mm, 150.0, 1e-9))
+window.canvas.select(placed.item_id)
+from PySide6.QtGui import QKeyEvent  # noqa: E402
+from PySide6.QtCore import QEvent  # noqa: E402
+window.canvas.keyPressEvent(QKeyEvent(QEvent.KeyPress, Qt.Key_BracketRight,
+                                      Qt.ShiftModifier))
+check("] with shift turns it fifteen degrees", close(placed.rotation_deg, 45.0, 1e-9))
+window.canvas.keyPressEvent(QKeyEvent(QEvent.KeyPress, Qt.Key_BracketLeft,
+                                      Qt.NoModifier))
+check("[ turns it back one", close(placed.rotation_deg, 44.0, 1e-9))
+
+# -- the sheet as a file ---------------------------------------------------------------- #
+
+print("the sheet file:")
+window.document.add_module("rose")
+window.document.name = "rose-on-sheet"
+window.document.renew()
+window.design.refresh(select=1)
+saved_steps = len(window.document.steps)
+window.drawing = None
+window._render_now()
+wait_for(lambda: window.drawing)
+window._place()
+window.scene.items[-1].move_to(400, 120)
+window.scene.items[-1].set_width(70)
+window.scene.items[-1].rotate_to(300)
+window.scene.pens[1].label = "Violet"
+window._scene_changed()
+kept = [(i.name, i.x_mm, i.y_mm, i.w_mm, i.rotation_deg, i.pen)
+        for i in window.scene.items]
+check("two patterns to save", len(kept) == 2)
+
+with tempfile.TemporaryDirectory() as folder:
+    sheet_path = os.path.join(folder, "gate.sheet.json")
+    window._write_sheet(sheet_path)
+    check("saving writes the sheet file", os.path.getsize(sheet_path) > 0)
+    check("the window knows which sheet it is on",
+          window.sheet_path is not None and window.sheet_path.name == "gate.sheet.json")
+    check("and says so in the title", "gate.sheet.json" in window.windowTitle())
+
+    window.sheet.clear_paper(confirm=False)
+    window.sheet_path = None
+    window.scene.pens[1].label = "Something else"
+    window.centre.setCurrentWidget(window.render)
+    window._open_path(sheet_path)
+    check("opening a sheet regenerates every pattern in the background",
+          wait_for(lambda: len(window.scene.items) == 2, timeout=300))
+    pump(100)
+    check("it opens on the paper", window.centre.currentWidget() is window.paper_host)
+    back = [(i.name, i.x_mm, i.y_mm, i.w_mm, i.rotation_deg, i.pen)
+            for i in window.scene.items]
+    check("name, position, width, angle and pen all come back",
+          all(one[0] == two[0] and one[5] == two[5]
+              and all(close(a, b, 1e-3) for a, b in zip(one[1:5], two[1:5]))
+              for one, two in zip(kept, back)),
+          (kept, back))
+    check("the pens come back", window.scene.pens[1].label == "Violet")
+    check("at the preview quality, not whatever was saved",
+          all(i.point_count() == window.design.quality_sampling()["output_samples"]
+              for i in window.scene.items))
+    check("so the plot path will still upgrade them",
+          len(window._needs_plot_quality()) == 2)
+    check("the window is on the sheet it opened",
+          window.sheet_path is not None and window.sheet_path.name == "gate.sheet.json")
+
+    # Edit: a reopened item has no document behind it until asked.
+    target = window.scene.items[1]
+    check("a reopened item is not tracking any document", target.source is None)
+    window._edit_item(target.item_id)
+    check("edit brings its pipeline into Build",
+          window.document.name == target.name
+          and len(window.document.steps) == saved_steps)
+    check("switches to the render view", window.centre.currentWidget() is window.render)
+    check("and links the item to the document", target.source == window.document.token)
+    was = target.drawing
+    window._render_now()
+    check("so an edit in Build regenerates it on the paper",
+          wait_for(lambda: target.drawing is not was))
+    check("without moving it", close(target.rotation_deg, 300.0, 1e-9)
+          and close(target.x_mm, 400.0, 1e-9))
+
+    window.library.root = Path(folder)
+    window.library.refresh()
+    pump(30)
+    rows = [(window.library.tree.topLevelItem(i).text(0),
+             window.library.tree.topLevelItem(i).text(1))
+            for i in range(window.library.tree.topLevelItemCount())]
+    check("the file list shows the sheet, with what is on it",
+          any(name == "gate" and "sheet" in text and "2 patterns" in text
+              for name, text in rows), rows)
+    window.library.root = ROOT_DIR
+    window.library.refresh()
+
+window.sheet.clear_paper(confirm=False)
+window.sheet_path = None
+window._update_title()
 
 # -- the randomizer, from the window ------------------------------------------------------- #
 

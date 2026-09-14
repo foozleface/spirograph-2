@@ -195,3 +195,48 @@ Asked for after the first seven landed:
   one run by the gate.
 
 `./run_tests.sh` — 324 checks across eight gates.
+
+---
+
+# Round three
+
+> I want a tab for rendering and a separate tab (and paper) for placement. I
+> want to be able to place designs (multiple) on the paper with their
+> configurations and save the whole thing — so I can recreate the set of
+> designs and their rotation, placement, and size.
+
+- [x] **P1 — two tabs in the middle.** *Render* is the pattern being built,
+  alone, at whatever size the widget allows and redrawn on every edit — before
+  this the only way to see a pattern was to place it. *Paper* is the sheet, as
+  before. Placing switches to Paper; opening, randomising or editing switches
+  to Render. Paper-only and the detached paper window still work on the Paper
+  tab's canvas — the same widget, reparented.
+
+- [x] **P2 — the sheet as a file.** `Scene.save` / `Scene.read` /
+  `Scene.apply_dict` in `spiro/scene/scene.py`: a `.sheet.json` holding the
+  paper, the pens, and each item's INI, centre, height (the width is derived),
+  angle, pen and visibility — plus how the paper was chosen, so the combos come
+  back too. Opening one regenerates every INI in the background at the preview
+  quality; the plot path upgrades them to Ultra as it always has. Listed in the
+  Files tab beside the patterns.
+
+- [x] **P3 — rotation, and placement in numbers.** `PlacedItem.rotate_to` /
+  `rotate_by`, kept in [0, 360). The Sheet panel edits the selected item's
+  centre, width and angle; `[` / `]` turn on the canvas; the resize handle
+  measures along the item's own axis so a turned item resizes along its turned
+  edge.
+
+- [x] **P4 — edit a placed pattern.** An item opened from a sheet has no
+  document behind it. *Edit* loads its INI into Build and links the two, so
+  the arrangement is a starting point rather than a snapshot.
+
+### Round three, done
+
+* Render / Paper tabs, `Ctrl+1` / `Ctrl+2`.
+* `File > Save sheet` (`Ctrl+Shift+S`), `Open sheet…` (`Ctrl+Shift+O`), and the
+  same two buttons on the Sheet panel; `run_gui.sh some.sheet.json` too.
+* Centre, width and angle editors under the item list; *Edit* beside *Centre*.
+* `run_gui.sh` no longer forces xcb on macOS, which only has cocoa.
+
+`./run_tests.sh` — the scene gate checks the file round trip against the SVG
+the plotter would get; the window gate saves, clears, reopens and edits.

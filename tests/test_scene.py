@@ -300,6 +300,80 @@ check("and putting it back restores it", scene.stamp() == stamp)
 scene.pens[0] = Pen("#123456", "Ink")
 check("changing a pen changes it too", scene.stamp() != stamp)
 
+# -- the sheet file ------------------------------------------------------------------ #
+
+print("the sheet file:")
+import json  # noqa: E402
+import tempfile  # noqa: E402
+
+from spiro.scene import item_inis  # noqa: E402
+
+first.move_to(120, 80)
+first.set_width(90)
+first.rotate_to(30)
+second.move_to(400, 110)
+second.set_width(120)
+second.rotate_to(-15)
+check("rotation is kept in [0, 360)", close(second.rotation_deg, 345.0, 1e-9))
+scene.pens[1].label = "Fine red"
+
+with tempfile.TemporaryDirectory() as folder:
+    path = os.path.join(folder, "gate.sheet.json")
+    scene.save(path, extra={"paper_setup": {"model": 3, "preset": None,
+                                            "margin_mm": 0}})
+    raw = json.load(open(path))
+    check("it is JSON with a format tag", raw.get("format") == "spirograph-sheet")
+    check("and the caller's extra keys", raw.get("paper_setup", {}).get("model") == 3)
+    check("every item carries the INI that made it",
+          all(entry["ini"].strip() for entry in raw["items"]))
+    check("but not its points", os.path.getsize(path) < 20000, os.path.getsize(path))
+
+    data = Scene.read(path)
+    drawings = [run(text) for text in item_inis(data)]
+    again = Scene.from_dict(data, drawings)
+    check("it reads back with the same paper",
+          again.paper == scene.paper)
+    check("the same pens",
+          [p.to_dict() for p in again.pens] == [p.to_dict() for p in scene.pens])
+    check("and the same items, in order",
+          [i.name for i in again.items] == [i.name for i in scene.items])
+    for one, two in zip(scene.items, again.items):
+        check("%s: position, width, angle and pen survive" % one.name,
+              close(one.x_mm, two.x_mm, 1e-9) and close(one.y_mm, two.y_mm, 1e-9)
+              and close(one.w_mm, two.w_mm, 1e-3)
+              and close(one.rotation_deg, two.rotation_deg, 1e-9)
+              and one.pen == two.pen and one.visible == two.visible)
+    check("a reopened item does not claim a session token it never had",
+          all(i.source is None for i in again.items))
+    check("the geometry that reaches the plotter is the same geometry",
+          all(close(a, b, 1e-3) for a, b in
+              zip(svg_bounds(scene.to_svg()), svg_bounds(again.to_svg()))),
+          (svg_bounds(scene.to_svg()), svg_bounds(again.to_svg())))
+    check("the stamp agrees too — same sheet, as far as the plotter knows",
+          again.stamp() == scene.stamp())
+
+    # In place, because the canvas and the panels hold one scene.
+    live = Scene()
+    same = live.apply_dict(data, drawings)
+    check("apply_dict fills the scene it is called on", same is live and len(live.items) == 2)
+
+    other = os.path.join(folder, "notes.json")
+    with open(other, "w") as handle:
+        json.dump({"hello": "world"}, handle)
+    try:
+        Scene.read(other)
+        check("a JSON file that is not a sheet is refused", False)
+    except ValueError:
+        check("a JSON file that is not a sheet is refused", True)
+    try:
+        Scene.from_dict(data, drawings[:1])
+        check("the wrong number of drawings is refused", False)
+    except ValueError:
+        check("the wrong number of drawings is refused", True)
+
+first.rotate_to(0)
+second.rotate_to(0)
+
 print()
 print("scene: %d passed, %d failed" % (len(PASS), len(FAIL)))
 if FAIL:

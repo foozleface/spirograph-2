@@ -102,6 +102,16 @@ class PlacedItem:
     def scale_by(self, factor):
         self.h_mm = max(self.h_mm * float(factor), 0.1)
 
+    # -- rotation ------------------------------------------------------------ #
+
+    def rotate_to(self, degrees):
+        """Turn the item about its centre. Kept in [0, 360) so two ways of
+        saying the same angle compare equal in the stamp."""
+        self.rotation_deg = float(degrees) % 360.0
+
+    def rotate_by(self, degrees):
+        self.rotate_to(self.rotation_deg + float(degrees))
+
     # -- position ------------------------------------------------------------ #
 
     @property
@@ -195,13 +205,30 @@ class PlacedItem:
     # -- persistence ---------------------------------------------------------- #
 
     def to_dict(self):
-        """Everything but the curves — the INI regenerates those."""
+        """Everything but the curves — the INI regenerates those.
+
+        ``w_mm`` is written for a reader's benefit only; :meth:`from_dict`
+        takes the height, because the width is derived from it and the
+        drawing's own aspect ratio (see the class docstring).
+        """
         return {"name": self.name, "source": self.source,
                 "x_mm": self.x_mm, "y_mm": self.y_mm,
                 "w_mm": self.w_mm, "h_mm": self.h_mm,
                 "rotation_deg": self.rotation_deg, "pen": self.pen,
                 "visible": self.visible,
                 "ini": getattr(self.drawing, "ini_text", "")}
+
+    @classmethod
+    def from_dict(cls, data, drawing, source=None):
+        """An item from :meth:`to_dict` output plus the drawing its ``ini``
+        regenerated. ``source`` is fresh, not the saved one: a token only
+        means something in the session that minted it."""
+        return cls(drawing=drawing,
+                   x_mm=data.get("x_mm", 0.0), y_mm=data.get("y_mm", 0.0),
+                   h_mm=data.get("h_mm", 100.0),
+                   rotation_deg=data.get("rotation_deg", 0.0),
+                   pen=data.get("pen", 0), name=data.get("name", "pattern"),
+                   visible=data.get("visible", True), source=source)
 
 
 def _box_for(aspect, max_w, max_h):
