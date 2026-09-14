@@ -813,6 +813,26 @@ def api_plotter_status():
     return _plotter_status
 
 
+# Sampling used for every plot, matching the UI's "Ultra" quality preset.
+# Facet depth on a plotted curve goes as chord^2 / 8R, so a coarse point count
+# leaves visible flats wherever the radius of curvature is small — the outer
+# lobes of a spirograph. The generator page is free to preview at Draft/Fine
+# for speed, but plotting is slow and physical, so it always runs at Ultra.
+# Enforced here rather than in the UI because several routes reach this
+# endpoint (live pipeline, plotter-page tab snapshots), and a snapshot taken
+# before the quality was raised must not be able to downgrade a plot.
+#
+# use_arc_length is pinned too: it is what makes the chord between points
+# constant. Without it the point count alone doesn't help, because sampling
+# stays uniform in the curve parameter and the lobes — where the pen covers
+# the most distance per step — go back to being the coarsest part of the plot.
+PLOT_SAMPLING = {
+    "initial_samples": 1000000,
+    "output_samples": 100000,
+    "use_arc_length": "true",
+}
+
+
 @app.post("/api/plot")
 def api_plot(req: PlotRequest):
     """Generate points and plot directly on AxiDraw."""
@@ -828,9 +848,11 @@ def api_plot(req: PlotRequest):
     draw_h = model_info["height"] - 2 * req.margin
 
     # Build INI and get normalized points in plotter coordinates (inches)
+    # Force Ultra sampling; keep any other sampling keys (arc-length, scroll).
+    plot_sampling = {**req.sampling, **PLOT_SAMPLING}
     gen_req = GenerateRequest(
         steps=req.steps, pipeline=req.pipeline, arms=req.arms,
-        global_mods=req.global_mods, output=req.output, sampling=req.sampling,
+        global_mods=req.global_mods, output=req.output, sampling=plot_sampling,
         symmetry=req.symmetry,
     )
     ini_text = _build_ini(gen_req)
@@ -891,6 +913,7 @@ def api_plot(req: PlotRequest):
     print(f"  Model {req.model}: {model_info['width']}x{model_info['height']}\" drawable={draw_w:.2f}x{draw_h:.2f}\"")
     print(f"  cv_offset=({req.cv_offset_x:.3f}, {req.cv_offset_y:.3f}) cv_scale={req.cv_scale:.3f} cv_rotation={req.cv_rotation:.1f}")
     print(f"  margin={req.margin} segments={len(segments)} points={total_points}")
+    print(f"  sampling: Ultra (enforced) {PLOT_SAMPLING}")
 
     # Plot in a background thread
     import threading
@@ -933,6 +956,9 @@ def api_plot(req: PlotRequest):
             ad.options.pen_pos_down = req.penDownPosition
             ad.options.accel = req.accelFactor
             ad.options.const_speed = req.constSpeed
+            ad.options.resolution = req.resolution
+            # Must be applied: without it a preview request drives the hardware.
+            ad.options.preview = req.preview
             ad.options.auto_rotate = req.autoRotate
             ad.options.penlift = 3
             if req.port:
@@ -1554,6 +1580,26 @@ body { background:var(--bg); color:var(--text); font-family:'Inter',system-ui,sa
 const { useState, useEffect, useCallback, useRef } = React;
 const h = React.createElement;
 
+// Plots always run at Ultra sampling, whatever the generator page is previewing
+// at. The server enforces this too — this copy just keeps the UI honest about
+// the point counts it reports.
+const PLOT_SAMPLING = { initial_samples: 1000000, output_samples: 100000, use_arc_length: 'true' };
+
+// ---- AxiDraw manual command ----
+// Throws with the server's error detail so callers can surface it; a bare
+// fetch() resolves even on 500, which silently hid connection failures.
+async function plotManual(body) {
+  const r = await fetch('/api/plot-manual', {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
+  });
+  if (!r.ok) {
+    let detail = 'HTTP ' + r.status;
+    try { const j = await r.json(); if (j && j.detail) detail = j.detail; } catch (e) {}
+    throw new Error(detail);
+  }
+  return r.json();
+}
+
 // ---- FileRow ----
 function FileRow({ f, loadIniFile, confirmDelete, setConfirmDelete, deleteIniFile }) {
   const name = f.path.replace('claude_autogen/','').replace('.ini','').replace(/_/g,' ');
@@ -2149,7 +2195,7 @@ function App() {
         patternsToPlot.push({
           steps: snapSteps,
           output: snap.output || output,
-          sampling: snap.sampling || sampling,
+          sampling: {...(snap.sampling || sampling), ...PLOT_SAMPLING},
           symmetry: snap.symmetry && (snap.symmetry.n_fold > 1 || snap.symmetry.mirror) ? snap.symmetry : {},
           plotter_x: pp.x,
           plotter_y: pp.y,
@@ -2166,7 +2212,7 @@ function App() {
           return { kind: 'group', branches: s.branches.map(b => b.filter(m => m !== null).map(m => m.params)).filter(b => b.length > 0) };
         });
       patternsToPlot.push({
-        steps: stepsData, output, sampling,
+        steps: stepsData, output, sampling: {...sampling, ...PLOT_SAMPLING},
         symmetry: symmetry.n_fold > 1 || symmetry.mirror ? symmetry : {},
         cv_offset_x: canvasRef.current ? cvOff.x / canvasRef.current.clientWidth : 0,
         cv_offset_y: canvasRef.current ? cvOff.y / canvasRef.current.clientHeight : 0,
@@ -3345,7 +3391,7 @@ function App() {
             ...[['Pen Up','pen_up'],['Pen Down','pen_down'],['Home','home'],['Motors Off','disable_motors']].map(([label, cmd]) =>
               h('button', {key:cmd, style:{padding:'2px 6px',fontSize:'0.6rem',background:'var(--card)',border:'1px solid var(--border)',color:'var(--text)',borderRadius:'3px',cursor:'pointer'},
                 onClick: async () => {
-                  try { setStatus(label+'...'); await fetch('/api/plot-manual',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({command:cmd,model:pOpts.model,port:pOpts.port,penUpPosition:pOpts.penUpPosition,penDownPosition:pOpts.penDownPosition})}); setStatus(label+' done'); }
+                  try { setStatus(label+'...'); await plotManual({command:cmd,model:pOpts.model,port:pOpts.port,penUpPosition:pOpts.penUpPosition,penDownPosition:pOpts.penDownPosition}); setStatus(label+' done'); }
                   catch(e) { setStatus('Error: '+e.message); }
                 }}, label)),
           ),
@@ -3836,8 +3882,7 @@ function App() {
               h('button', {key:cmd, className:'p-btn', onClick: async () => {
                 try {
                   setStatus(label + '...');
-                  await fetch('/api/plot-manual', {method:'POST', headers:{'Content-Type':'application/json'},
-                    body:JSON.stringify({command:cmd, model:pOpts.model, port:pOpts.port, penUpPosition:pOpts.penUpPosition, penDownPosition:pOpts.penDownPosition})});
+                  await plotManual({command:cmd, model:pOpts.model, port:pOpts.port, penUpPosition:pOpts.penUpPosition, penDownPosition:pOpts.penDownPosition});
                   setStatus(label + ' done');
                 } catch(e) { setStatus('Error: '+e.message); }
               }}, label)),
@@ -3847,8 +3892,7 @@ function App() {
               h('button', {key:cmd, className:'p-btn', onClick: async () => {
                 try {
                   setStatus(label + '...');
-                  await fetch('/api/plot-manual', {method:'POST', headers:{'Content-Type':'application/json'},
-                    body:JSON.stringify({command:cmd, model:pOpts.model, port:pOpts.port, penUpPosition:pOpts.penUpPosition, penDownPosition:pOpts.penDownPosition})});
+                  await plotManual({command:cmd, model:pOpts.model, port:pOpts.port, penUpPosition:pOpts.penUpPosition, penDownPosition:pOpts.penDownPosition});
                   setStatus(label + ' done');
                 } catch(e) { setStatus('Error: '+e.message); }
               }}, label)),
@@ -3859,8 +3903,7 @@ function App() {
               h('button', {key:label, className:'p-btn', onClick: async () => {
                 try {
                   setStatus('Walk ' + label + '...');
-                  await fetch('/api/plot-manual', {method:'POST', headers:{'Content-Type':'application/json'},
-                    body:JSON.stringify({command:cmd, model:pOpts.model, port:pOpts.port, penUpPosition:pOpts.penUpPosition, penDownPosition:pOpts.penDownPosition, walkDistance: dir * 1.0})});
+                  await plotManual({command:cmd, model:pOpts.model, port:pOpts.port, penUpPosition:pOpts.penUpPosition, penDownPosition:pOpts.penDownPosition, walkDistance: dir * 1.0});
                   setStatus('Walk done');
                 } catch(e) { setStatus('Error: '+e.message); }
               }}, label)),
@@ -3875,6 +3918,9 @@ function App() {
               plotterStatus && plotterStatus.plotting ? 'Plotting...' : 'Plot to AxiDraw'),
             plotterStatus && plotterStatus.plotting ? h('button', {className:'p-btn danger', onClick:plotStop}, 'STOP') : null,
           ),
+          h('div', {style:{fontSize:'0.65rem',color:'var(--muted)',marginTop:'6px'}},
+            'Plots always render at Ultra quality (' + PLOT_SAMPLING.output_samples.toLocaleString() +
+            ' points), regardless of the generator page setting.'),
           plotterStatus && plotterStatus.plotting ? h('div', null,
             h('div', {style:{background:'var(--border)',borderRadius:'3px',height:'4px',overflow:'hidden'}},
               h('div', {style:{width:(plotterStatus.progress*100)+'%',height:'100%',background:'var(--accent)',transition:'width 0.3s'}})),

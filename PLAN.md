@@ -74,13 +74,13 @@ Each task ends with a commit and a push.
 
 - [x] **T0 — this plan.** Write `PLAN.md`, keep it updated as tasks land.
 
-- [x] **T1 — vendor `axiplot`.** Copy the package from `~/busy-python/axiplot`
+- [ ] **T1 — vendor `axiplot`.** Copy the package from `~/busy-python/axiplot`
   verbatim (it already has zero dependencies outside itself). Bring its tests
   (`tests/test_axiplot.py`) too so the vendored copy stays honest. Confirm
   `driver.available()` is True against the `axidrawinternal` already in `.venv`.
   *Done when:* `pytest tests/test_axiplot.py` passes in this repo.
 
-- [x] **T2 — extract the generation core.** Move `MODULE_DEFS` to
+- [ ] **T2 — extract the generation core.** Move `MODULE_DEFS` to
   `spiro/pipeline/registry.py`, the INI builder (`_build_ini`, `_emit_mod`) to
   `spiro/pipeline/ini.py`, and `_run_pipeline_points` to `spiro/pipeline/engine.py`,
   returning paths in *source units* plus their bounds — no normalising to a
@@ -89,7 +89,7 @@ Each task ends with a commit and a push.
   *Done when:* the web UI still generates, and `spiro.pipeline` has no FastAPI
   or Qt import.
 
-- [x] **T3 — the scene model, in millimetres.** `spiro/scene/`: paper table,
+- [ ] **T3 — the scene model, in millimetres.** `spiro/scene/`: paper table,
   `PlacedItem` (paths, `x_mm`, `y_mm` of the item's *centre*, `w_mm`, `h_mm`,
   rotation, pen index), and a `Scene` that renders to SVG at 1 user unit = 1 mm.
   One `item_transform()` function is the only place a placement becomes a
@@ -97,25 +97,25 @@ Each task ends with a commit and a push.
   *Done when:* unit tests assert a round trip — place an item at a known mm
   position, render the SVG, and read the path bounds back within a tolerance.
 
-- [x] **T4 — the desktop app.** PySide6, launched by `run_gui.sh`, same shape as
+- [ ] **T4 — the desktop app.** PySide6, launched by `run_gui.sh`, same shape as
   busy-python's GUI: palette + pipeline on the left, paper canvas in the middle
   showing the real bed with a mm ruler, plot side on the right. Drag moves an
   item by real millimetres; what you see is what gets drawn.
   *Done when:* generate a pattern, drop it on the paper, drag it, and the plot
   preview bounds match the on-screen position to under a millimetre.
 
-- [x] **T5 — pens.** A pen list (label, colour, include). Every placed item
+- [ ] **T5 — pens.** A pen list (label, colour, include). Every placed item
   carries a pen index; the scene emits one SVG layer per pen; `axiplot.run.plot_job`
   plots the layers in order and `LayerState` remembers which are on the paper.
   *Done when:* two items on two pens plot as two layers with a pause between them.
 
-- [x] **T6 — notifications.** Wire `axiplot.notify` in: settings for Home
+- [ ] **T6 — notifications.** Wire `axiplot.notify` in: settings for Home
   Assistant (URL, token or token file, service, level), MQTT and webhook, a Test
   button, and `plot_job(notifier=…)` so each finished layer buzzes a phone.
   *Done when:* the Test button reports success against the configured service,
   and a two-layer plot sends "layer 1/2 done, swap to …".
 
-- [x] **T7 — retire the web server.** Once the desktop app has parity, delete
+- [ ] **T7 — retire the web server.** Once the desktop app has parity, delete
   `server.py`, rewrite `launch.sh` to launch the GUI, and update the README.
 
 ## Notes

@@ -11,10 +11,23 @@ A modular system for creating complex mathematical art through composed transfor
 The interactive frontend runs as a single-file FastAPI + React app — no build step required.
 
 ```bash
-pip install fastapi uvicorn numpy
-./launch.sh          # http://127.0.0.1:8890/
-./launch.sh 9000     # http://127.0.0.1:9000/
+./launch.sh                # start in the background on http://127.0.0.1:8890/
+./launch.sh 9000           # ... or on port 9000
+./launch.sh status         # running? which pid, which port?
+./launch.sh restart        # pick up code changes
+./launch.sh stop
+./launch.sh fg             # run in the foreground instead (Ctrl-C to quit)
 ```
+
+`start` is the default, so a bare `./launch.sh` (or `./launch.sh 9000`) still
+works. The background server writes its pid to `.server.pid` and its output to
+`server.log`; a pidfile left behind by a crash is detected and ignored rather
+than trusted.
+
+On first run `launch.sh` creates a `.venv/` alongside the sources and installs
+FastAPI, Uvicorn and NumPy into it; later runs just reuse it. It also installs
+the [AxiDraw API](https://cdn.evilmadscientist.com/dl/ad/public/AxiDraw_API.zip)
+for pen-plotter support — without it the plotter controls return HTTP 500.
 
 ### Features
 
