@@ -32,7 +32,8 @@ fi
 # xcb (XWayland) is the proven backend here: input is verified, while the
 # native wayland plugin showed focus trouble for windows launched from a
 # background shell. Override with QT_QPA_PLATFORM to experiment.
-if [ -z "${QT_QPA_PLATFORM:-}" ]; then
+# macOS ships only the cocoa plugin, so leave Qt to its default there.
+if [ -z "${QT_QPA_PLATFORM:-}" ] && [ "$(uname -s)" != "Darwin" ]; then
     export QT_QPA_PLATFORM="xcb;wayland"
 fi
 
