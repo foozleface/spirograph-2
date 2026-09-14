@@ -227,15 +227,18 @@ Asked for after the first seven landed:
   edge.
 
 - [x] **P4 — edit a placed pattern.** An item opened from a sheet has no
-  document behind it. *Edit* loads its INI into Build and links the two, so
-  the arrangement is a starting point rather than a snapshot.
+  document behind it. Selecting it — in the list or on the canvas — loads
+  its INI into Build and links the two, so the arrangement is a starting
+  point rather than a snapshot. Opening a file from Files lands in Build.
+  Draft sampling went from 3,000 to 8,000 points: the first thing on screen
+  has to be recognisable.
 
 ### Round three, done
 
 * Render / Paper tabs, `Ctrl+1` / `Ctrl+2`.
 * `File > Save sheet` (`Ctrl+Shift+S`), `Open sheet…` (`Ctrl+Shift+O`), and the
   same two buttons on the Sheet panel; `run_gui.sh some.sheet.json` too.
-* Centre, width and angle editors under the item list; *Edit* beside *Centre*.
+* Centre, width and angle editors under the item list; selection edits.
 * `run_gui.sh` no longer forces xcb on macOS, which only has cocoa.
 
 `./run_tests.sh` — the scene gate checks the file round trip against the SVG

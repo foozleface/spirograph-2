@@ -29,7 +29,6 @@ class SheetPanel(QWidget):
     selectionChanged = Signal(object)     # item_id or None
     paperChanged = Signal()
     cleared = Signal()
-    editRequested = Signal(object)        # item_id: bring its pattern into Build
     saveSheetRequested = Signal()
     openSheetRequested = Signal()
 
@@ -114,12 +113,10 @@ class SheetPanel(QWidget):
         self.clear.setObjectName("danger")
         self.clear.setToolTip("Take everything off the sheet (Ctrl+Shift+Backspace)")
         self.clear.clicked.connect(self.clear_paper)
-        self.edit = QPushButton("Edit")
-        self.edit.setToolTip("Bring this pattern's pipeline into Build, so an "
-                             "edit there redraws it here")
-        self.edit.clicked.connect(self._edit_selected)
-        layout.addWidget(row(self.edit, self.centre, self.fit, self.duplicate, 1,
+        layout.addWidget(row(self.centre, self.fit, self.duplicate, 1,
                              self.remove, self.clear, spacing=4))
+        layout.addWidget(theme.muted(
+            "Selecting a pattern brings its parameters into Build.", wrap=True))
 
         # -- the selected item, in numbers ----------------------------------- #
         # Dragging is for roughly; these are for exactly. Centre in mm from
@@ -321,11 +318,6 @@ class SheetPanel(QWidget):
         item.rotate_to(self.sel_rot.value())
         self._refresh_items(item.item_id)
         self.sceneChanged.emit()
-
-    def _edit_selected(self):
-        item = self._selected_item()
-        if item is not None:
-            self.editRequested.emit(item.item_id)
 
     def _set_visible(self, item, on):
         item.visible = on

@@ -251,7 +251,6 @@ class MainWindow(QMainWindow):
         self.sheet.paperChanged.connect(self._paper_changed)
         self.sheet.cleared.connect(
             lambda: self.status_left.setText("The paper is clear."))
-        self.sheet.editRequested.connect(self._edit_item)
         self.sheet.saveSheetRequested.connect(self._save_sheet_as)
         self.sheet.openSheetRequested.connect(self._open_sheet_dialog)
 
@@ -319,6 +318,7 @@ class MainWindow(QMainWindow):
         self.design.show_recipe(None)
         self.effects.reload()
         self.library.select(path)
+        self.left_tabs.setCurrentWidget(self.design)
         self.centre.setCurrentWidget(self.render)
         self._update_title()
         self._schedule_render()
@@ -562,14 +562,21 @@ class MainWindow(QMainWindow):
     def _edit_item(self, item_id):
         """Bring a placed pattern's pipeline into Build.
 
-        The item and the document are then linked the way a freshly placed
-        one is: an edit in Build regenerates the item in place. That is how a
-        sheet opened from a file becomes editable again — its items arrive
-        with no document behind them.
+        Selecting an item — in the list or on the canvas — does this, so the
+        parameters of whatever is picked are the parameters on the left. The
+        item and the document are then linked the way a freshly placed one
+        is: an edit in Build regenerates the item in place, on the paper and
+        in Render both. That is also how a sheet opened from a file becomes
+        editable again — its items arrive with no document behind them.
+
+        Whatever was in Build and not yet placed is replaced; a placed
+        pattern is never lost this way, because its item holds the INI.
         """
         item = self.scene.find(item_id)
         if item is None:
             return
+        if item.source is not None and item.source == self.document.token:
+            return                       # already the pattern being built
         text = getattr(item.drawing, "ini_text", "")
         if not text:
             self.status_left.setText("%s has no pipeline to edit." % item.name)
@@ -593,7 +600,6 @@ class MainWindow(QMainWindow):
         self.design.show_recipe(None)
         self.effects.reload()
         self.left_tabs.setCurrentWidget(self.design)
-        self.centre.setCurrentWidget(self.render)
         self._update_title()
         self._schedule_render()
         self.status_left.setText("Editing %s — changes redraw it on the paper."
@@ -688,9 +694,13 @@ class MainWindow(QMainWindow):
 
     def _canvas_selected(self, item_id):
         self.sheet.select(item_id)
+        if item_id is not None:
+            self._edit_item(item_id)
 
     def _sheet_selected(self, item_id):
         self.canvas.select(item_id)
+        if item_id is not None:
+            self._edit_item(item_id)
 
     def _item_moved(self, item_id):
         item = self.scene.find(item_id)

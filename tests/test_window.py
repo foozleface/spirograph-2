@@ -328,6 +328,7 @@ if target is not None:
     check("clicking one loads it",
           window.document.path is not None
           and window.document.path.name == target.text(0) + ".ini")
+    check("and lands in Build", window.left_tabs.currentWidget() is window.design)
     check("and the pipeline panel shows its steps",
           window.design.steps.count() == len(window.document.steps))
 
@@ -421,15 +422,26 @@ with tempfile.TemporaryDirectory() as folder:
     check("the window is on the sheet it opened",
           window.sheet_path is not None and window.sheet_path.name == "gate.sheet.json")
 
-    # Edit: a reopened item has no document behind it until asked.
+    # Selecting: a reopened item has no document behind it until picked.
     target = window.scene.items[1]
     check("a reopened item is not tracking any document", target.source is None)
-    window._edit_item(target.item_id)
-    check("edit brings its pipeline into Build",
+    window.left_tabs.setCurrentWidget(window.library)
+    window.sheet.select(target.item_id)
+    window.sheet.selectionChanged.emit(target.item_id)   # as a click does
+    pump(30)
+    check("selecting it brings its pipeline into Build",
           window.document.name == target.name
           and len(window.document.steps) == saved_steps)
-    check("switches to the render view", window.centre.currentWidget() is window.render)
+    check("and shows the Build tab", window.left_tabs.currentWidget() is window.design)
+    check("without leaving the paper", window.centre.currentWidget() is window.paper_host)
     check("and links the item to the document", target.source == window.document.token)
+    other = window.scene.items[0]
+    window.canvas._select(other.item_id)              # a click on the canvas
+    pump(30)
+    check("clicking on the canvas does the same",
+          window.document.name == other.name and other.source == window.document.token)
+    window.canvas._select(target.item_id)
+    pump(30)
     was = target.drawing
     window._render_now()
     check("so an edit in Build regenerates it on the paper",

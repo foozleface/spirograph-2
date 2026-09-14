@@ -22,7 +22,9 @@ from spiro.ui import theme
 from spiro.ui.widgets import ParamRow, row
 
 QUALITY = {                    # label -> (initial samples, output samples)
-    "Draft": (20000, 3000),
+    # Draft is what you see on first load, so it has to be enough to tell
+    # what the pattern is; 3000 points was not.
+    "Draft": (60000, 8000),
     "Fine": (120000, 16000),
     "Ultra": (400000, 50000),
 }

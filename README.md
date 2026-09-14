@@ -63,9 +63,10 @@ with one parameter nudged so the copies interfere.
 many patterns as you like. Each one carries a **pen**; the pen list says what
 that pen number means in ink and in name. The selected pattern's centre,
 width and angle are there as numbers for when dragging is not exact enough.
-*Edit* brings a placed pattern's pipeline back into Build, linked, so a change
-there redraws it on the paper. *Clear* takes everything off the sheet and
-leaves the pattern, the pens and the paper as they are.
+Selecting a pattern — in the list or on the paper — brings its pipeline into
+Build, linked, so a change there redraws it on the paper and in Render.
+*Clear* takes everything off the sheet and leaves the pattern, the pens and
+the paper as they are.
 
 **Save sheet** (`Ctrl+Shift+S`) writes the whole arrangement — the paper, the
 pens, and every pattern with its pipeline, position, size, angle and pen — to
@@ -115,7 +116,7 @@ One millimetre is one unit throughout, and one user unit in the SVG that
 reaches the machine. There are no percentages of a widget anywhere in it.
 
 ```bash
-./run_tests.sh            # every gate: 362 checks, no hardware, no network
+./run_tests.sh            # every gate: 365 checks, no hardware, no network
 ./run_tests.sh scene      # just one
 ```
 
