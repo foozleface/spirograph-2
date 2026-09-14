@@ -8,7 +8,7 @@ Can grow/shrink over time.
 
 import numpy as np
 from fractions import Fraction
-from math import pi, sin
+from math import pi
 from main import TransformModule
 
 
@@ -75,7 +75,7 @@ class EllipseModule(TransformModule):
 
         # Per-revolution lobe: radii vary within each revolution
         if self.lobe != 0:
-            s = self.lobe * sin(angle * self.lobe_n)
+            s = self.lobe * np.sin(angle * self.lobe_n)
             rx += s
             ry += s
 

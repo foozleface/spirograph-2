@@ -28,7 +28,7 @@ Based on research from bit-101 Coding Curves and Wolfram MathWorld.
 
 import numpy as np
 from fractions import Fraction
-from math import pi, sin, cos, gcd
+from math import pi, gcd
 from main import TransformModule
 
 
@@ -76,19 +76,19 @@ class GuillocheModule(TransformModule):
         angle = t_norm * 2 * pi * self.div * self.cycles
 
         # Inner and outer envelope boundaries
-        r0 = inner + sin(angle * self.n0) * self.h0
-        r1 = outer + sin(angle * self.n1) * self.h1
+        r0 = inner + np.sin(angle * self.n0) * self.h0
+        r1 = outer + np.sin(angle * self.n1) * self.h1
 
         # Main oscillation between boundaries
         half_range = (r1 - r0) * 0.5
         mid = r0 + half_range
-        radius = mid + sin(angle * nodes / self.div) * half_range
+        radius = mid + np.sin(angle * nodes / self.div) * half_range
 
         # Convert to complex point
-        x = cos(angle) * radius
-        y = sin(angle) * radius
+        x = np.cos(angle) * radius
+        y = np.sin(angle) * radius
 
-        return z + complex(x, y)
+        return z + (x + 1j * y)
 
     @property
     def natural_period(self) -> Fraction:

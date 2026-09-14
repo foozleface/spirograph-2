@@ -116,6 +116,42 @@ check("the INI is parseable", parses(text))
 
 print("engine:")
 
+# The runner is vectorised: every module sees the whole draw as arrays. A
+# module written that way also answers for one moment, which is what the
+# scrubber asks. Both must agree.
+import configparser  # noqa: E402
+import sys as _sys  # noqa: E402
+_sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from main import load_module  # noqa: E402
+
+STAGED = build_ini(steps=[
+    {"kind": "single", "params": {"type": "spirograph_gear", "fixed_teeth": 96,
+                                  "rolling_teeth": 36, "hole_position": 0.7}},
+    {"kind": "single", "params": {"type": "rotation", "total_degrees": 90}},
+    {"kind": "single", "params": {"type": "circle", "radius": 30, "cycles": 5}},
+], sampling={"initial_samples": 20000, "output_samples": 3000})
+staged = run(STAGED)
+check("the drawing carries one stage per module", len(staged.stages) == 3)
+check("each stage is sampled at the output points",
+      all(len(s) == 3000 for s in staged.stages) and len(staged.t_values) == 3000)
+check("the last stage is the drawn curve",
+      np.allclose(staged.stages[-1], staged.paths[0]))
+check("a rotation keeps each point's distance from the origin",
+      np.allclose(np.abs(staged.stages[1]), np.abs(staged.stages[0])))
+# cycles 1, a quarter turn, cycles 5: the LCM period is 5 t-cycles.
+check("t runs from 0 towards the period, in order", staged.t_values[0] == 0
+      and np.all(np.diff(staged.t_values) >= 0) and 4 < staged.t_values[-1] < 5)
+
+_cfg = configparser.ConfigParser()
+_cfg.read_string(STAGED)
+_gear = load_module("s0", _cfg)
+_one = _gear.transform(0j, 0.37)
+_many = _gear.transform(np.zeros(3, dtype=complex), np.array([0.1, 0.37, 0.9]))
+check("a module answers for one moment as it does for the whole draw",
+      np.iscomplexobj(_many) and abs(_many[1] - _one) < 1e-12)
+check("and a transform on a scalar stays a scalar",
+      np.ndim(load_module("s1", _cfg).transform(1 + 0j, 0.5)) == 0)
+
 GEAR = build_ini(steps=[{"kind": "single", "params": {
     "type": "spirograph_gear", "fixed_teeth": 96, "rolling_teeth": 36,
     "hole_position": 0.6}}],

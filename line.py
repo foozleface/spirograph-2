@@ -102,21 +102,13 @@ class LineModule(TransformModule):
             idle_time = 1.0 - self.stroke_time
             
             if self.idle_at_end:
-                # Draw first, then idle at end
-                if t_frac < self.stroke_time:
-                    # Drawing phase
-                    draw_progress = t_frac / self.stroke_time
-                else:
-                    # Idle at end
-                    draw_progress = 1.0
+                # Draw first, then idle at the end
+                draw_progress = np.where(t_frac < self.stroke_time,
+                                         t_frac / self.stroke_time, 1.0)
             else:
-                # Idle first, then draw (default)
-                if t_frac < idle_time:
-                    # Idle at start
-                    draw_progress = 0.0
-                else:
-                    # Drawing phase - map remaining time to [0, 1]
-                    draw_progress = (t_frac - idle_time) / self.stroke_time
+                # Idle first, then draw (default) — the remaining time maps to [0, 1]
+                draw_progress = np.where(t_frac < idle_time, 0.0,
+                                         (t_frac - idle_time) / self.stroke_time)
         
         # Compute position along line
         direction = self.unit_dir * current_length

@@ -89,13 +89,14 @@ class RackModule(TransformModule):
         # Position within current cycle [0, 1)
         t_frac = t_in_cycles % 1.0
         
-        # Total progress through all laps within this cycle
+        # Total progress through all laps within this cycle. A point landing
+        # exactly on a lap boundary belongs to the end of the previous lap.
         total_progress = t_frac * self.laps
-        lap_num = int(total_progress)
+        lap_num = np.floor(total_progress)
         lap_frac = total_progress - lap_num
-        if total_progress > 0 and lap_frac == 0:
-            lap_frac = 1.0
-            lap_num -= 1
+        on_boundary = (total_progress > 0) & (lap_frac == 0)
+        lap_frac = np.where(on_boundary, 1.0, lap_frac)
+        lap_num = np.where(on_boundary, lap_num - 1, lap_num)
         
         # Interpolate pen distance for drift
         if self._drifts:
@@ -121,96 +122,49 @@ class RackModule(TransformModule):
         rotation_seg2 = self.speed_ratio * pi  # Epitrochoid rotation for full semicircle
         rotation_seg3 = self.straight_length / self.gear_radius
         
-        if s <= seg1:
-            # SEGMENT 1: Bottom straight (left to right)
-            # Trochoid: gear center at y = -(end_radius + gear_radius)
-            dist = s
-            gear_rot = base_rotation + dist / self.gear_radius
-            
-            # Gear center position
-            cx = -self.straight_length / 2 + dist
-            cy = -(self.end_radius + self.gear_radius)
-            
-            # Pen position (trochoid: pen points down at t=0)
-            px = cx + pen_d * np.sin(gear_rot)
-            py = cy - pen_d * np.cos(gear_rot)
-            
-        elif s <= seg2:
-            # SEGMENT 2: Right semicircle - EPITROCHOID
-            arc_s = s - seg1
-            
-            # Orbital angle φ around the semicircle (0 to π)
-            phi = arc_s / (self.end_radius + self.gear_radius)  # NO! This is wrong
-            # Actually: arc_s = (R + r) * φ for the gear center path
-            # But the teeth are on the RACK, so the gear rolls on a path of radius R_end + r_gear
-            # The arc length the gear center travels is (R_end + r_gear) * φ
-            # And we know the arc length along the rack surface is end_arc_length = R_end * π for full semicircle
-            # But the gear center path is longer by (R+r)/R
-            
-            # Let me reconsider:
-            # The rack's semicircular end has radius R_end
-            # The gear center orbits at radius (R_end + r_gear) 
-            # When gear center travels arc_length on its orbital path, the rack surface traveled is:
-            # surface_arc = orbital_arc * R_end / (R_end + r_gear)
-            
-            # We're parameterizing by rack surface distance s
-            # So orbital angle φ = s / R_end (since s = R_end * φ on the rack surface)
-            phi = arc_s / self.end_radius
-            
-            # Gear center position (orbiting around right end center)
-            end_center_x = self.straight_length / 2
-            end_center_y = 0
-            orbit_r = self.end_radius + self.gear_radius
-            
-            # Position angle: starts at -π/2 (bottom), goes to +π/2 (top)
-            pos_angle = -pi/2 + phi
-            cx = end_center_x + orbit_r * np.cos(pos_angle)
-            cy = end_center_y + orbit_r * np.sin(pos_angle)
-            
-            # Gear rotation: epitrochoid formula
-            # For epitrochoid, pen angle = speed_ratio * orbital_angle
-            # Total rotation = previous segments + epitrochoid rotation
-            gear_rot = base_rotation + rotation_seg1 + self.speed_ratio * phi
-            
-            # Pen position
-            px = cx + pen_d * np.sin(gear_rot)
-            py = cy - pen_d * np.cos(gear_rot)
-            
-        elif s <= seg3:
-            # SEGMENT 3: Top straight (right to left)
-            dist = s - seg2
-            gear_rot = base_rotation + rotation_seg1 + rotation_seg2 + dist / self.gear_radius
-            
-            # Gear center position (y = end_radius + gear_radius)
-            cx = self.straight_length / 2 - dist
-            cy = self.end_radius + self.gear_radius
-            
-            # Pen position
-            px = cx + pen_d * np.sin(gear_rot)
-            py = cy - pen_d * np.cos(gear_rot)
-            
-        else:
-            # SEGMENT 4: Left semicircle - EPITROCHOID
-            arc_s = s - seg3
-            phi = arc_s / self.end_radius  # 0 to π
-            
-            # Gear center position (orbiting around left end center)
-            end_center_x = -self.straight_length / 2
-            end_center_y = 0
-            orbit_r = self.end_radius + self.gear_radius
-            
-            # Position angle: starts at +π/2 (top), goes to +3π/2 (bottom)
-            pos_angle = pi/2 + phi
-            cx = end_center_x + orbit_r * np.cos(pos_angle)
-            cy = end_center_y + orbit_r * np.sin(pos_angle)
-            
-            # Gear rotation
-            gear_rot = base_rotation + rotation_seg1 + rotation_seg2 + rotation_seg3 + self.speed_ratio * phi
-            
-            # Pen position
-            px = cx + pen_d * np.sin(gear_rot)
-            py = cy - pen_d * np.cos(gear_rot)
-        
+        orbit_r = self.end_radius + self.gear_radius
+        half = self.straight_length / 2
+
+        # SEGMENT 1: bottom straight, left to right. A trochoid: the gear
+        # centre runs along y = -(end_radius + gear_radius).
+        d1 = s
+        rot1 = base_rotation + d1 / self.gear_radius
+        c1x = -half + d1
+        c1y = -orbit_r
+
+        # SEGMENT 2: right semicircle, an epitrochoid. The rack surface is
+        # what has teeth, so the orbital angle is the surface distance over
+        # the end radius; the gear turns speed_ratio times as fast.
+        phi2 = (s - seg1) / self.end_radius
+        ang2 = -pi / 2 + phi2
+        c2x = half + orbit_r * np.cos(ang2)
+        c2y = orbit_r * np.sin(ang2)
+        rot2 = base_rotation + rotation_seg1 + self.speed_ratio * phi2
+
+        # SEGMENT 3: top straight, right to left.
+        d3 = s - seg2
+        rot3 = base_rotation + rotation_seg1 + rotation_seg2 + d3 / self.gear_radius
+        c3x = half - d3
+        c3y = orbit_r
+
+        # SEGMENT 4: left semicircle.
+        phi4 = s - seg3
+        phi4 = phi4 / self.end_radius
+        ang4 = pi / 2 + phi4
+        c4x = -half + orbit_r * np.cos(ang4)
+        c4y = orbit_r * np.sin(ang4)
+        rot4 = (base_rotation + rotation_seg1 + rotation_seg2 + rotation_seg3
+                + self.speed_ratio * phi4)
+
+        which = [s <= seg1, s <= seg2, s <= seg3]
+        cx = np.select(which, [c1x, c2x, c3x], c4x)
+        cy = np.select(which, [c1y, c2y, c3y], c4y)
+        gear_rot = np.select(which, [rot1, rot2, rot3], rot4)
+
+        # Pen position (trochoid: the pen points down at the start)
+        px = cx + pen_d * np.sin(gear_rot)
+        py = cy - pen_d * np.cos(gear_rot)
+
         result = (px + 1j * py) * self.scale
         return z + result
     

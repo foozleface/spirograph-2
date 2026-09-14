@@ -98,11 +98,12 @@ class SurfaceModule(TransformModule):
         # Combined rotation: first Z, then Y, then X
         self.rotation_matrix = Rx @ Ry @ Rz
     
-    def _surface_point(self, u: float, v: float) -> tuple:
+    def _surface_point(self, u, v):
         """
-        Compute 3D point on surface for parameters (u, v).
+        3D point(s) on the surface for parameters (u, v). Array-safe.
         Returns (x, y, z).
         """
+        cos, sin = np.cos, np.sin
         if self.surface_type == 'torus':
             # Torus: (R + r*cos(v)) * cos(u), (R + r*cos(v)) * sin(u), r*sin(v)
             R, r = self.major_radius, self.minor_radius
@@ -139,17 +140,14 @@ class SurfaceModule(TransformModule):
             z = r * cos(v)
             
         elif self.surface_type == 'klein':
-            # Klein bottle (figure-8 immersion)
+            # Klein bottle (figure-8 immersion): the x term flips sign on the
+            # second half of u.
             r = self.minor_radius
             R = self.major_radius
-            if u < pi:
-                x = (R + r * cos(u)) * cos(u) - r * sin(u) * cos(v)
-                y = (R + r * cos(u)) * sin(u)
-                z = r * sin(v)
-            else:
-                x = (R + r * cos(u)) * cos(u) + r * sin(u) * cos(v)
-                y = (R + r * cos(u)) * sin(u)
-                z = r * sin(v)
+            sign = np.where(u < pi, -1.0, 1.0)
+            x = (R + r * cos(u)) * cos(u) + sign * r * sin(u) * cos(v)
+            y = (R + r * cos(u)) * sin(u)
+            z = r * sin(v)
                 
         elif self.surface_type == 'helix_ribbon':
             # Helical ribbon - ribbon that also rises in Z
@@ -179,14 +177,12 @@ class SurfaceModule(TransformModule):
         
         return x, y, z
     
-    def _project(self, x: float, y: float, z: float) -> complex:
-        """Project 3D point to 2D complex number."""
-        # Apply rotation
-        point = np.array([x, y, z])
-        rotated = self.rotation_matrix @ point
-        
-        # Orthographic projection (drop z)
-        return complex(rotated[0] * self.scale, rotated[1] * self.scale)
+    def _project(self, x, y, z):
+        """Rotate 3D point(s) by the view and drop z — orthographic. Array-safe."""
+        m = self.rotation_matrix
+        px = m[0, 0] * x + m[0, 1] * y + m[0, 2] * z
+        py = m[1, 0] * x + m[1, 1] * y + m[1, 2] * z
+        return (px + 1j * py) * self.scale
     
     def transform(self, z: complex, t: float) -> complex:
         """

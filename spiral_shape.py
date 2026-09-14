@@ -9,7 +9,7 @@ The spiral grows outward (or inward) as it rotates.
 
 import numpy as np
 from fractions import Fraction
-from math import pi, sin
+from math import pi
 from main import TransformModule
 
 
@@ -66,7 +66,7 @@ class SpiralShapeModule(TransformModule):
 
         # Per-revolution lobe: radius varies within each revolution
         if self.lobe != 0:
-            r += self.lobe * sin(angle * self.lobe_n)
+            r += self.lobe * np.sin(angle * self.lobe_n)
 
         point = r * np.exp(1j * angle)
         

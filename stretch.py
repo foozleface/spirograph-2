@@ -47,7 +47,7 @@ class StretchModule(TransformModule):
         sx = self._interpolate(self.scale_x, self.end_scale_x, t_use, 'scale_x')
         sy = self._interpolate(self.scale_y, self.end_scale_y, t_use, 'scale_y')
         rel = z - self.origin
-        return self.origin + complex(rel.real * sx, rel.imag * sy)
+        return self.origin + (rel.real * sx + 1j * (rel.imag * sy))
 
     @property
     def natural_period(self) -> Fraction:

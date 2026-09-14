@@ -7,6 +7,13 @@ A pipeline-based system for generating complex spirograph patterns.
 Each module transforms complex coordinates z = x + iy based on time parameter t ∈ [0, 1].
 Modules can be generators (ignore input z) or transformers (modify input z).
 
+``transform(z, t)`` is called with NumPy arrays — every sample of the draw at
+once — and must be written with array-safe operations (``np.sin`` rather than
+``math.sin``, ``np.where`` rather than ``if`` on a value that varies with t).
+Parameters that do not vary with t may still be tested with plain ``if``. A
+module written that way also works on a scalar, which is what the scrubber in
+the window uses to ask "where is the pen at this moment?".
+
 Output is SVG with optional arc-length reparameterization for uniform point density.
 """
 
@@ -45,6 +52,9 @@ def apply_easing(t: float, mode: str = 'linear') -> float:
     elif mode == 'sine':
         return 0.5 - 0.5 * np.cos(np.pi * t)
     return t
+
+
+EASING_MODES = ('linear', 'ease_in', 'ease_out', 'ease_in_out', 'sine')
 
 
 class TransformModule(ABC):
@@ -136,16 +146,16 @@ class TransformModule(ABC):
         phi = 1.618033988749895  # golden ratio
         sqrt2 = 1.4142135623730951
         tau = 2 * pi * speed * t_norm
-        base = 0.5 - 0.5 * cos(tau)
-        p1 = 0.5 - 0.5 * cos(tau * phi)
-        p2 = 0.5 - 0.5 * cos(tau * sqrt2)
+        base = 0.5 - 0.5 * np.cos(tau)
+        p1 = 0.5 - 0.5 * np.cos(tau * phi)
+        p2 = 0.5 - 0.5 * np.cos(tau * sqrt2)
         # Mix: base always present, perturbations add organic variation
         mix = base * (1.0 - irreg * 0.4) + p1 * irreg * 0.25 + p2 * irreg * 0.15
         # Normalize to [0, 1]
         max_amp = 1.0  # raised cosines are already in [0,1], mix stays bounded
         if irreg > 0:
             max_amp = (1.0 - irreg * 0.4) + irreg * 0.25 + irreg * 0.15
-        mix = max(0.0, min(1.0, mix / max_amp))
+        mix = np.clip(mix / max_amp, 0.0, 1.0)
         return start + (end - start) * mix
 
     @abstractmethod
@@ -154,16 +164,17 @@ class TransformModule(ABC):
         pass
     
     @abstractmethod
-    def transform(self, z: complex, t: float) -> complex:
+    def transform(self, z, t):
         """
-        Transform a point based on time.
-        
+        Transform every sample point of the draw at once.
+
         Args:
-            z: Input position as complex number (x + iy)
-            t: Normalized time parameter in [0, 1]
-            
+            z: Input positions, a complex array (or one complex number)
+            t: Time parameter per point, a float array (or one float),
+               in [0, period)
+
         Returns:
-            Transformed position as complex number
+            Transformed positions, the same shape as z
         """
         pass
     
@@ -228,29 +239,37 @@ def compute_pipeline_period(modules: List[TransformModule]) -> Fraction:
     return result
 
 
-def run_pipeline(modules: List[TransformModule], t: float, start: complex = 0j) -> complex:
+def run_pipeline(modules: List[TransformModule], t, start=0j, stages=None):
     """
-    Run a single time step through the module pipeline.
-    
+    Fold the pipeline over every sample at once.
+
     Args:
         modules: List of transformation modules
-        t: Time parameter in [0, 1]
-        start: Initial starting point
-        
+        t: Time parameter — a float array covering the whole draw, or one float
+        start: Initial position (a complex number, or an array like t)
+        stages: If a list is given, the positions after each module are
+                appended to it — the drawing as it stands after step k, which
+                is what the window's stage thumbnails and the linkage
+                scrubber are built from
+
     Returns:
-        Final transformed position as complex number
+        Final positions, the same shape as t
     """
-    z = start
+    t = np.asarray(t, dtype=float)
+    z = np.broadcast_to(np.asarray(start, dtype=complex), t.shape).copy() \
+        if t.ndim else complex(start)
     for module in modules:
         z = module.transform(z, t)
+        if stages is not None:
+            stages.append(np.array(z, dtype=complex, copy=True))
     return z
 
 
 def dense_sample(modules: List[TransformModule], num_samples: int,
                  period: Fraction = Fraction(1, 1), start: complex = 0j,
-                 scroll_repeats: float = 1.0) -> np.ndarray:
+                 scroll_repeats: float = 1.0, stages=None) -> np.ndarray:
     """
-    Generate dense samples from the pipeline.
+    Generate dense samples from the pipeline, in one vectorised pass.
 
     Args:
         modules: List of transformation modules
@@ -258,14 +277,14 @@ def dense_sample(modules: List[TransformModule], num_samples: int,
         period: Overall period of the pattern (samples t from 0 to period)
         start: Initial starting point
         scroll_repeats: Number of full periods to draw (>1 for scroll mode)
+        stages: see run_pipeline
 
     Returns:
         Complex array of sampled points
     """
     t_max = float(period) * scroll_repeats
     t_values = np.linspace(0, t_max, num_samples, endpoint=False)
-    points = np.array([run_pipeline(modules, t, start) for t in t_values])
-    return points
+    return np.asarray(run_pipeline(modules, t_values, start, stages), dtype=complex)
 
 
 def compute_arc_lengths(points: np.ndarray) -> np.ndarray:
@@ -288,16 +307,21 @@ def compute_arc_lengths(points: np.ndarray) -> np.ndarray:
     return arc_lengths
 
 
-def resample_by_arc_length(points: np.ndarray, num_output: int) -> np.ndarray:
+def resample_by_arc_length(points: np.ndarray, num_output: int,
+                           companions=()) -> np.ndarray:
     """
     Resample points at uniform arc length intervals.
-    
+
     Args:
         points: Complex array of densely sampled points
         num_output: Number of output points desired
-        
+        companions: Other arrays sampled at the same t as ``points`` (the
+            stages, the t values themselves) to resample at the same places,
+            so companion[i] still describes output point i
+
     Returns:
-        Complex array of uniformly-spaced (by arc length) points
+        Complex array of uniformly-spaced (by arc length) points — and, when
+        companions were given, a list of them resampled alongside
     """
     arc_lengths = compute_arc_lengths(points)
     total_length = arc_lengths[-1]
@@ -309,8 +333,18 @@ def resample_by_arc_length(points: np.ndarray, num_output: int) -> np.ndarray:
     # We interpolate real and imaginary parts separately
     output_real = np.interp(target_lengths, arc_lengths, points.real)
     output_imag = np.interp(target_lengths, arc_lengths, points.imag)
-    
-    return output_real + 1j * output_imag
+    out = output_real + 1j * output_imag
+    if not companions:
+        return out
+    resampled = []
+    for arr in companions:
+        arr = np.asarray(arr)
+        if np.iscomplexobj(arr):
+            resampled.append(np.interp(target_lengths, arc_lengths, arr.real)
+                             + 1j * np.interp(target_lengths, arc_lengths, arr.imag))
+        else:
+            resampled.append(np.interp(target_lengths, arc_lengths, arr))
+    return out, resampled
 
 
 def normalize_for_svg(points: np.ndarray, width: float, height: float, 
@@ -621,7 +655,8 @@ def run_single_pipeline(config: configparser.ConfigParser,
                         use_arc_length: bool = True,
                         start_point: complex = 0j,
                         label: str = "",
-                        scroll_repeats: float = 1.0) -> np.ndarray:
+                        scroll_repeats: float = 1.0,
+                        want_stages: bool = False):
     """
     Run a single pipeline and return resampled points.
 
@@ -634,9 +669,13 @@ def run_single_pipeline(config: configparser.ConfigParser,
         start_point: Starting point for the pipeline
         label: Label for log messages
         scroll_repeats: Number of full periods to draw (>1 for scroll mode)
+        want_stages: Also return, per output point, the t it was drawn at and
+            the position after every module — see run_pipeline
 
     Returns:
-        Resampled complex point array
+        Resampled complex point array; with want_stages, the tuple
+        ``(points, t_values, stages)`` where stages[k][i] is output point i
+        as it stood after module k
     """
     prefix = f"[{label}] " if label else ""
 
@@ -656,20 +695,33 @@ def run_single_pipeline(config: configparser.ConfigParser,
 
     # Generate dense samples
     print(f"{prefix}Generating {initial_samples:,} dense samples...")
+    stages = [] if want_stages else None
     points = dense_sample(modules, initial_samples, period, start_point,
-                          scroll_repeats=scroll_repeats)
+                          scroll_repeats=scroll_repeats, stages=stages)
+    t_values = np.linspace(0, float(period) * scroll_repeats, initial_samples,
+                           endpoint=False)
 
     # Arc length reparameterization
     if use_arc_length:
         print(f"{prefix}Reparameterizing to {output_samples:,} arc-length samples...")
-        points = resample_by_arc_length(points, output_samples)
+        if want_stages:
+            points, extra = resample_by_arc_length(points, output_samples,
+                                                   companions=[t_values] + stages)
+            t_values, stages = extra[0], extra[1:]
+        else:
+            points = resample_by_arc_length(points, output_samples)
     else:
         indices = np.linspace(0, len(points) - 1, output_samples, dtype=int)
         points = points[indices]
+        if want_stages:
+            t_values = t_values[indices]
+            stages = [s[indices] for s in stages]
 
     arc_lengths = compute_arc_lengths(points)
     print(f"{prefix}Path length: {arc_lengths[-1]:.2f} units")
 
+    if want_stages:
+        return points, t_values, stages
     return points
 
 

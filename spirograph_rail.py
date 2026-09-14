@@ -97,17 +97,11 @@ class SpirographRailModule(TransformModule):
         raw_distance = t_frac * total_distance
         
         # Compute position along rail (handles back-and-forth motion)
-        # Each pass is one rail_length
-        pass_number = int(raw_distance / self.rail_length)
+        # Each pass is one rail_length; odd passes go backward
+        pass_number = np.floor(raw_distance / self.rail_length)
         within_pass = raw_distance - pass_number * self.rail_length
-        
-        # Odd passes go backward
-        if pass_number % 2 == 1:
-            rail_position = self.rail_length - within_pass
-            direction_sign = -1
-        else:
-            rail_position = within_pass
-            direction_sign = 1
+        rail_position = np.where(pass_number % 2 == 1,
+                                 self.rail_length - within_pass, within_pass)
         
         # Center the rail around the origin
         centered_position = rail_position - self.rail_length / 2
@@ -194,14 +188,11 @@ class SpirographRailTransformModule(TransformModule):
         total_distance = self.rail_length * self.passes
         raw_distance = t_frac * total_distance
         
-        # Position along rail
-        pass_number = int(raw_distance / self.rail_length)
+        # Position along rail; odd passes go backward
+        pass_number = np.floor(raw_distance / self.rail_length)
         within_pass = raw_distance - pass_number * self.rail_length
-        
-        if pass_number % 2 == 1:
-            rail_position = self.rail_length - within_pass
-        else:
-            rail_position = within_pass
+        rail_position = np.where(pass_number % 2 == 1,
+                                 self.rail_length - within_pass, within_pass)
         
         centered_position = rail_position - self.rail_length / 2
         

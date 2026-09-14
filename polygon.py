@@ -11,7 +11,7 @@ to create smooth edges.
 
 import numpy as np
 from fractions import Fraction
-from math import pi, sin
+from math import pi
 from main import TransformModule
 
 
@@ -67,11 +67,11 @@ class PolygonModule(TransformModule):
 
         # Per-revolution lobe: radius varies within each revolution
         if self.lobe != 0:
-            current_radius += self.lobe * sin(angle * self.lobe_n)
+            current_radius += self.lobe * np.sin(angle * self.lobe_n)
 
         # Progress around this single polygon
         side_progress = (t_frac * self.sides) % self.sides
-        side_index = int(side_progress)
+        side_index = np.floor(side_progress)
         side_frac = side_progress - side_index
         
         # Vertices

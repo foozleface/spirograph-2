@@ -43,6 +43,14 @@ class Drawing:
     max_y: float = 0.0
     style: dict = field(default_factory=dict)
     ini_text: str = ""
+    # The pipeline's output after every step, one complex array per module
+    # in [pipeline] order, sampled at the same points as the finished curve:
+    # ``stages[k][i]`` is output point i as it stood after module k, and
+    # ``t_values[i]`` is the t it was drawn at. What the window's stage
+    # thumbnails and linkage scrubber are made of. Empty for a multi-layer
+    # (moiré) file, where there is no single pipeline to stage.
+    stages: list = field(default_factory=list)
+    t_values: object = None
 
     @property
     def width(self):
@@ -133,6 +141,7 @@ def run(ini_text, reload_generators=False):
                     config.getfloat("output", "start_y", fallback=0.0))
 
     paths = []
+    stages, t_values = [], None
     layers = [s for s in config.sections() if s.startswith("layer.")]
     if layers:
         for section in layers:
@@ -146,8 +155,10 @@ def run(ini_text, reload_generators=False):
                 scroll_repeats=config.getfloat(section, "scroll_repeats", fallback=scroll)))
     else:
         names = [m.strip() for m in config.get("pipeline", "modules").split(",")]
-        paths.append(run_single_pipeline(config, names, initial, output, arc_len,
-                                         start, scroll_repeats=scroll))
+        points, t_values, stages = run_single_pipeline(
+            config, names, initial, output, arc_len, start,
+            scroll_repeats=scroll, want_stages=True)
+        paths.append(points)
 
     if config.has_section("pen_lift"):
         from pen_lift import apply_pen_lift
@@ -171,7 +182,8 @@ def run(ini_text, reload_generators=False):
     return Drawing(paths=paths,
                    min_x=float(combined.real.min()), max_x=float(combined.real.max()),
                    min_y=float(combined.imag.min()), max_y=float(combined.imag.max()),
-                   style=style, ini_text=ini_text)
+                   style=style, ini_text=ini_text,
+                   stages=stages, t_values=t_values)
 
 
 def normalize(drawing, width=None, height=None, margin=None):

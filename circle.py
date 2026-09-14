@@ -10,7 +10,7 @@ or for combining with other transformations.
 
 import numpy as np
 from fractions import Fraction
-from math import pi, sin
+from math import pi
 from main import TransformModule
 
 
@@ -58,7 +58,7 @@ class CircleModule(TransformModule):
 
         # Per-revolution lobe: radius smoothly varies within each revolution
         if self.lobe != 0:
-            current_radius += self.lobe * sin(angle * self.lobe_n)
+            current_radius += self.lobe * np.sin(angle * self.lobe_n)
 
         # Point on circle
         point = current_radius * np.exp(1j * angle)

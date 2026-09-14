@@ -18,36 +18,38 @@ from fractions import Fraction
 from main import TransformModule
 
 
-def _value_noise_1d(t: float, frequency: float, seed: int) -> float:
+def _hash(n, seed):
+    """Deterministic pseudo-random value in [-1, 1] at integer grid point n.
+    Array-safe: the arithmetic stays inside 64 bits at every step."""
+    n = np.asarray(n, dtype=np.int64)
+    n = ((n + seed) * 374761393) & 0xFFFFFFFF
+    n = ((n ^ (n >> 16)) * 668265263) & 0xFFFFFFFF
+    n = (n ^ (n >> 16)) & 0xFFFFFFFF
+    return (n / 0xFFFFFFFF) * 2 - 1
+
+
+def _value_noise_1d(t, frequency: float, seed: int):
     """
     Simple 1D value noise: hash-based random values at integer grid points,
-    smoothly interpolated between them.
+    smoothly interpolated between them. Array-safe.
 
     Args:
-        t: Input coordinate
+        t: Input coordinate(s)
         frequency: How many noise bumps per unit t
         seed: Random seed for reproducibility
 
     Returns:
-        Noise value in [-1, 1]
+        Noise value(s) in [-1, 1]
     """
-    t_scaled = t * frequency
-    i = int(np.floor(t_scaled))
+    t_scaled = np.asarray(t, dtype=float) * frequency
+    i = np.floor(t_scaled).astype(np.int64)
     frac = t_scaled - i
 
     # Smoothstep interpolation
     frac = frac * frac * (3 - 2 * frac)
 
-    # Hash function for deterministic pseudo-random values at grid points
-    def _hash(n):
-        # Simple integer hash
-        n = ((n + seed) * 374761393) & 0xFFFFFFFF
-        n = ((n ^ (n >> 16)) * 668265263) & 0xFFFFFFFF
-        n = (n ^ (n >> 16)) & 0xFFFFFFFF
-        return (n / 0xFFFFFFFF) * 2 - 1  # Map to [-1, 1]
-
-    v0 = _hash(i)
-    v1 = _hash(i + 1)
+    v0 = _hash(i, seed)
+    v1 = _hash(i + 1, seed)
 
     return v0 + (v1 - v0) * frac
 
@@ -80,14 +82,13 @@ class NoiseModule(TransformModule):
             # Independent x/y displacement
             dx = _value_noise_1d(t_use, self.frequency, self.seed) * amp
             dy = _value_noise_1d(t_use, self.frequency, self.seed + 7919) * amp
-            return z + complex(dx, dy)
+            return z + (dx + 1j * dy)
         else:
             # Radial: perturb distance from origin
             noise_val = _value_noise_1d(t_use, self.frequency, self.seed) * amp
-            if abs(z) > 1e-10:
-                direction = z / abs(z)
-            else:
-                direction = 1 + 0j
+            magnitude = np.abs(z)
+            safe = np.where(magnitude > 1e-10, magnitude, 1.0)
+            direction = np.where(magnitude > 1e-10, z / safe, 1 + 0j)
             return z + direction * noise_val
 
     @property

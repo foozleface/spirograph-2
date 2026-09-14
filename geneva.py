@@ -21,7 +21,7 @@ Parameters:
 
 import numpy as np
 from fractions import Fraction
-from math import pi, sin, cos, floor
+from math import pi
 from main import TransformModule
 
 
@@ -48,42 +48,36 @@ class GenevaModule(TransformModule):
 
         # Total angular progress through the Geneva mechanism
         total_progress = t_norm * n * self.cycles
-        sector_idx = int(floor(total_progress))
+        sector_idx = np.floor(total_progress)
         sector_frac = total_progress - sector_idx
 
         # Angle of current dwell position
         dwell_angle = sector_idx * step_angle
 
         dwell_frac = max(0.05, min(0.95, self.dwell))
+        dwelling = sector_frac < dwell_frac
 
-        if sector_frac < dwell_frac:
-            # DWELL: point stays at the current slot position
-            # Small circular motion during dwell (like the locking disc arc)
-            dwell_t = sector_frac / dwell_frac
-            # Gentle oscillation during dwell — traces a small loop at the dwell point
-            micro_angle = dwell_t * 2 * pi
-            micro_r = r * 0.02  # tiny wobble during dwell
-            x = r * cos(dwell_angle) + micro_r * cos(micro_angle)
-            y = r * sin(dwell_angle) + micro_r * sin(micro_angle)
-        else:
-            # ADVANCE: snap to next position along an arc that dips inward
-            advance_t = (sector_frac - dwell_frac) / (1.0 - dwell_frac)
-            # Smoothstep for acceleration/deceleration
-            smooth = advance_t * advance_t * (3 - 2 * advance_t)
+        # DWELL: the point stays at the slot, tracing a tiny loop (the
+        # locking disc's arc).
+        dwell_t = sector_frac / dwell_frac
+        micro_angle = dwell_t * 2 * pi
+        micro_r = r * 0.02
+        x_dwell = r * np.cos(dwell_angle) + micro_r * np.cos(micro_angle)
+        y_dwell = r * np.sin(dwell_angle) + micro_r * np.sin(micro_angle)
 
-            # Angle interpolation from current to next dwell
-            next_angle = dwell_angle + step_angle
-            angle = dwell_angle + smooth * step_angle
+        # ADVANCE: snap to the next slot along an arc that dips inward, with
+        # a smoothstep so it accelerates and decelerates.
+        advance_t = np.clip((sector_frac - dwell_frac) / (1.0 - dwell_frac), 0.0, 1.0)
+        smooth = advance_t * advance_t * (3 - 2 * advance_t)
+        angle = dwell_angle + smooth * step_angle
+        dip = np.sin(advance_t * pi) * self.depth * r
+        current_r = r - dip
+        x_adv = current_r * np.cos(angle)
+        y_adv = current_r * np.sin(angle)
 
-            # Radial dip: the pin traces an arc that goes inward during transition
-            # Peak dip at the midpoint of the advance
-            dip = sin(advance_t * pi) * self.depth * r
-            current_r = r - dip
-
-            x = current_r * cos(angle)
-            y = current_r * sin(angle)
-
-        return z + complex(x, y)
+        x = np.where(dwelling, x_dwell, x_adv)
+        y = np.where(dwelling, y_dwell, y_adv)
+        return z + (x + 1j * y)
 
     @property
     def natural_period(self) -> Fraction:

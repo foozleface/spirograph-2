@@ -310,7 +310,7 @@ What is wrong, in order of damage:
   `tests/golden/`. The gate fails on a millionth of a unit. Re-recording is a
   deliberate commit that says why.
 
-- [ ] **E2 — vectorise.** `transform` takes arrays of `t` (and `z`); the
+- [x] **E2 — vectorise.** `transform` takes arrays of `t` (and `z`); the
   runner evaluates the whole draw in one call per module. The engine also
   keeps the points after every step (`Drawing.stages`), which is what the
   window's visual aids are built on. Golden gate: unchanged output.
