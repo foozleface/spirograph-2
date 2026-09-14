@@ -61,6 +61,11 @@ QGroupBox { border: 1px solid %(LINE)s; border-radius: 5px; margin-top: 14px;
             padding: 8px 8px 6px 8px; }
 QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px;
                    color: %(MUTED)s; font-weight: 600; }
+QGroupBox#finishing::title { color: %(TEXT)s; }
+QGroupBox#finishing::indicator { width: 15px; height: 15px; border: 1px solid %(MUTED)s;
+                                 border-radius: 3px; background: %(PANEL_HI)s; }
+QGroupBox#finishing::indicator:checked { background: %(ACCENT)s; border-color: %(ACCENT)s; }
+QGroupBox#finishing:checked { border-color: %(ACCENT_DIM)s; }
 QListWidget::item { padding: 4px 6px; border-radius: 3px; }
 QListWidget::item:selected { background: %(ACCENT_DIM)s; color: white; }
 QTabBar::tab { background: transparent; padding: 6px 14px; color: %(MUTED)s;

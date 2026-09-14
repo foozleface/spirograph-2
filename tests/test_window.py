@@ -506,8 +506,10 @@ for name in transforms:
     try:
         before, after = table_frame(window.drawing, kinds, scopes, 2, len(window.drawing.t_values) // 3)
         base = complex(window.drawing.stages[0][len(window.drawing.t_values) // 3])
+        centre = complex((before.real.min() + before.real.max()) / 2,
+                         (before.imag.min() + before.imag.max()) / 2)
         ok = (len(before) == len(after) and np.all(np.isfinite(after))
-              and abs(before.mean() - base) < 1e-6)
+              and abs(centre - base) < 1e-6)
     except Exception as exc:                       # noqa: BLE001
         ok = False
         print("    %s: %s" % (name, exc))

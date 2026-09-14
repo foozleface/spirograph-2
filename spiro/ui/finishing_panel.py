@@ -41,10 +41,12 @@ class FinishingPanel(QWidget):
 
         for section in ORDER:
             spec = FINISHING_DEFS[section]
-            box = QGroupBox(spec["label"])
+            box = QGroupBox("Use %s" % spec["label"].lower())
             box.setCheckable(True)
             box.setChecked(False)
-            box.setToolTip(spec["desc"])
+            box.setObjectName("finishing")
+            box.setToolTip("%s — tick to switch it on; editing a number inside "
+                           "switches it on too" % spec["desc"])
             inner = QVBoxLayout(box)
             inner.setContentsMargins(8, 4, 8, 6)
             inner.setSpacing(3)
@@ -169,6 +171,14 @@ class FinishingPanel(QWidget):
     def _apply(self, *_args):
         if self._loading:
             return
+        # Editing a number inside a pass means you want the pass: switch
+        # its box on rather than throw the edit away.
+        sender = self.sender()
+        for section, editors in self.editors.items():
+            if sender in editors.values() and not self.boxes[section].isChecked():
+                self.boxes[section].blockSignals(True)
+                self.boxes[section].setChecked(True)
+                self.boxes[section].blockSignals(False)
         self._show_relevant()
         for section in ORDER:
             spec = FINISHING_DEFS[section]

@@ -59,17 +59,26 @@ def _polygon(points):
 
 
 def square_frame(centre, side, per_side=FRAME_POINTS):
-    """The outline of a square, ``per_side`` points a side, starting at the
-    top-right corner and going round — the first point is the corner that
-    carries the orientation mark."""
-    h = side / 2.0
-    corners = [centre + complex(h, h), centre + complex(-h, h),
-               centre + complex(-h, -h), centre + complex(h, -h)]
+    """The outline of a sheet of paper: a 4:3 rectangle with its top-right
+    corner folded off, ``per_side`` points a side so a bend shows as a
+    curve. A square turned a quarter is the same square; this is not."""
+    w, h = side / 2.0, side * 0.375
+    ear = side * 0.18
+    corners = [centre + complex(w - ear, h), centre + complex(-w, h),
+               centre + complex(-w, -h), centre + complex(w, -h),
+               centre + complex(w, h - ear)]
     out = []
     for a, b in zip(corners, corners[1:] + corners[:1]):
         for k in range(per_side):
             out.append(a + (b - a) * (k / per_side))
     return np.array(out, dtype=complex)
+
+
+def frame_cross(centre, side):
+    """A small cross at the paper's centre: two short strokes."""
+    r = side * 0.06
+    return (np.array([centre - r, centre + r]),
+            np.array([centre - 1j * r, centre + 1j * r]))
 
 
 def retimed(drawing, k, i):
@@ -96,19 +105,39 @@ def scope_base(drawing, kinds, scopes, k, i):
     return (complex(drawing.stages[first - 1][i]) if first else 0j), n
 
 
+def moved(drawing, kinds, scopes, k, i, points, base, n):
+    """``points`` as table move ``k`` leaves them at sample ``i``."""
+    module = drawing.modules[k]
+    t = np.full(points.shape, retimed(drawing, k, i)[0])
+    if n == "all":
+        out = module.transform(points, t)
+    else:
+        out = base + module.transform(points - base, t)
+    return np.asarray(out, dtype=complex)
+
+
 def table_frame(drawing, kinds, scopes, k, i):
     """The paper before and after table move ``k`` at sample ``i``:
     ``(before, after)``, two complex arrays of the frame outline."""
-    module = drawing.modules[k]
     side = FRAME_SIDE * max(drawing.width, drawing.height)
     base, n = scope_base(drawing, kinds, scopes, k, i)
     before = square_frame(base, side)
-    t = np.full(before.shape, retimed(drawing, k, i)[0])
-    if n == "all":
-        after = module.transform(before, t)
-    else:
-        after = base + module.transform(before - base, t)
-    return before, np.asarray(after, dtype=complex)
+    return before, moved(drawing, kinds, scopes, k, i, before, base, n)
+
+
+def table_trail(drawing, kinds, scopes, k, i, count=5):
+    """The paper at ``count`` moments from the start of the draw to sample
+    ``i`` — the move as a motion trail, for a still picture of it."""
+    side = FRAME_SIDE * max(drawing.width, drawing.height)
+    out = []
+    for j in np.linspace(0, i, count).astype(int):
+        base, n = scope_base(drawing, kinds, scopes, k, int(j))
+        frame = square_frame(base, side)
+        cross = frame_cross(base, side)
+        out.append((moved(drawing, kinds, scopes, k, int(j), frame, base, n),
+                    tuple(moved(drawing, kinds, scopes, k, int(j), c, base, n)
+                          for c in cross)))
+    return out
 
 
 def contribution(drawing, k):
@@ -405,8 +434,10 @@ class RenderView(QWidget):
         painter.drawEllipse(end, 4.5, 4.5)
 
     def _paint_table(self, painter, k, i):
-        """The paper before and after table move ``k`` at sample ``i``."""
-        before, after = table_frame(self.drawing, self.kinds, self.scopes, k, i)
+        """The paper under table move ``k``: where it started, ghosts of it
+        on the way, and where the move has it at sample ``i``."""
+        before, _ = table_frame(self.drawing, self.kinds, self.scopes, k, i)
+        trail = table_trail(self.drawing, self.kinds, self.scopes, k, i)
         to_px = self.transform()
         color = QColor(glyphs.KIND_COLORS["transform"])
         painter.save()
@@ -414,25 +445,24 @@ class RenderView(QWidget):
         painter.setTransform(to_px)
         painter.setBrush(Qt.NoBrush)
         dim = QColor(color)
-        dim.setAlpha(90)
+        dim.setAlpha(110)
         pen = QPen(dim, 1.0)
         pen.setCosmetic(True)
         pen.setStyle(Qt.DashLine)
         painter.setPen(pen)
-        painter.drawPolygon(_polygon(before))
-        pen = QPen(color, 1.6)
-        pen.setCosmetic(True)
-        painter.setPen(pen)
-        painter.drawPolygon(_polygon(after))
+        painter.drawPolygon(_polygon(before))          # the paper before any move
+        count = len(trail)
+        for index, (frame, cross) in enumerate(trail):
+            last = index == count - 1
+            ghost = QColor(color)
+            ghost.setAlpha(255 if last else 50 + 110 * index // max(count - 1, 1))
+            pen = QPen(ghost, 1.8 if last else 1.0)
+            pen.setCosmetic(True)
+            painter.setPen(pen)
+            painter.drawPolygon(_polygon(frame))
+            for stroke in cross:
+                painter.drawPolyline(_polygon(stroke))
         painter.restore()
-        # the corner that says which way round the paper is
-        for pts, alpha in ((before, 90), (after, 255)):
-            mark = QColor(color)
-            mark.setAlpha(alpha)
-            painter.setBrush(mark)
-            painter.setPen(Qt.NoPen)
-            p = to_px.map(QPointF(pts[0].real, pts[0].imag))
-            painter.drawEllipse(p, 3.5, 3.5)
 
     # -- interaction ----------------------------------------------------------------- #
 
