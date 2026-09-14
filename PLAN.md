@@ -243,3 +243,97 @@ Asked for after the first seven landed:
 
 `./run_tests.sh` — the scene gate checks the file round trip against the SVG
 the plotter would get; the window gate saves, clears, reopens and edits.
+
+---
+
+# Round four: the engine, and what the window says about it
+
+> Look at all these calculation engines — does grouping them make sense? Are
+> they well constructed? Would there be another better way to compose them?
+> Is the underlying data structure sensible? It seems like the ideas of
+> simultaneous/grouping don't really work or do anything. If these are good
+> ideas, make them more functional in the GUI. Make test suites to ensure we
+> don't get unintentional code drift as you rewrite. Are there operations we
+> left out? Could we have a better GUI — maybe it's not clear what each thing
+> is, and we should make that clearer with visual aids.
+
+## What the engine actually is
+
+Every module is `z' = f(z, t)`. A *generator* returns `z + p(t)`: it adds a
+vector. A *transform* returns `T_t(z)`: it moves what it was given. The
+pipeline folds the list from `z = 0`. So a chain of generators is a **vector
+sum** — arms laid end to end, each turning at its own rate — and a transform
+acts on the sum of every arm before it.
+
+Measured, not assumed (`tests/test_golden.py` keeps these true):
+
+* `group(gear | circle)` and the chain `gear, circle` differ by **0**.
+* `group(gear, rotation | circle)` and `gear, rotation, circle` differ by **0**.
+* Only `group(gear, rotation | circle, scale)` differs from its chain — a
+  transform inside a *later* branch acts on that branch alone.
+
+So a group is parentheses: the one thing it does is stop a transform from
+reaching the arms before its branch. Everything else "simultaneous" was
+already true of the plain chain, because every module sees the same `t`.
+That is why grouping felt like it did nothing — most of the time it did not.
+
+The period machinery is the other decoration. `natural_period` and the LCM
+give a `period`, every module divides `t` by it, and every module then
+multiplies by its own `cycles`. With `normalize = true` (the default
+everywhere) the period cancels out of every result. What does the work is
+`cycles` and `scroll_repeats`.
+
+What is wrong, in order of damage:
+
+1. **The GUI cannot see most of the knobs.** 60 real parameters are missing
+   from the registry (scale's origin, arc's centre, bend's direction, the
+   harmonograph's fourth pendulum, noise's mode, the line's endpoints…).
+   Easing (`easing =`) and oscillating drift (`osc_<param> =`) exist in the
+   base class and appear nowhere.
+2. **Nothing validates a parameter.** The recipes send `arc_radius`,
+   `rose.petals`, `lissajous.amp_x`, `rack.teeth`, harmonograph phases in
+   radians — the modules read the defaults instead and say nothing. A third
+   of Surprise-me is not drawing what its recipe says.
+3. **The runner is a Python loop.** `dense_sample` calls every module once
+   per sample point: 0.6 s for a Draft harmonograph, seconds for Ultra, and a
+   slider that lags. Every formula here vectorises.
+4. **Groups are a second data shape** (`kind: group, branches: [[…]]`) for
+   what is one bit of information on a transform: *everything so far* or
+   *the last arm only*.
+
+## Tasks
+
+- [x] **E1 — the golden gate.** Before anything moves: every module at its
+  defaults, every module with every drift, every `.ini` in the repository,
+  thirty seeded recipes, the three group cases, symmetry, pen lift and moiré —
+  rendered and fingerprinted (bounds, path length, sixty-four points) into
+  `tests/golden/`. The gate fails on a millionth of a unit. Re-recording is a
+  deliberate commit that says why.
+
+- [ ] **E2 — vectorise.** `transform` takes arrays of `t` (and `z`); the
+  runner evaluates the whole draw in one call per module. The engine also
+  keeps the points after every step (`Drawing.stages`), which is what the
+  window's visual aids are built on. Golden gate: unchanged output.
+
+- [ ] **E3 — every knob, validated.** The registry lists what the modules
+  read, with the pointless ones marked hidden; `build_ini` refuses a
+  parameter no module reads; easing and oscillating drift become registry
+  entries. The recipes are corrected and their goldens re-recorded on purpose.
+
+- [ ] **E4 — scope instead of groups.** A transform carries `scope = all`
+  (default) or `scope = last` — the arm since the previous generator. The
+  runner honours it; a `group` in an old file is flattened to the same thing
+  on load, so nothing old breaks and the GUI has one list instead of a tree.
+
+- [ ] **E5 — the operations that were missing.** *Tempo*, a module that
+  re-clocks everything after it (reverse, ping-pong, stutter, ease, speed).
+  *Pintograph*, the two-disc linkage Gandy's machines are — two cranks, two
+  arms, the pen where the arms meet. *Tile* (rows × columns) and *clip to a
+  circle or rectangle* as finishing passes, because the paper is a sheet.
+
+- [ ] **G1 — a window that shows what each thing does.** The pipeline as
+  stages with a thumbnail of the drawing *up to that stage*; a scrubber in
+  Render that draws the linkage at any moment of the draw — each arm as a
+  segment, the pen at the end, the path so far; a palette that is a gallery
+  of what every module draws; Effects folded into Build as *Finishing*; a
+  scope toggle on every transform; sliders beside the numbers.
