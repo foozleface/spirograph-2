@@ -39,13 +39,25 @@ pipeline. Drop a module into a *group* to run arms in parallel. Any parameter
 with an `end_*` twin gets a drift control that interpolates it over the draw.
 Draft / Fine / Ultra sampling for the preview; plots always run at Ultra.
 
+**Surprise me** (`Ctrl+R`) builds a pipeline from one of sixty-one recipes —
+ratios that close, decay rates that spiral rather than collapse, gear pairs
+whose common divisor leaves lobes instead of a smear — with a range around each
+number wide enough to keep surprising you. It says which recipe it used, and it
+does not repeat itself until it has been through most of them.
+
 **Effects** — symmetry (n-fold, with or without a mirror), pen lift (periodic,
 threshold or angular), and moiré, which runs the whole pipeline several times
 with one parameter nudged so the copies interfere.
 
+**Files** — every `.ini` in the project with its pipeline beside it, filtered
+as you type, one click to load.
+
+![the file list](docs/files.png)
+
 **Sheet** — pick an AxiDraw model or a paper size, set a margin, and place as
 many patterns as you like. Each one carries a **pen**; the pen list says what
-that pen number means in ink and in name.
+that pen number means in ink and in name. *Clear* takes everything off the
+sheet and leaves the pattern, the pens and the paper as they are.
 
 **Plot** — speeds, pen positions, path reordering, manual jogging. *Estimate*
 motion-plans every layer without opening the serial port. *Dry run* rehearses
@@ -57,11 +69,25 @@ on the paper, so a stopped plot resumes rather than drawing them twice.
 and which pen goes in next, so the wait happens somewhere other than beside the
 machine.
 
+### Room for the paper
+
+A sheet 600 mm across does not want to share a window with two panels.
+
+* **`F11`** hides the side panels and gives the sheet the whole window.
+* **`Ctrl+Shift+P`** puts the paper in a window of its own — drag it to a
+  second monitor, `F11` there for fullscreen, close it to bring it back. It is
+  the same canvas widget, reparented, never a copy: two canvases would be two
+  opinions about where a pattern is, which is the bug this program was
+  rewritten to stop having.
+
+![the paper in its own window](docs/paper-window.png)
+
 ## How it is put together
 
 ```
 spiro/pipeline/    the mathematics: the module table, INI <-> a pipeline
-                   spec, and the engine that runs one. No Qt, no plotter.
+                   spec, the engine that runs one, and the randomizer's
+                   recipes. No Qt, no plotter.
 spiro/scene/       the sheet, in millimetres: paper, a placed item's box and
                    the one transform that places it, pens, and the SVG.
 spiro/ui/          the window: canvas, panels, and the two worker threads.
@@ -75,7 +101,7 @@ One millimetre is one unit throughout, and one user unit in the SVG that
 reaches the machine. There are no percentages of a widget anywhere in it.
 
 ```bash
-./run_tests.sh            # every gate: 273 checks, no hardware, no network
+./run_tests.sh            # every gate: 323 checks, no hardware, no network
 ./run_tests.sh scene      # just one
 ```
 

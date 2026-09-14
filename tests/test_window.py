@@ -23,7 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np  # noqa: E402
-from PySide6.QtCore import QEventLoop, QTimer  # noqa: E402
+from PySide6.QtCore import QEventLoop, Qt, QTimer  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from axiplot import colorsplit  # noqa: E402
@@ -216,6 +216,128 @@ with tempfile.TemporaryDirectory() as folder:
         handle.write(window.scene.to_svg())
     check("exporting the sheet writes an SVG in millimetres",
           'width="%gmm"' % window.scene.paper.width_mm in open(svg_path).read())
+
+# -- clearing the paper ------------------------------------------------------------ #
+
+print("clearing:")
+before = len(window.scene.items)
+check("there is something to clear", before >= 2)
+window.sheet.clear_paper(confirm=False)
+check("clear takes everything off the sheet", window.scene.items == [])
+check("and says so", "clear" in window.status_left.text().lower())
+check("but leaves the pens alone", len(window.scene.pens) >= 2)
+check("and leaves the pattern being built alone", bool(window.document.steps))
+check("clearing an empty sheet is harmless",
+      window.sheet.clear_paper(confirm=False) is False)
+check("the canvas has nothing selected afterwards",
+      window.canvas.selected_id is None or
+      window.scene.find(window.canvas.selected_id) is None)
+
+# -- an item tracks the document it came from, not one with the same name ------------ #
+
+print("which pattern an item follows:")
+window._render_now()
+wait_for(lambda: window.drawing)
+first = window.scene.add(window.drawing, name="twins", source=window.document.token)
+old_token = window.document.token
+window.document.renew()                      # as opening another file would
+window.document.name = "twins"               # ...that happens to share a name
+window.drawing = None
+window._render_now()
+wait_for(lambda: window.drawing)
+second_drawing = window.drawing
+window._render_finished(window.render_token, second_drawing)
+check("a same-named pattern does not reach back into a placed item",
+      first.drawing is not second_drawing)
+check("the item still points at the document it was placed from",
+      first.source == old_token)
+window.scene.items = []
+
+# -- room for the paper --------------------------------------------------------------- #
+
+print("paper only:")
+window.paper_only_action.setChecked(True)
+pump(80)
+check("both side panels are hidden",
+      not window.splitter.widget(0).isVisible()
+      and not window.splitter.widget(2).isVisible())
+check("the canvas is still in the main window", window.canvas.window() is window)
+window.paper_only_action.setChecked(False)
+pump(80)
+check("and they come back",
+      window.splitter.widget(0).isVisible() and window.splitter.widget(2).isVisible())
+
+print("paper in its own window:")
+window.detach_action.setChecked(True)
+pump(120)
+check("a paper window opens", window.paper_window is not None)
+check("the canvas moved into it — the same widget, not a copy",
+      window.canvas.window() is window.paper_window)
+check("the main window says where the paper went",
+      window.detached_note.isVisible())
+window.canvas.statusMessage.emit("12.0, 34.0 mm")
+pump(30)
+check("pointer position is reported in the paper window too",
+      "12.0" in window.paper_window.readout.text())
+
+window.paper_window.close()
+pump(120)
+check("closing it brings the canvas home", window.canvas.window() is window)
+check("the canvas survived the trip",
+      window.canvas.isVisible() and window.canvas.scene is window.scene)
+check("and the menu item un-checks itself", not window.detach_action.isChecked())
+check("the placeholder is gone", not window.detached_note.isVisible())
+
+window.detach_action.setChecked(True)
+pump(120)
+window.detach_action.setChecked(False)
+pump(120)
+check("detaching and re-attaching from the menu works too",
+      window.paper_window is None and window.canvas.window() is window)
+
+# -- the file list ----------------------------------------------------------------------- #
+
+print("the file list:")
+check("it found the project's patterns", window.library.tree.topLevelItemCount() > 0)
+window.library.filter.setText("harmonograph")
+pump(30)
+check("filtering narrows it", "match" in window.library.count.text())
+window.library.filter.setText("")
+pump(30)
+check("and clearing the filter restores it", "pattern" in window.library.count.text())
+
+target = None
+for index in range(window.library.tree.topLevelItemCount()):
+    item = window.library.tree.topLevelItem(index)
+    if item.data(0, Qt.UserRole):
+        target = item
+        break
+check("the list holds openable files", target is not None)
+if target is not None:
+    window.library.openRequested.emit(target.data(0, Qt.UserRole))
+    pump(60)
+    check("clicking one loads it",
+          window.document.path is not None
+          and window.document.path.name == target.text(0) + ".ini")
+    check("and the pipeline panel shows its steps",
+          window.design.steps.count() == len(window.document.steps))
+
+# -- the randomizer, from the window ------------------------------------------------------- #
+
+print("surprise me:")
+window._randomize()
+check("it builds a pipeline", bool(window.document.steps))
+check("names the document after the recipe",
+      window.document.name and window.document.name.isascii())
+check("says which recipe it used", window.design.recipe_label.isVisible())
+check("and forgets the file it came from", window.document.path is None)
+picks = set()
+for _ in range(12):
+    window._randomize()
+    picks.add(window.design.recipe_label.text())
+check("pressing it repeatedly does not sit on one recipe", len(picks) >= 10, len(picks))
+check("it remembers what it has used recently",
+      len(window.recent_recipes) == len(set(window.recent_recipes)))
 
 window.plotter.stop()
 print()

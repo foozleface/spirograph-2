@@ -138,7 +138,7 @@ All seven tasks are in. What changed, in one line each:
 * Alerts: Home Assistant, MQTT, webhook — per layer and at the end.
 * `server.py` is gone; `launch.sh` opens the window.
 
-`./run_tests.sh` — 273 checks across seven gates, no hardware and no network.
+`./run_tests.sh` — 323 checks across eight gates, no hardware and no network.
 
 ### Not carried over from the web UI
 
@@ -161,23 +161,37 @@ Asked for after the first seven landed:
 > plot. I also like the file browser, but it would be nice to have a quicker
 > way to choose from the existing plots.
 
-- [ ] **R1 — clear the paper.** A button that takes everything off the sheet,
+- [x] **R1 — clear the paper.** A button that takes everything off the sheet,
   asking first when there is something to lose, plus the menu item and the
   shortcut. Distinct from File > New, which clears the *pattern* being built.
 
-- [ ] **R2 — room for the paper.** Two ways, because "a larger screen view"
+- [x] **R2 — room for the paper.** Two ways, because "a larger screen view"
   can mean either:
   * *Paper only* — hide both side panels, so the sheet has the whole window.
   * *Paper in its own window* — detach the canvas into a top-level window that
     can be dragged to a second monitor and made fullscreen. The same widget
     is reparented, never a copy, so there is still one canvas and one truth.
 
-- [ ] **R3 — pick a pattern quickly.** A Files tab beside Build and Effects:
+- [x] **R3 — pick a pattern quickly.** A Files tab beside Build and Effects:
   every `.ini` in the project, what its pipeline is, filtered as you type,
   one click to load. Plus a recent-files list in the File menu.
 
-- [ ] **R4 — the randomizer.** The web UI could invent a pipeline: a table of
+- [x] **R4 — the randomizer.** The web UI could invent a pipeline: a table of
   hand-tuned recipes with sane ranges per module, so what came out was worth
   looking at rather than noise. It went out with `server.py`. Bring it back as
   data in `spiro/pipeline/`, not as a panel — then the button is three lines
   and the recipes are testable.
+
+### Round two, done
+
+* **Clear** on the Sheet panel and in the Pattern menu (`Ctrl+Shift+Backspace`).
+  It asks first and touches nothing but the sheet.
+* **`F11`** for paper-only, **`Ctrl+Shift+P`** for the paper in its own window.
+  One canvas, reparented — `takeCentralWidget`, not `setCentralWidget(None)`,
+  which deletes it.
+* **Files** tab: every `.ini` in the project with its pipeline beside it,
+  filtered as you type.
+* **Surprise me** (`Ctrl+R`): 61 recipes in `spiro/pipeline/recipes.py`, each
+  one run by the gate.
+
+`./run_tests.sh` — 323 checks across eight gates.

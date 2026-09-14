@@ -38,7 +38,7 @@ class PlacedItem:
 
     def __init__(self, drawing, x_mm=0.0, y_mm=0.0, w_mm=None, h_mm=100.0,
                  rotation_deg=0.0, pen=0, name="pattern", visible=True,
-                 item_id=None):
+                 item_id=None, source=None):
         self.drawing = drawing              # a spiro.pipeline.Drawing
         self.x_mm = float(x_mm)             # centre of the item's box
         self.y_mm = float(y_mm)
@@ -50,6 +50,10 @@ class PlacedItem:
         self.name = name
         self.visible = bool(visible)
         self.item_id = next(_ids) if item_id is None else item_id
+        # Which document produced these curves. Editing that document
+        # re-renders the item in place; editing a different one must not,
+        # even when the two happen to share a name.
+        self.source = source
         self._unit = None                   # the cached curves, see unit_paths
 
     def __repr__(self):
@@ -192,7 +196,8 @@ class PlacedItem:
 
     def to_dict(self):
         """Everything but the curves — the INI regenerates those."""
-        return {"name": self.name, "x_mm": self.x_mm, "y_mm": self.y_mm,
+        return {"name": self.name, "source": self.source,
+                "x_mm": self.x_mm, "y_mm": self.y_mm,
                 "w_mm": self.w_mm, "h_mm": self.h_mm,
                 "rotation_deg": self.rotation_deg, "pen": self.pen,
                 "visible": self.visible,

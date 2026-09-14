@@ -217,12 +217,30 @@ class PaperCanvas(QWidget):
                                 HANDLE_PX, HANDLE_PX))
         painter.setBrush(Qt.NoBrush)
         painter.setPen(QPen(QColor(theme.MUTED), 1))
-        painter.setFont(QFont("monospace", 8))
-        x0, y0, w, h = item.rect_mm
+        font = QFont("monospace", 8)
+        painter.setFont(font)
         label = "%s   %.0f x %.0f mm   @ %.0f, %.0f" % (
             item.name, item.w_mm, item.h_mm, item.x_mm, item.y_mm)
-        painter.drawText(self.to_px(x0, y0) + QPointF(0, -5), label)
+        painter.drawText(self._caption_at(item, painter.fontMetrics(), label),
+                         label)
         painter.restore()
+
+    def _caption_at(self, item, metrics, label):
+        """Where the caption goes: above the item's box, but kept on screen.
+
+        An item near the right edge would otherwise write off the side of the
+        sheet, and one near the top would write above it. Both are nudged back
+        rather than clipped, because the caption is how you read off where the
+        thing actually is."""
+        x0, y0 = item.bounds_mm()[:2]
+        point = self.to_px(x0, y0) + QPointF(0, -5)
+        width = metrics.horizontalAdvance(label)
+        right = self.to_px(self.scene.paper.width_mm, 0).x()
+        if point.x() + width > right:
+            point.setX(max(self.to_px(0, 0).x(), right - width))
+        if point.y() < metrics.height():
+            point.setY(self.to_px(0, 0).y() + metrics.height() + 2)
+        return point
 
     def _paint_scale_bar(self, painter):
         """A bar of a round number of millimetres — the only honest way to say

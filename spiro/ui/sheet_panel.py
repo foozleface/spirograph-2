@@ -9,9 +9,9 @@ stops to ask.
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox,
-                               QHeaderView, QLabel, QLineEdit, QPushButton,
-                               QTableWidget, QTableWidgetItem, QVBoxLayout,
-                               QWidget)
+                               QHeaderView, QLabel, QLineEdit, QMessageBox,
+                               QPushButton, QTableWidget, QTableWidgetItem,
+                               QVBoxLayout, QWidget)
 
 from spiro.scene import PAPER_PRESETS, Paper
 from spiro.scene.paper import AXIDRAW_MODELS
@@ -28,6 +28,7 @@ class SheetPanel(QWidget):
     sceneChanged = Signal()               # redraw the canvas
     selectionChanged = Signal(object)     # item_id or None
     paperChanged = Signal()
+    cleared = Signal()
 
     def __init__(self, scene, parent=None):
         super().__init__(parent)
@@ -106,8 +107,12 @@ class SheetPanel(QWidget):
         self.fit = QPushButton("Fit")
         self.fit.setToolTip("Make it as large as the drawable area allows")
         self.fit.clicked.connect(self._fit_selected)
-        layout.addWidget(row(self.centre, self.fit, self.duplicate, 1, self.remove,
-                             spacing=4))
+        self.clear = QPushButton("Clear")
+        self.clear.setObjectName("danger")
+        self.clear.setToolTip("Take everything off the sheet (Ctrl+Shift+Backspace)")
+        self.clear.clicked.connect(self.clear_paper)
+        layout.addWidget(row(self.centre, self.fit, self.duplicate, 1,
+                             self.remove, self.clear, spacing=4))
 
         # -- pens --------------------------------------------------------------- #
         layout.addWidget(theme.hline())
@@ -290,6 +295,32 @@ class SheetPanel(QWidget):
             self.sceneChanged.emit()
 
     # -- pens ------------------------------------------------------------------------ #
+
+    def clear_paper(self, confirm=True):
+        """Empty the sheet.
+
+        Asks first, because there is no undo and re-placing a pattern that was
+        nudged into position is a nuisance. Nothing else is touched: the
+        pattern being built, the pens and the paper all stay as they are.
+        """
+        if not self.scene.items:
+            self.selectionChanged.emit(None)
+            return False
+        if confirm:
+            count = len(self.scene.items)
+            answer = QMessageBox.question(
+                self, "Clear the paper",
+                "Take %d pattern%s off the sheet?"
+                % (count, "" if count == 1 else "s"),
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if answer != QMessageBox.Yes:
+                return False
+        self.scene.items = []
+        self.refresh()
+        self.selectionChanged.emit(None)
+        self.cleared.emit()
+        self.sceneChanged.emit()
+        return True
 
     def _refresh_pens(self):
         while self.pens_layout.count():

@@ -8,6 +8,7 @@ did not touch has to survive that.
 
 import configparser
 from dataclasses import dataclass, field
+from itertools import count
 from pathlib import Path
 
 from spiro.pipeline.ini import (OUTPUT_DEFAULTS, SAMPLING_DEFAULTS, build_ini)
@@ -15,6 +16,8 @@ from spiro.pipeline.registry import MODULE_DEFS
 
 # Which UI type a `surface` section really is — the reverse of the registry's
 # TYPE_TO_MODULE, keyed by the module's own `surface` parameter.
+_tokens = count(1)
+
 _SURFACE_TO_TYPE = {
     "torus": "torus", "mobius": "mobius", "klein": "klein_bottle",
     "klein_bottle": "klein_bottle", "sphere": "sphere", "figure8": "figure8",
@@ -64,6 +67,9 @@ class Document:
     extras: dict = field(default_factory=dict)
     path: object = None                 # Path it was loaded from, or None
     name: str = "untitled"
+    # Identity, not content: what says "the thing on the paper came from THIS
+    # pattern". A name cannot do that job — two patterns can share one.
+    token: int = field(default_factory=lambda: next(_tokens))
 
     # -- reading ------------------------------------------------------------- #
 
@@ -163,6 +169,16 @@ class Document:
                                 % (index + 1, spec["label"],
                                    meta.get("desc") or key), key))
         return out
+
+    def renew(self):
+        """This is a different pattern now — open, new, or randomised.
+
+        Anything already on the paper stops tracking it, which is what you
+        want: placing, then loading something else, then editing that, must
+        not reach back and redraw the first one.
+        """
+        self.token = next(_tokens)
+        return self.token
 
     def add_module(self, module_type, index=None):
         """Append (or insert) a step holding one module at its defaults."""

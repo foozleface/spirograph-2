@@ -21,14 +21,16 @@ from PySide6.QtWidgets import (QApplication, QFileDialog, QLabel, QMainWindow,
 
 from axiplot import awake
 from axiplot import run as axirun
-from spiro.pipeline import PLOT_SAMPLING
+from spiro.pipeline import PLOT_SAMPLING, recipes
 from spiro.pipeline.document import Document
 from spiro.scene import Paper, Scene
 from spiro.ui import theme
 from spiro.ui.canvas_view import PaperCanvas
 from spiro.ui.design_panel import DesignPanel
 from spiro.ui.effects_panel import EffectsPanel
+from spiro.ui.library_panel import LibraryPanel
 from spiro.ui.notify_panel import NotifyPanel
+from spiro.ui.paper_window import PaperWindow
 from spiro.ui.plot_panel import PlotPanel
 from spiro.ui.sheet_panel import SheetPanel
 from spiro.ui.workers import PlotWorker, RenderWorker, manual_command
@@ -55,6 +57,9 @@ class MainWindow(QMainWindow):
         self.render_token = 0
         self.layer_state = axirun.LayerState()
         self.plot_token = 0
+        # The last few recipes, so pressing the button repeatedly explores
+        # rather than circles. Forty is most of them.
+        self.recent_recipes = []
         self._pending_plot = None        # what to do once the Ultra render lands
         self.inhibitor = awake.SleepInhibitor("A plot is running", "Spirograph")
         self._plot_started = 0.0
@@ -69,9 +74,11 @@ class MainWindow(QMainWindow):
     def _build_ui(self):
         self.design = DesignPanel(self.document)
         self.effects = EffectsPanel(self.document)
+        self.library = LibraryPanel(ROOT)
         left = QTabWidget()
         left.addTab(self.design, "Build")
         left.addTab(self.effects, "Effects")
+        left.addTab(self.library, "Files")
         self.left_tabs = left
 
         self.canvas = PaperCanvas(self.scene)
@@ -85,18 +92,27 @@ class MainWindow(QMainWindow):
         right.addTab(self.notify, "Alerts")
         self.right_tabs = right
 
-        centre = QWidget()
-        centre_layout = QVBoxLayout(centre)
+        self.centre = QWidget()
+        centre_layout = QVBoxLayout(self.centre)
         centre_layout.setContentsMargins(0, 0, 0, 0)
+        centre_layout.setSpacing(0)
         centre_layout.addWidget(self.canvas, 1)
+        self.centre_layout = centre_layout
+        self.detached_note = theme.muted(
+            "The paper is in its own window.\nClose that window to bring it back.")
+        self.detached_note.setAlignment(Qt.AlignCenter)
+        self.detached_note.setVisible(False)
+        centre_layout.addWidget(self.detached_note, 1)
 
-        splitter = QSplitter(Qt.Horizontal)
-        for widget, width in ((left, 340), (centre, 900), (right, 380)):
-            widget.setMinimumWidth(280 if widget is not centre else 320)
-            splitter.addWidget(widget)
-        splitter.setStretchFactor(1, 1)
-        splitter.setSizes([340, 900, 380])
-        self.setCentralWidget(splitter)
+        self.splitter = QSplitter(Qt.Horizontal)
+        for widget in (left, self.centre, right):
+            widget.setMinimumWidth(320 if widget is self.centre else 280)
+            self.splitter.addWidget(widget)
+        self.splitter.setStretchFactor(1, 1)
+        self.splitter.setSizes([340, 900, 380])
+        self.setCentralWidget(self.splitter)
+        self.paper_window = None
+        self._panel_sizes = None
 
         self.status = QStatusBar()
         self.setStatusBar(self.status)
@@ -135,12 +151,38 @@ class MainWindow(QMainWindow):
             action.setShortcut(shortcut)
             action.triggered.connect(fn)
             view_menu.addAction(action)
+        view_menu.addSeparator()
 
+        self.paper_only_action = QAction("Paper &only", self)
+        self.paper_only_action.setCheckable(True)
+        self.paper_only_action.setShortcut("F11")
+        self.paper_only_action.setToolTip(
+            "Hide the side panels and give the sheet the whole window")
+        self.paper_only_action.toggled.connect(self._set_paper_only)
+        view_menu.addAction(self.paper_only_action)
+
+        self.detach_action = QAction("Paper in its own &window", self)
+        self.detach_action.setCheckable(True)
+        self.detach_action.setShortcut("Ctrl+Shift+P")
+        self.detach_action.setToolTip(
+            "Put the sheet in a window of its own — for a second screen")
+        self.detach_action.toggled.connect(self._set_detached)
+        view_menu.addAction(self.detach_action)
+
+        pattern_menu = self.menuBar().addMenu("&Pattern")
+        random_action = QAction("&Surprise me", self)
+        random_action.setShortcut("Ctrl+R")
+        random_action.triggered.connect(self._randomize)
+        pattern_menu.addAction(random_action)
         place = QAction("&Place on paper", self)
         place.setShortcut("Ctrl+Return")
         place.triggered.connect(self._place)
-        pattern_menu = self.menuBar().addMenu("&Pattern")
         pattern_menu.addAction(place)
+        pattern_menu.addSeparator()
+        clear = QAction("&Clear the paper", self)
+        clear.setShortcut("Ctrl+Shift+Backspace")
+        clear.triggered.connect(lambda: self.sheet.clear_paper())
+        pattern_menu.addAction(clear)
 
     def _start_workers(self):
         self.render_thread = QThread(self)
@@ -165,15 +207,20 @@ class MainWindow(QMainWindow):
         self.design.documentChanged.connect(self._schedule_render)
         self.design.structureChanged.connect(self.effects.reload)
         self.design.addRequested.connect(self._place)
+        self.design.randomRequested.connect(self._randomize)
+        self.library.openRequested.connect(self._open_path)
+        self.library.statusMessage.connect(self.status_left.setText)
         self.effects.documentChanged.connect(self._schedule_render)
 
         self.canvas.selectionChanged.connect(self._canvas_selected)
         self.canvas.itemChanged.connect(self._item_moved)
-        self.canvas.statusMessage.connect(self.status_right.setText)
+        self.canvas.statusMessage.connect(self._canvas_message)
 
         self.sheet.sceneChanged.connect(self._scene_changed)
         self.sheet.selectionChanged.connect(self._sheet_selected)
         self.sheet.paperChanged.connect(self._paper_changed)
+        self.sheet.cleared.connect(
+            lambda: self.status_left.setText("The paper is clear."))
 
         self.plot.plotRequested.connect(self._start_plot)
         self.plot.previewRequested.connect(self._start_preview)
@@ -209,8 +256,10 @@ class MainWindow(QMainWindow):
         self.document.extras = {}
         self.document.path = None
         self.document.name = "untitled"
+        self.document.renew()
         self.document.add_module("spirograph_gear")
         self.design.refresh(select=0)
+        self.design.show_recipe(None)
         self.effects.reload()
         self._update_title()
         self._schedule_render()
@@ -218,24 +267,112 @@ class MainWindow(QMainWindow):
     def _open(self):
         path, _ = QFileDialog.getOpenFileName(self, "Open a pattern", str(ROOT),
                                               "Pattern files (*.ini)")
-        if not path:
-            return
+        if path:
+            self._open_path(path)
+
+    def _open_path(self, path):
+        """Load a pattern file — from the Files tab, the dialog, or the
+        command line."""
         try:
             loaded = Document.load(path)
         except Exception as exc:
             QMessageBox.warning(self, "Could not open it", str(exc))
             return
         self.document.__dict__.update(loaded.__dict__)
+        self.document.renew()
         self.design.refresh(select=0 if self.document.steps else None)
+        self.design.show_recipe(None)
         self.effects.reload()
+        self.library.select(path)
         self._update_title()
         self._schedule_render()
         self.status_left.setText("Opened %s" % Path(path).name)
+
+    def _randomize(self):
+        """Build a pipeline from one of the recipes worth drawing."""
+        made = recipes.random_pattern(avoid=self.recent_recipes)
+        self.recent_recipes.append(made["index"])
+        del self.recent_recipes[:-40]
+
+        self.document.steps = made["steps"]
+        self.document.symmetry = made["symmetry"]
+        self.document.output.update(made["output"])
+        self.document.extras = {}
+        self.document.path = None
+        self.document.name = made["slug"]
+        self.document.renew()
+
+        self.left_tabs.setCurrentWidget(self.design)
+        self.design.refresh(select=0)
+        self.design.show_recipe(made["name"])
+        self.effects.reload()
+        self._update_title()
+        self._schedule_render()
+        self.status_left.setText("%s — %d step%s"
+                                 % (made["name"], len(made["steps"]),
+                                    "" if len(made["steps"]) == 1 else "s"))
+
+    # -- how much room the paper gets ------------------------------------------ #
+
+    def _set_paper_only(self, on):
+        """Hide the side panels so the sheet has the window."""
+        if on and self._panel_sizes is None:
+            self._panel_sizes = self.splitter.sizes()
+        for index in (0, 2):
+            self.splitter.widget(index).setVisible(not on)
+        if not on and self._panel_sizes:
+            self.splitter.setSizes(self._panel_sizes)
+            self._panel_sizes = None
+        self.canvas.fit()
+        self.status_left.setText(
+            "Paper only — F11 brings the panels back." if on else "")
+
+    def _set_detached(self, on):
+        """Move the canvas into a window of its own, or bring it back."""
+        if on and self.paper_window is None:
+            self.centre_layout.removeWidget(self.canvas)
+            self.paper_window = PaperWindow(self.canvas, self.windowTitle())
+            self.paper_window.closed.connect(self._reattach_paper)
+            self.detached_note.setVisible(True)
+            self.paper_window.show()
+            self.canvas.fit()
+            self.status_left.setText(
+                "The paper is in its own window — F11 there for fullscreen.")
+        elif not on and self.paper_window is not None:
+            window, self.paper_window = self.paper_window, None
+            window.closed.disconnect()
+            window.release_canvas()
+            window.close()
+            window.deleteLater()
+            self._reclaim_canvas()
+
+    def _reattach_paper(self):
+        """The paper window was closed by its own button."""
+        self.paper_window = None
+        self._reclaim_canvas()
+        self.detach_action.blockSignals(True)
+        self.detach_action.setChecked(False)
+        self.detach_action.blockSignals(False)
+
+    def _reclaim_canvas(self):
+        self.detached_note.setVisible(False)
+        self.centre_layout.insertWidget(0, self.canvas, 1)
+        self.canvas.show()
+        self.canvas.fit()
+        self.status_left.setText("")
+
+    def _canvas_message(self, text):
+        """Where the pointer is, shown wherever the canvas currently lives."""
+        self.status_right.setText(text)
+        if self.paper_window is not None:
+            self.paper_window.show_position(text)
 
     def _save(self):
         if self.document.path is None:
             return self._save_as()
         self.document.save()
+        self.library.refresh()
+        self.library.select(self.document.path)
         self.status_left.setText("Saved %s" % self.document.path.name)
         self._update_title()
 
@@ -248,6 +385,8 @@ class MainWindow(QMainWindow):
         if not path.endswith(".ini"):
             path += ".ini"
         self.document.save(path)
+        self.library.refresh()
+        self.library.select(path)
         self.status_left.setText("Saved %s" % Path(path).name)
         self._update_title()
 
@@ -295,7 +434,7 @@ class MainWindow(QMainWindow):
         # this document, so an edit is visible on the paper immediately.
         touched = False
         for item in self.scene.items:
-            if item.name == self.document.name:
+            if item.source == self.document.token:
                 item.drawing = drawing
                 item._unit = None
                 self.canvas.invalidate(item)
@@ -319,7 +458,8 @@ class MainWindow(QMainWindow):
         if self.drawing is None:
             self.status_left.setText("Nothing generated yet.")
             return
-        item = self.scene.add(self.drawing, name=self.document.name)
+        item = self.scene.add(self.drawing, name=self.document.name,
+                              source=self.document.token)
         self.scene.ensure_pens(item.pen + 1)
         self.sheet.refresh(select=item.item_id)
         self.canvas.select(item.item_id)
@@ -608,6 +748,11 @@ class MainWindow(QMainWindow):
                 event.ignore()
                 return
             self.plotter.stop()
+        if self.paper_window is not None:
+            self.paper_window.closed.disconnect()
+            self.paper_window.release_canvas()
+            self.paper_window.close()
+            self.paper_window = None
         self.plot.save_settings()
         self.notify.save_settings()
         self.inhibitor.stop()

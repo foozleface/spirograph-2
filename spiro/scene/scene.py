@@ -54,12 +54,12 @@ class Scene:
 
     # -- items ---------------------------------------------------------------- #
 
-    def add(self, drawing, name="pattern", pen=None, fraction=0.8):
+    def add(self, drawing, name="pattern", pen=None, fraction=0.8, source=None):
         """Place a drawing centred on the paper. ``pen`` defaults to the next
         one that has nothing on it yet, so a second pattern lands on a second
         pen without anyone having to say so."""
         item = PlacedItem.fitted_to(drawing, self.paper, fraction,
-                                    name=name,
+                                    name=name, source=source,
                                     pen=self._next_pen() if pen is None else int(pen))
         self.items.append(item)
         return item

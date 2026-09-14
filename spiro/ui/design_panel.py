@@ -34,6 +34,7 @@ class DesignPanel(QWidget):
     documentChanged = Signal()          # the pattern needs regenerating
     structureChanged = Signal()         # steps added, removed or reordered
     addRequested = Signal()             # put the current pattern on the paper
+    randomRequested = Signal()          # invent a pipeline
 
     def __init__(self, document, parent=None):
         super().__init__(parent)
@@ -44,6 +45,16 @@ class DesignPanel(QWidget):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(10, 10, 10, 10)
         outer.setSpacing(8)
+
+        self.random_button = QPushButton("🎲  Surprise me")
+        self.random_button.setToolTip(
+            "Build a pipeline from one of the recipes that turned out worth "
+            "drawing (Ctrl+R)")
+        self.random_button.clicked.connect(self.randomRequested.emit)
+        outer.addWidget(self.random_button)
+        self.recipe_label = theme.muted("", wrap=True)
+        self.recipe_label.setVisible(False)
+        outer.addWidget(self.recipe_label)
 
         outer.addWidget(theme.h2("Add a module"))
         self.picker = QComboBox()
@@ -254,6 +265,12 @@ class DesignPanel(QWidget):
     def _set_param(self, params, name, value):
         params[name] = value
         self.documentChanged.emit()
+
+    def show_recipe(self, name):
+        """Say which recipe made what is on screen — it is worth knowing which
+        of them you liked."""
+        self.recipe_label.setText("from “%s”" % name if name else "")
+        self.recipe_label.setVisible(bool(name))
 
     # -- sampling ---------------------------------------------------------------- #
 
