@@ -61,6 +61,73 @@ CATEGORIES = {
                   "blurb": "Carries the whole mechanism along a line, an arc, a spiral, a rail."},
     "transform": {"label": "Table moves", "word": "move",
                   "blurb": "Moves the paper under what is drawn: turn, grow, shrink, bend, wobble."},
+    "clock":     {"label": "Clocks", "word": "clock",
+                  "blurb": "Changes the time every step after it sees: backwards, there and back, in steps, faster."},
+}
+
+# The passes that act on the finished curve, in the order they run. Each is
+# an INI section of its own name; the document keeps them in `extras`
+# (symmetry has its own slot for historical reasons). Built into the
+# window's Finishing panel from this table.
+FINISHING_DEFS = {
+    "symmetry": {
+        "label": "Symmetry",
+        "desc": "Repeat the finished curve around a centre, and optionally mirror it",
+        "params": {
+            "n_fold":   {"type": "int",   "default": 1,   "min": 1, "max": 64, "desc": "Fold (1 = none)"},
+            "mirror":   {"type": "bool",  "default": False, "desc": "Mirror as well as rotate"},
+            "center_x": {"type": "float", "default": 0.0, "min": -5000, "max": 5000, "desc": "Centre X", "advanced": True},
+            "center_y": {"type": "float", "default": 0.0, "min": -5000, "max": 5000, "desc": "Centre Y", "advanced": True},
+        },
+    },
+    "pen_lift": {
+        "label": "Pen lift",
+        "desc": "Break the line into separate strokes",
+        "params": {
+            "mode":        {"type": "choice", "choices": ["periodic", "threshold", "angular"], "default": "periodic", "desc": "How"},
+            "draw_length": {"type": "int",   "default": 100,  "min": 1, "max": 100000, "desc": "Draw for (points)", "when": "periodic"},
+            "skip_length": {"type": "int",   "default": 50,   "min": 1, "max": 100000, "desc": "Then skip (points)", "when": "periodic"},
+            "threshold":   {"type": "float", "default": 20.0, "min": 0.01, "max": 10000, "desc": "Lift beyond", "when": "threshold"},
+            "angle_draw":  {"type": "float", "default": 30.0, "min": 0.1, "max": 360, "desc": "Draw wedge°", "when": "angular"},
+            "angle_skip":  {"type": "float", "default": 10.0, "min": 0, "max": 360, "desc": "Skip wedge°", "when": "angular"},
+            "center_x":    {"type": "float", "default": 0.0, "min": -5000, "max": 5000, "desc": "Centre X", "when": "angular"},
+            "center_y":    {"type": "float", "default": 0.0, "min": -5000, "max": 5000, "desc": "Centre Y", "when": "angular"},
+        },
+    },
+    "moire": {
+        "label": "Moiré",
+        "desc": "Overlay near-copies of the whole pattern, one parameter nudged",
+        "params": {
+            "copies":     {"type": "int",   "default": 5,    "min": 2, "max": 40, "desc": "Copies"},
+            "vary_param": {"type": "param", "default": "",   "desc": "Vary"},
+            "vary_range": {"type": "float", "default": 0.05, "min": 0.0001, "max": 10000, "desc": "Spread ±"},
+            "modules":    {"type": "str",   "default": "",   "desc": "Filled in from the pipeline", "hidden": True},
+        },
+    },
+    "tile": {
+        "label": "Tile",
+        "desc": "Repeat the whole drawing in a grid",
+        "params": {
+            "rows":    {"type": "int",   "default": 2,     "min": 1, "max": 40, "desc": "Rows"},
+            "cols":    {"type": "int",   "default": 2,     "min": 1, "max": 40, "desc": "Columns"},
+            "dx":      {"type": "float", "default": 200.0, "min": -5000, "max": 5000, "desc": "Step across"},
+            "dy":      {"type": "float", "default": 200.0, "min": -5000, "max": 5000, "desc": "Step down"},
+            "stagger": {"type": "bool",  "default": False, "desc": "Offset every other row by half"},
+        },
+    },
+    "clip": {
+        "label": "Clip",
+        "desc": "Keep only what falls inside a circle or a rectangle",
+        "params": {
+            "shape":    {"type": "choice", "choices": ["circle", "rect"], "default": "circle", "desc": "Shape"},
+            "radius":   {"type": "float", "default": 100.0, "min": 0.1, "max": 5000, "desc": "Radius", "when": "circle"},
+            "width":    {"type": "float", "default": 200.0, "min": 0.1, "max": 5000, "desc": "Width", "when": "rect"},
+            "height":   {"type": "float", "default": 200.0, "min": 0.1, "max": 5000, "desc": "Height", "when": "rect"},
+            "center_x": {"type": "float", "default": 0.0, "min": -5000, "max": 5000, "desc": "Centre X", "advanced": True},
+            "center_y": {"type": "float", "default": 0.0, "min": -5000, "max": 5000, "desc": "Centre Y", "advanced": True},
+            "invert":   {"type": "bool",  "default": False, "desc": "Keep the outside instead"},
+        },
+    },
 }
 
 # A drifting parameter may oscillate between its two values instead of
@@ -265,6 +332,39 @@ MODULE_DEFS = {
             "n1":        {"type": "float", "default": 12.0,  "min": 0,   "max": 30,  "desc": "Outer envelope waves"},
             "h1":        {"type": "float", "default": 15.0,  "min": 0,   "max": 50,  "desc": "Outer envelope amp"},
             "cycles":    {"type": "float", "default": 1.0,   "min": 1,   "max": 10,  "step": 1, "desc": "Cycles"},
+        },
+    },
+    "pintograph": {
+        "category": "generator",
+        "label": "Pintograph",
+        "desc": "Two cranks, two rods, the pen where the rods meet — the two-disc drawing machine",
+        "params": {
+            "spacing":      {"type": "float", "default": 200.0, "min": 10, "max": 600, "desc": "Crank spacing"},
+            "radius_1":     {"type": "float", "default": 60.0,  "min": 1,  "max": 300, "desc": "Crank 1 radius"},
+            "end_radius_1": {"type": "float", "default": 60.0,  "min": 1,  "max": 300, "desc": "End value", "drift_for": "radius_1"},
+            "radius_2":     {"type": "float", "default": 45.0,  "min": 1,  "max": 300, "desc": "Crank 2 radius"},
+            "end_radius_2": {"type": "float", "default": 45.0,  "min": 1,  "max": 300, "desc": "End value", "drift_for": "radius_2"},
+            "turns_1":      {"type": "float", "default": 7.0,   "min": 0.1, "max": 200, "step": 0.5, "desc": "Crank 1 turns"},
+            "turns_2":      {"type": "float", "default": 5.0,   "min": 0.1, "max": 200, "step": 0.5, "desc": "Crank 2 turns"},
+            "phase_1":      {"type": "float", "default": 0.0,   "min": 0,  "max": 360, "desc": "Crank 1 start°", "advanced": True},
+            "phase_2":      {"type": "float", "default": 90.0,  "min": 0,  "max": 360, "desc": "Crank 2 start°", "advanced": True},
+            "arm_1":        {"type": "float", "default": 180.0, "min": 10, "max": 800, "desc": "Rod 1 length"},
+            "arm_2":        {"type": "float", "default": 180.0, "min": 10, "max": 800, "desc": "Rod 2 length"},
+            "elbow":        {"type": "choice", "choices": [1, -1], "default": 1, "desc": "Elbow up (1) or down (-1)", "advanced": True},
+            "cycles":       {"type": "float", "default": 1.0,   "min": 1,  "max": 50, "step": 1, "desc": "Repetitions"},
+        },
+    },
+    "tempo": {
+        "category": "clock",
+        "label": "Tempo",
+        "desc": "Re-clock everything after it: backwards, there and back, in steps, faster, offset, eased",
+        "params": {
+            "mode":  {"type": "choice", "choices": ["pingpong", "reverse", "stutter", "speed", "offset", "ease"], "default": "pingpong", "desc": "How"},
+            "rate":  {"type": "float", "default": 2.0, "min": 0.1, "max": 50, "step": 0.5, "desc": "Times over (speed)", "when": "speed"},
+            "steps": {"type": "int",   "default": 8,   "min": 1,   "max": 200, "desc": "Stops (stutter)", "when": "stutter"},
+            "dwell": {"type": "float", "default": 0.5, "min": 0,   "max": 0.95, "step": 0.05, "desc": "Time stopped (stutter)", "when": "stutter"},
+            "phase": {"type": "float", "default": 0.25, "min": 0,  "max": 1, "step": 0.05, "desc": "Start ahead by (offset)", "when": "offset"},
+            "curve": {"type": "choice", "choices": EASING_MODES, "default": "ease_in_out", "desc": "Curve (ease)", "when": "ease"},
         },
     },
     "rotation": {
@@ -696,6 +796,12 @@ def valid_keys(module_type):
 def is_arm(module_type):
     """Does this module add a vector — a generator or a path?"""
     return MODULE_DEFS[module_type]["category"] in ("generator", "path")
+
+
+def finishing_keys(section):
+    """Every key a finishing section may hold, or None for an unknown one."""
+    spec = FINISHING_DEFS.get(section)
+    return {"type"} | set(spec["params"]) if spec else None
 
 
 def by_module_file():

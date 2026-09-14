@@ -63,7 +63,8 @@ class Document:
     output: dict = field(default_factory=dict)
     sampling: dict = field(default_factory=dict)
     symmetry: dict = field(default_factory=dict)
-    # The sections that are neither modules nor settings: pen_lift, moire.
+    # The finishing sections: pen_lift, moire, tile, clip (symmetry has its
+    # own slot above, for historical reasons).
     extras: dict = field(default_factory=dict)
     path: object = None                 # Path it was loaded from, or None
     name: str = "untitled"
@@ -91,7 +92,8 @@ class Document:
 
         output = section("output")
         output.pop("filename", None)     # never carry someone else's output path
-        extras = {name_: section(name_) for name_ in ("pen_lift", "moire")
+        extras = {name_: section(name_)
+                  for name_ in ("pen_lift", "moire", "tile", "clip")
                   if config.has_section(name_)}
         stem = Path(path).stem if path else "untitled"
         return cls(steps=steps, output=output, sampling=section("sampling"),

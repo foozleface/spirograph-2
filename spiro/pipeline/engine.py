@@ -121,7 +121,7 @@ def run(ini_text, reload_generators=False):
     import importlib
     if reload_generators and "main" in sys.modules:
         importlib.reload(sys.modules["main"])
-    from main import run_single_pipeline, expand_moire_config
+    from main import run_single_pipeline, expand_moire_config, apply_finishing
 
     config = configparser.ConfigParser()
     config.read_string(ini_text)
@@ -160,23 +160,7 @@ def run(ini_text, reload_generators=False):
             scroll_repeats=scroll, want_stages=True)
         paths.append(points)
 
-    if config.has_section("pen_lift"):
-        from pen_lift import apply_pen_lift
-        lifted = []
-        for pts in paths:
-            lifted.extend(apply_pen_lift(pts, config))
-        paths = lifted
-
-    n_fold = config.getint("symmetry", "n_fold", fallback=1)
-    mirror = config.getboolean("symmetry", "mirror", fallback=False)
-    if n_fold > 1 or mirror:
-        from symmetry import apply_symmetry
-        cx = config.getfloat("symmetry", "center_x", fallback=0.0)
-        cy = config.getfloat("symmetry", "center_y", fallback=0.0)
-        expanded = []
-        for pts in paths:
-            expanded.extend(apply_symmetry(pts, n_fold, mirror, cx, cy))
-        paths = expanded
+    paths = apply_finishing(paths, config)
 
     combined = np.concatenate(paths)
     return Drawing(paths=paths,

@@ -17,7 +17,7 @@ Steps run in series. A group's branches run *simultaneously* from the origin
 and their outputs sum — independent drawing arms on one machine.
 """
 
-from spiro.pipeline.registry import TYPE_TO_MODULE, valid_keys
+from spiro.pipeline.registry import TYPE_TO_MODULE, finishing_keys, valid_keys
 
 OUTPUT_DEFAULTS = {
     "width": 800, "height": 800, "stroke_width": 0.3,
@@ -112,6 +112,15 @@ def _emit_steps(lines, steps):
     return names
 
 
+def _check_finishing(section, values):
+    allowed = finishing_keys(section)
+    if allowed is None:
+        raise ValueError("unknown finishing section [%s]" % section)
+    unknown = sorted(set(values) - allowed)
+    if unknown:
+        raise ValueError("[%s] does not read: %s" % (section, ", ".join(unknown)))
+
+
 def build_ini(steps=None, output=None, sampling=None, symmetry=None,
               arms=None, global_mods=None, pipeline=None, extras=None):
     """INI text for a pipeline spec.
@@ -176,6 +185,7 @@ def build_ini(steps=None, output=None, sampling=None, symmetry=None,
     tail.append("")
 
     if symmetry:
+        _check_finishing("symmetry", symmetry)
         tail.append("[symmetry]")
         tail += ["%s = %s" % (k, _fmt(v)) for k, v in symmetry.items()]
         tail.append("")
@@ -186,6 +196,7 @@ def build_ini(steps=None, output=None, sampling=None, symmetry=None,
         values = dict(values)
         if section == "moire":
             values.setdefault("modules", ", ".join(names))
+        _check_finishing(section, values)
         tail.append("[%s]" % section)
         tail += ["%s = %s" % (k, _fmt(v)) for k, v in values.items()]
         tail.append("")

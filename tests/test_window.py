@@ -483,6 +483,8 @@ check("it remembers what it has used recently",
       len(window.recent_recipes) == len(set(window.recent_recipes)))
 
 window.plotter.stop()
+window.close()          # stops the worker threads; leaving them running aborts at exit
+pump(100)
 print()
 print("window: %d passed, %d failed" % (len(PASS), len(FAIL)))
 if FAIL:

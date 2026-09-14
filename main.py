@@ -297,7 +297,11 @@ def run_pipeline(modules: List[TransformModule], t, start=0j, stages=None):
     bases = []                     # where the pen was before each arm
     for module in modules:
         scope = getattr(module, 'scope', 'all')
-        if module.is_generator:
+        if getattr(module, 'is_clock', False):
+            # A clock changes the time every later module sees; the pen
+            # stays where it is.
+            t = module.retime(t)
+        elif module.is_generator:
             bases.append(z)
             z = module.transform(z, t)
         elif scope == 'all':
@@ -775,6 +779,75 @@ def run_single_pipeline(config: configparser.ConfigParser,
     return points
 
 
+def apply_finishing(path_arrays: List[np.ndarray],
+                    config: configparser.ConfigParser) -> List[np.ndarray]:
+    """
+    The passes that act on finished curves, in their one fixed order:
+
+        pen lift   -> break the line into strokes
+        symmetry   -> rotate and mirror copies about a centre
+        tile       -> repeat the whole thing in a grid
+        clip       -> cut everything to a circle or a rectangle
+
+    Each is an INI section of the same name and each is optional. This is
+    the only place the order is decided: the command line and the app both
+    call it, so a file finishes the same way wherever it is rendered.
+    """
+    arrays = list(path_arrays)
+
+    if config.has_section('pen_lift'):
+        from pen_lift import apply_pen_lift
+        lifted = []
+        for pts in arrays:
+            lifted.extend(apply_pen_lift(pts, config))
+        arrays = lifted
+        print(f"Pen lift ({config.get('pen_lift', 'mode', fallback='periodic')}): {len(arrays)} segments")
+
+    n_fold = config.getint('symmetry', 'n_fold', fallback=1)
+    mirror = config.getboolean('symmetry', 'mirror', fallback=False)
+    if n_fold > 1 or mirror:
+        from symmetry import apply_symmetry
+        cx = config.getfloat('symmetry', 'center_x', fallback=0.0)
+        cy = config.getfloat('symmetry', 'center_y', fallback=0.0)
+        expanded = []
+        for pts in arrays:
+            expanded.extend(apply_symmetry(pts, n_fold, mirror, cx, cy))
+        arrays = expanded
+        print(f"Applied {n_fold}-fold symmetry{' with mirror' if mirror else ''}: {len(arrays)} paths")
+
+    if config.has_section('tile'):
+        from tile import apply_tile
+        tiled = []
+        for pts in arrays:
+            tiled.extend(apply_tile(
+                pts, rows=config.getint('tile', 'rows', fallback=1),
+                cols=config.getint('tile', 'cols', fallback=1),
+                dx=config.getfloat('tile', 'dx', fallback=0.0),
+                dy=config.getfloat('tile', 'dy', fallback=0.0),
+                stagger=config.getboolean('tile', 'stagger', fallback=False)))
+        arrays = tiled
+        print(f"Tiled: {len(arrays)} paths")
+
+    if config.has_section('clip'):
+        from clip import apply_clip
+        clipped = []
+        for pts in arrays:
+            clipped.extend(apply_clip(
+                pts, shape=config.get('clip', 'shape', fallback='circle'),
+                radius=config.getfloat('clip', 'radius', fallback=100.0),
+                width=config.getfloat('clip', 'width', fallback=200.0),
+                height=config.getfloat('clip', 'height', fallback=200.0),
+                center_x=config.getfloat('clip', 'center_x', fallback=0.0),
+                center_y=config.getfloat('clip', 'center_y', fallback=0.0),
+                invert=config.getboolean('clip', 'invert', fallback=False)))
+        arrays = clipped
+        print(f"Clipped: {len(arrays)} strokes")
+        if not arrays:
+            raise ValueError("clip: nothing of the drawing is inside the shape")
+
+    return arrays
+
+
 def expand_moire_config(config: configparser.ConfigParser):
     """
     Expand [moire] section into auto-generated [layer.*] sections.
@@ -919,23 +992,8 @@ def main(config_path: str = "config.ini"):
                                      scroll_repeats=scroll_repeats)
         all_path_arrays = [points]
 
-    # Apply pen lift (before symmetry, so each segment gets symmetry-copied)
-    if config.has_section('pen_lift'):
-        from pen_lift import apply_pen_lift
-        lifted_arrays = []
-        for pts in all_path_arrays:
-            lifted_arrays.extend(apply_pen_lift(pts, config))
-        all_path_arrays = lifted_arrays
-        print(f"Pen lift ({config.get('pen_lift', 'mode', fallback='periodic')}): {len(all_path_arrays)} segments")
-
-    # Apply symmetry to each path
-    if n_fold > 1 or mirror:
-        from symmetry import apply_symmetry
-        expanded = []
-        for pts in all_path_arrays:
-            expanded.extend(apply_symmetry(pts, n_fold, mirror, sym_center_x, sym_center_y))
-        all_path_arrays = expanded
-        print(f"Applied {n_fold}-fold symmetry{' with mirror' if mirror else ''}: {len(all_path_arrays)} paths")
+    # Pen lift, symmetry, tile, clip — the one finishing chain
+    all_path_arrays = apply_finishing(all_path_arrays, config)
 
     # Apply plotter dash splitting (before normalization, uses raw arc lengths)
     if plotter_dash_on > 0 and plotter_dash_off > 0:

@@ -325,7 +325,7 @@ What is wrong, in order of damage:
   runner honours it; a `group` in an old file is flattened to the same thing
   on load, so nothing old breaks and the GUI has one list instead of a tree.
 
-- [ ] **E5 — the operations that were missing.** *Tempo*, a module that
+- [x] **E5 — the operations that were missing.** *Tempo*, a module that
   re-clocks everything after it (reverse, ping-pong, stutter, ease, speed).
   *Pintograph*, the two-disc linkage Gandy's machines are — two cranks, two
   arms, the pen where the arms meet. *Tile* (rows × columns) and *clip to a

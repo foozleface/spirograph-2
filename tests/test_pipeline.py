@@ -51,8 +51,8 @@ print("module table:")
 check("every module declares a category, label and params",
       all({"category", "label", "params"} <= set(spec)
           for spec in MODULE_DEFS.values()))
-check("categories are generator, path or transform",
-      {s["category"] for s in MODULE_DEFS.values()} <= {"generator", "path", "transform"})
+check("categories are generator, path, transform or clock",
+      {s["category"] for s in MODULE_DEFS.values()} <= {"generator", "path", "transform", "clock"})
 check("there are generators, paths and transforms",
       module_names("generator") and module_names("path") and module_names("transform"))
 check("every parameter has a type and a default",
@@ -199,8 +199,13 @@ check("a rotation keeps each point's distance from the origin",
 check("t runs from 0 towards the period, in order", staged.t_values[0] == 0
       and np.all(np.diff(staged.t_values) >= 0) and 4 < staged.t_values[-1] < 5)
 
-_cfg = configparser.ConfigParser()
-_cfg.read_string(STAGED)
+def _load_cfg(text):
+    cfg = configparser.ConfigParser()
+    cfg.read_string(text)
+    return cfg
+
+
+_cfg = _load_cfg(STAGED)
 _gear = load_module("s0", _cfg)
 _one = _gear.transform(0j, 0.37)
 _many = _gear.transform(np.zeros(3, dtype=complex), np.array([0.1, 0.37, 0.9]))
@@ -260,6 +265,86 @@ check("and draws exactly what the group drew",
                   np.concatenate(run(_nested_ini).paths)))
 check("scope = all is not written to the file",
       "scope = all" not in _doc.to_ini(_S) and "scope = 2" in _doc.to_ini(_S))
+
+# -- clocks ------------------------------------------------------------------- #
+
+print("clocks:")
+# Sampled by index, not arc length, so point i is the same moment of the
+# draw in every run and a dwell shows as repeated points.
+_T = {"initial_samples": 2000, "output_samples": 2000, "use_arc_length": "false"}
+_spiral = {"type": "spiral_shape", "start_radius": 5, "end_radius": 80, "turns": 3}
+
+
+def _tpts(steps):
+    return run(build_ini(steps=steps, sampling=_T)).stages[-1]
+
+
+_plain = _tpts([_single(_spiral)])
+_rev = _tpts([_single({"type": "tempo", "mode": "reverse"}), _single(_spiral)])
+# Sample i of the reversed draw is the moment 1 - i/N, which is forward
+# sample N - i; the very first one is the moment just short of the end.
+check("tempo reverse draws the same curve backwards",
+      np.allclose(_rev[1:], _plain[:0:-1], atol=1e-6)
+      and abs(_rev[0] - _plain[-1]) < 1.0)
+_fast = _tpts([_single({"type": "tempo", "mode": "speed", "rate": 3}), _single(_spiral)])
+check("tempo speed 3 makes the spiral wind out three times",
+      sum(1 for i in range(1, len(_fast)) if np.abs(_fast[i]) < np.abs(_fast[i - 1]) - 20) == 2)
+_after = run(build_ini(steps=[_single(_gear), _single({"type": "tempo", "mode": "reverse"}),
+                              _single(_circ)], sampling=_T))
+check("a clock after an arm leaves that arm on its own time",
+      np.allclose(_after.stages[0], run(build_ini(steps=[_single(_gear)], sampling=_T)).stages[0]))
+check("and reverses the arm after it",
+      np.allclose((_after.stages[2] - _after.stages[0])[1:],
+                  _tpts([_single(_circ)])[:0:-1], atol=1e-6))
+_stut = _tpts([_single({"type": "tempo", "mode": "stutter", "steps": 4, "dwell": 0.6}), _single(_circ)])
+check("tempo stutter stops the pen: many samples sit on four spots",
+      len(np.unique(np.round(_stut, 6))) < len(_stut) * 0.5)
+
+# -- the pintograph ----------------------------------------------------------- #
+
+print("pintograph:")
+_pin = {"type": "pintograph", "spacing": 200, "radius_1": 60, "radius_2": 45,
+        "turns_1": 7, "turns_2": 5, "arm_1": 180, "arm_2": 180}
+_d = run(build_ini(steps=[_single(_pin)], sampling=_S))
+_t = _d.t_values
+_p1 = -100 + 60 * np.exp(1j * (2 * np.pi * 7 * _t))
+_p2 = 100 + 45 * np.exp(1j * (np.pi / 2 + 2 * np.pi * 5 * _t))
+_pen = _d.stages[0]
+check("the pen is one rod's length from each crank pin",
+      np.allclose(np.abs(_pen - _p1), 180, atol=1e-6)
+      and np.allclose(np.abs(_pen - _p2), 180, atol=1e-6))
+check("with the elbow up", np.all(_pen.imag > np.minimum(_p1.imag, _p2.imag) - 1e-9))
+check("and it closes: integer turns bring the pen home",
+      abs(_pen[0] - load_module("s0", _load_cfg(build_ini(steps=[_single(_pin)])))
+          .transform(0j, 1.0)) < 1e-6)
+
+# -- finishing: tile and clip --------------------------------------------------- #
+
+print("finishing:")
+_tiled = run(build_ini(steps=[_single(_circ)], sampling=_S,
+                       extras={"tile": {"rows": 2, "cols": 3, "dx": 100, "dy": 90, "stagger": True}}))
+check("tile makes rows x cols copies", len(_tiled.paths) == 6)
+check("stepped by dx and dy", np.allclose(_tiled.paths[1] - _tiled.paths[0], 100)
+      and np.allclose(_tiled.paths[3] - _tiled.paths[0], 50 + 90j))
+# The default gear is about 14 units across.
+_clipped = run(build_ini(steps=[_single(_gear)], sampling=_S,
+                         extras={"clip": {"shape": "circle", "radius": 8}}))
+check("clip keeps only what is inside, in several strokes",
+      len(_clipped.paths) > 1 and all(np.all(np.abs(p) <= 8 + 1e-9) for p in _clipped.paths))
+_rect = run(build_ini(steps=[_single(_gear)], sampling=_S,
+                      extras={"clip": {"shape": "rect", "width": 10, "height": 500}}))
+check("a rectangle clips by width and height",
+      len(_rect.paths) > 1 and all(np.all(np.abs(p.real) <= 5 + 1e-9) for p in _rect.paths))
+check("clipping everything away is an error, not an empty drawing",
+      raises(ValueError, lambda: run(build_ini(steps=[_single(_gear)], sampling=_S,
+                                               extras={"clip": {"radius": 0.1}}))))
+check("a finishing key nobody reads is refused",
+      raises(ValueError, lambda: build_ini(steps=[_single(_gear)],
+                                           extras={"tile": {"rowz": 2}})))
+_order = run(build_ini(steps=[_single(_circ)], sampling=_S, symmetry={"n_fold": 3},
+                       extras={"tile": {"rows": 1, "cols": 2, "dx": 300}}))
+check("symmetry runs before tile: each copy of the grid has its fold",
+      len(_order.paths) == 6)
 
 GEAR = build_ini(steps=[{"kind": "single", "params": {
     "type": "spirograph_gear", "fixed_teeth": 96, "rolling_teeth": 36,

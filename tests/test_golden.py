@@ -162,6 +162,22 @@ def composition_cases():
             "mode": "angular", "angle_draw": 30, "angle_skip": 10}}),
         "finish/moire": _ini([s(gear)], extras={"moire": {
             "copies": 3, "vary_param": "s0.hole_position", "vary_range": 0.05}}),
+        "finish/tile-staggered": _ini([s(gear)], extras={"tile": {
+            "rows": 2, "cols": 3, "dx": 150, "dy": 120, "stagger": True}}),
+        "finish/clip-circle": _ini([s(gear)], extras={"clip": {"shape": "circle", "radius": 8}}),
+        "finish/clip-rect-inverted": _ini([s(gear)], extras={"clip": {
+            "shape": "rect", "width": 12, "height": 8, "invert": True}}),
+        "finish/everything": _ini([s(gear)], symmetry={"n_fold": 4}, extras={
+            "pen_lift": {"mode": "periodic", "draw_length": 200, "skip_length": 30},
+            "tile": {"rows": 1, "cols": 2, "dx": 20},
+            "clip": {"shape": "circle", "radius": 22}}),
+        "compose/scope-last-arm": _ini([s(gear), s(dict(rot, scope=1)), s(circ), s(dict(scl, scope=1))]),
+        "compose/scope-two-arms": _ini([s(gear), s(circ), s(dict(rot, scope=2)), s(circ)]),
+        "compose/tempo-pingpong-after-an-arm": _ini([s(gear), s(dict(type="tempo", mode="pingpong")), s(circ)]),
+        "compose/tempo-stutter": _ini([s(dict(type="tempo", mode="stutter", steps=6, dwell=0.5)), s(gear)]),
+        "compose/tempo-speed": _ini([s(dict(type="tempo", mode="speed", rate=3)), s(circ), s(rot)]),
+        "compose/pintograph-turning-table": _ini([s(dict(type="pintograph", turns_1=7, turns_2=5)),
+                                                  s(dict(type="rotation", total_degrees=180))]),
     }
 
 
