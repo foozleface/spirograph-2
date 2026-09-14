@@ -89,7 +89,7 @@ Each task ends with a commit and a push.
   *Done when:* the web UI still generates, and `spiro.pipeline` has no FastAPI
   or Qt import.
 
-- [ ] **T3 — the scene model, in millimetres.** `spiro/scene/`: paper table,
+- [x] **T3 — the scene model, in millimetres.** `spiro/scene/`: paper table,
   `PlacedItem` (paths, `x_mm`, `y_mm` of the item's *centre*, `w_mm`, `h_mm`,
   rotation, pen index), and a `Scene` that renders to SVG at 1 user unit = 1 mm.
   One `item_transform()` function is the only place a placement becomes a
