@@ -27,6 +27,8 @@ class RenderWorker(QObject):
     """Runs a pipeline. One at a time; a newer request supersedes an older."""
 
     finished = Signal(int, object)        # token, Drawing
+    batchFinished = Signal(int, object)   # token, [Drawing]
+    batchProgress = Signal(int, int, int)  # token, done, total
     failed = Signal(int, str)
     started = Signal(int)
 
@@ -43,6 +45,25 @@ class RenderWorker(QObject):
             self.failed.emit(token, str(exc))
             return
         self.finished.emit(token, drawing)
+
+    def render_batch(self, token, ini_texts):
+        """Run several pipelines and report them together.
+
+        What re-generating a whole sheet at plot quality goes through. It can
+        take a minute, which is exactly why it does not happen on the UI
+        thread.
+        """
+        self.started.emit(token)
+        drawings = []
+        try:
+            for index, ini_text in enumerate(ini_texts):
+                drawings.append(engine.run(ini_text))
+                self.batchProgress.emit(token, index + 1, len(ini_texts))
+        except Exception as exc:
+            traceback.print_exc()
+            self.failed.emit(token, str(exc))
+            return
+        self.batchFinished.emit(token, drawings)
 
 
 class PlotWorker(QObject):
@@ -192,3 +213,49 @@ class PlotWorker(QObject):
     def _layer_done(self, index, layer, result, ok):
         self._previous = layer
         self.layerDone.emit(index, layer, result)
+
+
+# The manual commands: pen up, pen down, home, motors off. Small, immediate,
+# and each one opens and closes the port itself.
+#
+# pyaxidraw's interactive mode rather than axiplot's subprocess driver, which
+# shells out to the PyInstaller binary Inkscape's AxiDraw extension ships. That
+# binary is here, but depending on Inkscape being installed for a pen-up is a
+# needless dependency when the same sources are already importable in-process.
+MANUAL_COMMANDS = ("pen_up", "pen_down", "home", "disable_motors")
+
+
+def manual_command(command, opts=None):
+    """Send one command to the machine and let go of the port.
+
+    Raises on failure — the caller says so. Never call this while a plot is
+    running: two owners of one serial port is how a plot gets wrecked, and
+    Linux will not stop you.
+    """
+    if command not in MANUAL_COMMANDS:
+        raise ValueError("unknown command: %s" % command)
+    opts = dict(opts or {})
+    from pyaxidraw import axidraw
+
+    machine = axidraw.AxiDraw()
+    machine.interactive()
+    machine.options.model = int(opts.get("model", 3))
+    machine.options.penlift = opts.get("penlift", 3)
+    machine.options.pen_pos_up = opts.get("penPosUp", 60)
+    machine.options.pen_pos_down = opts.get("penPosDown", 30)
+    if opts.get("port"):
+        machine.options.port = opts["port"]
+    if not machine.connect():
+        raise RuntimeError("could not reach the AxiDraw on %s"
+                           % (opts.get("port") or "any port"))
+    try:
+        if command == "pen_up":
+            machine.penup()
+        elif command == "pen_down":
+            machine.pendown()
+        elif command == "home":
+            machine.penup()
+            machine.moveto(0, 0)
+        # disable_motors: disconnecting releases them, which is the whole job.
+    finally:
+        machine.disconnect()

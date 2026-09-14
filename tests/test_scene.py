@@ -143,6 +143,19 @@ check("and the height follows the aspect ratio, not the box",
       close(item.h_mm, 120 / d.aspect, 1e-9)
       and close(extent[3] - extent[1], item.h_mm, 0.01))
 
+check("the width is the height times the drawing's aspect, always",
+      close(item.w_mm, item.h_mm * item.aspect, 1e-12))
+check("and it is what actually gets drawn",
+      close(_extent(item.paths_mm())[2] - _extent(item.paths_mm())[0],
+            item.w_mm, 1e-6))
+item.set_height(40)
+check("setting a height re-derives the width",
+      close(item.h_mm, 40) and close(item.w_mm, 40 * item.aspect, 1e-12))
+item.scale_by(2)
+check("scaling keeps the shape",
+      close(item.h_mm, 80) and close(item.w_mm / item.h_mm, item.aspect, 1e-12))
+item.set_width(120)
+
 tall = PlacedItem(drawing(gear=37), 0, 0, 10, 10)
 tall.fit_into(200, 50)
 check("fit_into gives the largest box of the pattern's shape that fits",

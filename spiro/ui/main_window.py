@@ -8,6 +8,7 @@ exactly one queue.
 """
 
 import os
+import re
 import time
 import traceback
 from pathlib import Path
@@ -30,7 +31,7 @@ from spiro.ui.effects_panel import EffectsPanel
 from spiro.ui.notify_panel import NotifyPanel
 from spiro.ui.plot_panel import PlotPanel
 from spiro.ui.sheet_panel import SheetPanel
-from spiro.ui.workers import PlotWorker, RenderWorker
+from spiro.ui.workers import PlotWorker, RenderWorker, manual_command
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -38,6 +39,7 @@ ROOT = Path(__file__).resolve().parents[2]
 class MainWindow(QMainWindow):
 
     renderRequested = Signal(int, str)
+    batchRequested = Signal(int, object)
     plotRequested = Signal(object, object, bool, bool, object)
     previewRequested = Signal(object, object)
 
@@ -52,6 +54,8 @@ class MainWindow(QMainWindow):
         self.drawing = None               # the current preview, not yet placed
         self.render_token = 0
         self.layer_state = axirun.LayerState()
+        self.plot_token = 0
+        self._pending_plot = None        # what to do once the Ultra render lands
         self.inhibitor = awake.SleepInhibitor("A plot is running", "Spirograph")
         self._plot_started = 0.0
 
@@ -143,7 +147,10 @@ class MainWindow(QMainWindow):
         self.renderer = RenderWorker()
         self.renderer.moveToThread(self.render_thread)
         self.renderRequested.connect(self.renderer.render)
+        self.batchRequested.connect(self.renderer.render_batch)
         self.renderer.finished.connect(self._render_finished)
+        self.renderer.batchFinished.connect(self._plot_drawings_ready)
+        self.renderer.batchProgress.connect(self._plot_drawings_progress)
         self.renderer.failed.connect(self._render_failed)
         self.render_thread.start()
 
@@ -297,6 +304,12 @@ class MainWindow(QMainWindow):
             self._scene_changed()
 
     def _render_failed(self, token, message):
+        if self._pending_plot and token == self._pending_plot[0]:
+            self._pending_plot = None
+            self.plot.set_running(False)
+            self.status_left.setText("Could not re-generate for the plot: %s"
+                                     % message)
+            return
         if token == self.render_token:
             self.status_left.setText("Generator error: %s" % message)
 
@@ -351,12 +364,13 @@ class MainWindow(QMainWindow):
 
     # -- plotting ------------------------------------------------------------------------ #
 
-    def _plot_job(self):
-        """The job, always at plot sampling.
+    def _plot_job(self, drawings=None):
+        """The job to send, optionally with each item's curves replaced.
 
-        The items on the paper hold whatever the preview generated, which may
-        be Draft. Re-running each item's own INI at Ultra here is what stops a
-        coarse preview becoming a faceted plot.
+        ``drawings`` is the Ultra-quality re-render, one per item in order.
+        The placement is untouched: an item keeps its millimetres and takes
+        the new curves at the same width, so a finer sampling changes the
+        smoothness and nothing else.
         """
         if not self.scene.items:
             self.status_left.setText("Nothing on the paper to plot.")
@@ -364,11 +378,83 @@ class MainWindow(QMainWindow):
         if not self.scene.pens_in_use():
             self.status_left.setText("No pen is switched on.")
             return None
+        if drawings:
+            # Only the curves change. An item's size is its height, so it is
+            # untouched; the width follows the new drawing's aspect ratio,
+            # which a finer sampling measures a few microns differently.
+            for item, drawing in zip(self.scene.items, drawings):
+                item.drawing = drawing
+                item._unit = None
+                self.canvas.invalidate(item)
+            self.canvas.update()
         return self.scene.job(opts=self.plot.options(self.sheet.current_model()))
 
+    def _needs_plot_quality(self):
+        """The items whose curves came from a coarser preview.
+
+        Facet depth on a plotted curve goes as chord squared over eight times
+        the radius, so a Draft preview that looks smooth on screen plots with
+        visible flats on the tight lobes. Plots always run at Ultra; this is
+        what notices that the sheet is not there yet.
+        """
+        want = int(PLOT_SAMPLING["output_samples"])
+        stale = []
+        for item in self.scene.items:
+            text = getattr(item.drawing, "ini_text", "")
+            match = re.search(r"^output_samples\s*=\s*(\d+)", text, re.M)
+            if not match or int(match.group(1)) < want:
+                stale.append(item)
+        return stale
+
+    def _with_plot_quality(self, then):
+        """Re-generate every item at plot sampling, then do ``then(drawings)``.
+
+        Returns True if it started a re-render (and ``then`` will be called
+        later), False if the sheet was already at plot quality.
+        """
+        if not self._needs_plot_quality():
+            return False
+        inis = []
+        for item in self.scene.items:
+            text = getattr(item.drawing, "ini_text", "")
+            inis.append(Document.from_ini(text).to_ini(PLOT_SAMPLING)
+                        if text else text)
+        self.plot_token += 1
+        self._pending_plot = (self.plot_token, then)
+        self.plot.set_running(True)
+        self.plot.set_progress(0, "re-generating at plot quality…")
+        self.status_left.setText(
+            "Re-generating %d pattern%s at plot quality — a preview is sampled "
+            "for the screen, a plot for the paper."
+            % (len(inis), "" if len(inis) == 1 else "s"))
+        self.batchRequested.emit(self.plot_token, inis)
+        return True
+
+    def _plot_drawings_progress(self, token, done, total):
+        if self._pending_plot and token == self._pending_plot[0]:
+            self.plot.set_progress(done / max(total, 1),
+                                   "re-generating %d/%d…" % (done, total))
+
+    def _plot_drawings_ready(self, token, drawings):
+        if not self._pending_plot or token != self._pending_plot[0]:
+            return
+        _, then = self._pending_plot
+        self._pending_plot = None
+        self.sheet.refresh(select=self.sheet.selected_id())
+        then(drawings)
+
     def _start_preview(self):
-        job = self._plot_job()
+        if not self.scene.items:
+            self.status_left.setText("Nothing on the paper to plot.")
+            return
+        if self._with_plot_quality(self._preview_with):
+            return
+        self._preview_with(None)
+
+    def _preview_with(self, drawings):
+        job = self._plot_job(drawings)
         if job is None:
+            self.plot.set_running(False)
             return
         self.plot.set_running(True)
         self.plot.set_progress(0, "estimating…")
@@ -388,8 +474,18 @@ class MainWindow(QMainWindow):
                                     "" if len(layers) == 1 else "s"))
 
     def _start_plot(self, dry_run):
-        job = self._plot_job()
+        if not self.scene.items:
+            self.status_left.setText("Nothing on the paper to plot.")
+            return
+        if self._with_plot_quality(lambda drawings:
+                                   self._plot_with(drawings, dry_run)):
+            return
+        self._plot_with(None, dry_run)
+
+    def _plot_with(self, drawings, dry_run):
+        job = self._plot_job(drawings)
         if job is None:
+            self.plot.set_running(False)
             return
         stray = self.scene.out_of_bounds()
         if stray and not dry_run:
@@ -401,6 +497,7 @@ class MainWindow(QMainWindow):
                    "es" if len(stray) == 1 else ""),
                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
             if answer != QMessageBox.Yes:
+                self.plot.set_running(False)
                 return
 
         self.plot.save_settings()
@@ -492,13 +589,8 @@ class MainWindow(QMainWindow):
         if self.plotter.busy:
             self.status_left.setText("The machine is busy plotting.")
             return
-        from axiplot import plotter as plotmod
-        machine = plotmod.Plotter()
-        opts = self.plot.options(self.sheet.current_model())
         try:
-            getattr(machine, {"pen_up": "pen_up", "pen_down": "pen_down",
-                              "home": "home",
-                              "disable_motors": "disable_motors"}[command])(opts)
+            manual_command(command, self.plot.options(self.sheet.current_model()))
             self.status_left.setText("Sent: %s" % command.replace("_", " "))
         except Exception as exc:
             traceback.print_exc()

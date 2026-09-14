@@ -20,29 +20,42 @@ hide.
 """
 
 import math
-from dataclasses import dataclass, field
 from itertools import count
-
-import numpy as np
 
 _ids = count(1)
 
 
-@dataclass
 class PlacedItem:
-    """One pattern on the sheet."""
+    """One pattern on the sheet.
 
-    drawing: object                 # a spiro.pipeline.Drawing
-    x_mm: float = 0.0               # centre of the item's box
-    y_mm: float = 0.0
-    w_mm: float = 100.0             # the box, in real millimetres of paper
-    h_mm: float = 100.0
-    rotation_deg: float = 0.0
-    pen: int = 0                    # index into Scene.pens
-    name: str = "pattern"
-    visible: bool = True
-    item_id: int = field(default_factory=lambda: next(_ids))
-    _unit: object = field(default=None, repr=False, compare=False)
+    The size is *one* number. ``h_mm`` is stored and ``w_mm`` is derived from
+    it through the drawing's own aspect ratio, because the geometry is: the
+    curves are placed by scaling a box that is ``aspect`` wide and 1 tall.
+    Storing both invites them to disagree — and a width that disagrees with
+    the drawn width is a box that lies about what will be plotted. Setting
+    either one is fine; both go through the same place.
+    """
+
+    def __init__(self, drawing, x_mm=0.0, y_mm=0.0, w_mm=None, h_mm=100.0,
+                 rotation_deg=0.0, pen=0, name="pattern", visible=True,
+                 item_id=None):
+        self.drawing = drawing              # a spiro.pipeline.Drawing
+        self.x_mm = float(x_mm)             # centre of the item's box
+        self.y_mm = float(y_mm)
+        self.h_mm = float(h_mm)
+        if w_mm is not None:                # a width, if that is how you think
+            self.set_width(w_mm)
+        self.rotation_deg = float(rotation_deg)
+        self.pen = int(pen)                 # index into Scene.pens
+        self.name = name
+        self.visible = bool(visible)
+        self.item_id = next(_ids) if item_id is None else item_id
+        self._unit = None                   # the cached curves, see unit_paths
+
+    def __repr__(self):
+        return ("PlacedItem(%r, %.1f x %.1f mm at %.1f, %.1f, pen %d)"
+                % (self.name, self.w_mm, self.h_mm, self.x_mm, self.y_mm,
+                   self.pen))
 
     # -- construction -------------------------------------------------------- #
 
@@ -51,9 +64,9 @@ class PlacedItem:
         """Place a drawing centred on the paper at ``fraction`` of the
         drawable area — the sane default for "add this to the canvas"."""
         _, _, avail_w, avail_h = paper.drawable
-        w, h = _box_for(drawing.aspect, avail_w * fraction, avail_h * fraction)
+        _, h = _box_for(drawing.aspect, avail_w * fraction, avail_h * fraction)
         cx, cy = paper.center
-        return cls(drawing=drawing, x_mm=cx, y_mm=cy, w_mm=w, h_mm=h, **kw)
+        return cls(drawing=drawing, x_mm=cx, y_mm=cy, h_mm=h, **kw)
 
     # -- size ---------------------------------------------------------------- #
 
@@ -61,22 +74,29 @@ class PlacedItem:
     def aspect(self):
         return self.drawing.aspect
 
+    @property
+    def w_mm(self):
+        """The drawn width. Derived, never stored — see the class docstring."""
+        return self.h_mm * self.aspect
+
+    @w_mm.setter
+    def w_mm(self, value):
+        self.set_width(value)
+
     def set_width(self, w_mm):
         """Resize by width; the height follows, because the pattern's shape is
         not ours to change."""
-        self.w_mm = max(float(w_mm), 0.1)
-        self.h_mm = self.w_mm / self.aspect
+        self.h_mm = max(float(w_mm), 0.1) / self.aspect
 
     def set_height(self, h_mm):
         self.h_mm = max(float(h_mm), 0.1)
-        self.w_mm = self.h_mm * self.aspect
 
     def fit_into(self, w_mm, h_mm):
         """The largest box of this shape that fits the given one."""
-        self.w_mm, self.h_mm = _box_for(self.aspect, w_mm, h_mm)
+        self.h_mm = _box_for(self.aspect, w_mm, h_mm)[1]
 
     def scale_by(self, factor):
-        self.set_width(self.w_mm * factor)
+        self.h_mm = max(self.h_mm * float(factor), 0.1)
 
     # -- position ------------------------------------------------------------ #
 
