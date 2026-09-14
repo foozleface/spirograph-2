@@ -175,3 +175,9 @@ Asked for after the first seven landed:
 - [ ] **R3 — pick a pattern quickly.** A Files tab beside Build and Effects:
   every `.ini` in the project, what its pipeline is, filtered as you type,
   one click to load. Plus a recent-files list in the File menu.
+
+- [ ] **R4 — the randomizer.** The web UI could invent a pipeline: a table of
+  hand-tuned recipes with sane ranges per module, so what came out was worth
+  looking at rather than noise. It went out with `server.py`. Bring it back as
+  data in `spiro/pipeline/`, not as a panel — then the button is three lines
+  and the recipes are testable.
