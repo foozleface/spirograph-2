@@ -74,7 +74,7 @@ Each task ends with a commit and a push.
 
 - [x] **T0 — this plan.** Write `PLAN.md`, keep it updated as tasks land.
 
-- [ ] **T1 — vendor `axiplot`.** Copy the package from `~/busy-python/axiplot`
+- [x] **T1 — vendor `axiplot`.** Copy the package from `~/busy-python/axiplot`
   verbatim (it already has zero dependencies outside itself). Bring its tests
   (`tests/test_axiplot.py`) too so the vendored copy stays honest. Confirm
   `driver.available()` is True against the `axidrawinternal` already in `.venv`.
