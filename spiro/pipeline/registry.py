@@ -18,8 +18,24 @@ as its default — which is how a third of the recipes came to draw something
 other than what they said.
 
 Every module also reads the common keys (``easing``; ``normalize`` on the
-transforms that offer it; ``osc_<name>`` beside any drifting parameter), see
-:data:`COMMON_PARAMS` and :func:`valid_keys`.
+transforms that offer it; ``osc_<name>`` beside any drifting parameter;
+``scope`` on every transform), see :data:`COMMON_PARAMS`,
+:data:`TRANSFORM_PARAMS` and :func:`valid_keys`.
+
+Three categories, and the words the window uses for them:
+
+* ``generator`` — an **arm**. Adds a moving vector to where the pen is; arms
+  chain end to end, each turning at its own rate. Two circles are an
+  epicycle; a gear is two arms in one.
+* ``path`` — a **carriage**. Also adds a vector — the whole mechanism rides
+  along a line, an arc, a spiral, a rail — so in the engine it is an arm
+  too. Kept apart because a person reaches for it to *move the drawing
+  somewhere*, not to add a lobe.
+* ``transform`` — a **table move**. Acts on what is already drawn: the paper
+  turns, grows, shrinks, wobbles, bends round a drum. ``scope`` says whether
+  it moves under everything so far, or only under the last arm (or last
+  few) — the difference between spinning the paper and spinning one arm's
+  pivot.
 """
 
 # Read by the base class for every module: the timing curve applied to the
@@ -29,6 +45,22 @@ EASING_MODES = ["linear", "ease_in", "ease_out", "ease_in_out", "sine"]
 COMMON_PARAMS = {
     "easing": {"type": "choice", "choices": EASING_MODES, "default": "linear",
                "desc": "Timing curve", "advanced": True},
+}
+
+# Read by the base class for every transform. 'all' acts on everything drawn
+# so far; an integer k acts on the last k arms only, as if the table turned
+# under those arms alone. The window shows it as a bracket beside the steps.
+TRANSFORM_PARAMS = {
+    "scope": {"type": "scope", "default": "all", "desc": "Acts on"},
+}
+
+CATEGORIES = {
+    "generator": {"label": "Arms", "word": "arm",
+                  "blurb": "Adds a moving arm. Arms chain end to end, each turning at its own rate."},
+    "path":      {"label": "Carriage paths", "word": "path",
+                  "blurb": "Carries the whole mechanism along a line, an arc, a spiral, a rail."},
+    "transform": {"label": "Table moves", "word": "move",
+                  "blurb": "Moves the paper under what is drawn: turn, grow, shrink, bend, wobble."},
 }
 
 # A drifting parameter may oscillate between its two values instead of
@@ -270,7 +302,7 @@ MODULE_DEFS = {
         },
     },
     "translation": {
-        "category": "transform",
+        "category": "path",
         "label": "Translation",
         "desc": "Slide pattern along a line as it draws",
         "params": {
@@ -282,7 +314,7 @@ MODULE_DEFS = {
         },
     },
     "arc": {
-        "category": "transform",
+        "category": "path",
         "label": "Arc Path",
         "desc": "Slide pattern along circular arc",
         "params": {
@@ -295,7 +327,7 @@ MODULE_DEFS = {
         },
     },
     "spiral_arc": {
-        "category": "transform",
+        "category": "path",
         "label": "Spiral Path",
         "desc": "Slide pattern along spiral path",
         "params": {
@@ -309,7 +341,7 @@ MODULE_DEFS = {
         },
     },
     "rail_slide": {
-        "category": "transform",
+        "category": "path",
         "label": "Rail Slide",
         "desc": "Slide pattern back and forth along a straight rail",
         "params": {
@@ -656,7 +688,14 @@ def valid_keys(module_type):
         return None
     keys = {"type"} | set(spec["params"]) | set(COMMON_PARAMS)
     keys |= {OSC_PREFIX + base for base in drift_bases(module_type)}
+    if spec["category"] == "transform":
+        keys |= set(TRANSFORM_PARAMS)
     return keys
+
+
+def is_arm(module_type):
+    """Does this module add a vector — a generator or a path?"""
+    return MODULE_DEFS[module_type]["category"] in ("generator", "path")
 
 
 def by_module_file():

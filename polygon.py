@@ -27,6 +27,8 @@ class PolygonModule(TransformModule):
         rotation: Initial rotation in degrees
         start_x, start_y: Center position
     """
+
+    is_generator = True            # an arm: adds a vector to where the pen is
     
     def _load_config(self):
         """Load polygon configuration."""

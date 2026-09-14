@@ -39,6 +39,8 @@ class TranslationModule(TransformModule):
         end_x, end_y: Ending translation offset
         normalize: If true, normalize t to [0,1] regardless of pipeline period (default: true)
     """
+
+    is_generator = True            # an arm: adds a vector to where the pen is
     
     def _load_config(self):
         """Load translation configuration."""
@@ -78,9 +80,6 @@ class TranslationModule(TransformModule):
         """Single traversal = period of 1."""
         return Fraction(1, 1)
     
-    @property
-    def is_generator(self) -> bool:
-        return False
     
     def __repr__(self):
         return (f"TranslationModule("

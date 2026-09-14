@@ -44,6 +44,8 @@ class SpirographRailModule(TransformModule):
         scale: Output scale factor
         rail_angle: Orientation of rail in degrees (0=horizontal)
     """
+
+    is_generator = True            # an arm: adds a vector to where the pen is
     
     def _load_config(self):
         """Load rail configuration."""
@@ -152,6 +154,8 @@ class SpirographRailTransformModule(TransformModule):
     Configuration is the same as SpirographRailModule, but hole_position
     is ignored (the "pen" is the input coordinate).
     """
+
+    is_generator = True            # an arm: adds a vector to where the pen is
     
     def _load_config(self):
         """Load rail configuration."""

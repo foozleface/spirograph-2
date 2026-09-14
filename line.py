@@ -44,6 +44,8 @@ class LineModule(TransformModule):
                      0.01 = nearly instantaneous lines
         idle_at: Where to stay during idle time: 'start' or 'end' (default: start)
     """
+
+    is_generator = True            # an arm: adds a vector to where the pen is
     
     def _load_config(self):
         """Load line configuration."""

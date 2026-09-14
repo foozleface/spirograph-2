@@ -46,6 +46,8 @@ class SpirographGearModule(TransformModule):
         inside: True for hypotrochoid, False for epitrochoid
         cycles: Number of times to draw the complete pattern (default: 1)
     """
+
+    is_generator = True            # an arm: adds a vector to where the pen is
     
     def _load_config(self):
         """Load gear configuration."""

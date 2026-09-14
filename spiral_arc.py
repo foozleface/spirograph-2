@@ -27,6 +27,8 @@ class SpiralArcModule(TransformModule):
         cycles: Number of spiral arms/traversals
         normalize: If true, normalize t to [0,1] regardless of pipeline period
     """
+
+    is_generator = True            # an arm: adds a vector to where the pen is
     
     def _load_config(self):
         """Load spiral configuration."""
@@ -70,9 +72,6 @@ class SpiralArcModule(TransformModule):
             return Fraction(1, 1)
         return Fraction(self.cycles).limit_denominator(1000)
     
-    @property
-    def is_generator(self) -> bool:
-        return False
     
     def __repr__(self):
         return (f"SpiralArcModule(r={self.inner_radius}->{self.outer_radius}, "

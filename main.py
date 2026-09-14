@@ -81,6 +81,9 @@ class TransformModule(ABC):
         self._load_config()
         # Load easing after subclass config (available to all modules)
         self._easing = self._get('easing', 'linear')
+        # What a transform acts on: 'all' (everything drawn so far) or an
+        # integer k, the last k arms. See run_pipeline.
+        self.scope = parse_scope(self._get('scope', 'all'))
     
     def set_pipeline_period(self, period: Fraction):
         """Set the combined pipeline period (called by main after computing period)."""
@@ -207,6 +210,19 @@ class TransformModule(ABC):
         return False
 
 
+def parse_scope(text):
+    """'all' or a non-negative integer, from an INI value."""
+    text = str(text).strip().lower()
+    if text in ('', 'all'):
+        return 'all'
+    if text == 'last':
+        return 1
+    value = int(text)
+    if value < 0:
+        raise ValueError("scope must be 'all' or a count of arms, not %r" % text)
+    return value
+
+
 def lcm(a: int, b: int) -> int:
     """Compute least common multiple."""
     return abs(a * b) // gcd(a, b)
@@ -243,6 +259,26 @@ def run_pipeline(modules: List[TransformModule], t, start=0j, stages=None):
     """
     Fold the pipeline over every sample at once.
 
+    A generator (or a path — arc, translation, the things that slide) is an
+    *arm*: it adds a vector to where the pen is. Before each arm is added the
+    pen's position is remembered, so a transform can act on "the last k
+    arms" rather than on everything drawn so far:
+
+        scope = all   z' = T(z)                      everything so far
+        scope = k     z' = base_k + T(z - base_k)    the last k arms only,
+                                                     where base_k is where
+                                                     the pen was before them
+        scope = 0     z' = z + T(0)                  nothing — what a lone
+                                                     rotation contributes to
+                                                     a group branch
+
+    A transform of everything also carries the remembered positions with it,
+    so "the last two arms" still means the last two arms afterwards.
+
+    This is exactly what a `group` of branches computed, written flat: a
+    branch's transform acts on the arms of its own branch, which are the last
+    k arms at that point. Old files with groups still run through group.py.
+
     Args:
         modules: List of transformation modules
         t: Time parameter — a float array covering the whole draw, or one float
@@ -258,8 +294,22 @@ def run_pipeline(modules: List[TransformModule], t, start=0j, stages=None):
     t = np.asarray(t, dtype=float)
     z = np.broadcast_to(np.asarray(start, dtype=complex), t.shape).copy() \
         if t.ndim else complex(start)
+    bases = []                     # where the pen was before each arm
     for module in modules:
-        z = module.transform(z, t)
+        scope = getattr(module, 'scope', 'all')
+        if module.is_generator:
+            bases.append(z)
+            z = module.transform(z, t)
+        elif scope == 'all':
+            z = module.transform(z, t)
+            bases = [module.transform(b, t) for b in bases]
+        else:
+            k = min(int(scope), len(bases))
+            base = bases[-k] if k > 0 else z
+            z = base + module.transform(z - base, t)
+            if k > 1:
+                bases[-k + 1:] = [base + module.transform(b - base, t)
+                                  for b in bases[-k + 1:]]
         if stages is not None:
             stages.append(np.array(z, dtype=complex, copy=True))
     return z

@@ -24,6 +24,8 @@ class CircleModule(TransformModule):
         cycles: Number of times around the circle
         start_x, start_y: Center offset
     """
+
+    is_generator = True            # an arm: adds a vector to where the pen is
     
     def _load_config(self):
         """Load circle configuration."""

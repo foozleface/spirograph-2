@@ -71,6 +71,8 @@ def _emit(lines, section, params):
     for key, value in params.items():
         if key == "type" and value in TYPE_TO_MODULE:
             lines.append("type = %s" % TYPE_TO_MODULE[value])
+        elif key == "scope" and str(value) == "all":
+            continue                         # the default; keep files quiet
         else:
             lines.append("%s = %s" % (key, _fmt(value)))
     lines.append("")

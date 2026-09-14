@@ -24,6 +24,8 @@ class SpiralShapeModule(TransformModule):
         direction: 1 for outward, -1 for inward
         cycles: Number of times to draw the spiral (for moiré with transforms)
     """
+
+    is_generator = True            # an arm: adds a vector to where the pen is
     
     def _load_config(self):
         """Load spiral configuration."""

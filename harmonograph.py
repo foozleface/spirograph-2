@@ -62,6 +62,8 @@ class HarmonographModule(TransformModule):
         rotary: Rotary table harmonograph
         complex: All four pendulums active
     """
+
+    is_generator = True            # an arm: adds a vector to where the pen is
     
     def _load_config(self):
         """Load harmonograph configuration."""

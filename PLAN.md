@@ -320,7 +320,7 @@ What is wrong, in order of damage:
   parameter no module reads; easing and oscillating drift become registry
   entries. The recipes are corrected and their goldens re-recorded on purpose.
 
-- [ ] **E4 — scope instead of groups.** A transform carries `scope = all`
+- [x] **E4 — scope instead of groups.** A transform carries `scope = all`
   (default) or `scope = last` — the arm since the previous generator. The
   runner honours it; a `group` in an old file is flattened to the same thing
   on load, so nothing old breaks and the GUI has one list instead of a tree.

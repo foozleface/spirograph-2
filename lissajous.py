@@ -30,6 +30,8 @@ class LissajousModule(TransformModule):
         cycles: Number of complete cycles (0 = auto)
         start_x, start_y: Center position
     """
+
+    is_generator = True            # an arm: adds a vector to where the pen is
     
     def _load_config(self):
         """Load Lissajous configuration."""

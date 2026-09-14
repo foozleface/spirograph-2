@@ -45,6 +45,7 @@ class GroupModule(TransformModule):
                  e.g., "gear1, rotation | gear2, scale"
     """
 
+    is_generator = True            # an arm: adds a vector to where the pen is
     def _load_config(self):
         modules_str = self._get('modules', '')
 

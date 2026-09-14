@@ -48,6 +48,8 @@ class SurfaceModule(TransformModule):
         # Drawing
         cycles: Number of times to draw all v_lines (for moiré with transforms)
     """
+
+    is_generator = True            # an arm: adds a vector to where the pen is
     
     def _load_config(self):
         """Load surface configuration."""

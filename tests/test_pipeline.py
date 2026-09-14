@@ -51,10 +51,10 @@ print("module table:")
 check("every module declares a category, label and params",
       all({"category", "label", "params"} <= set(spec)
           for spec in MODULE_DEFS.values()))
-check("categories are only generator or transform",
-      {s["category"] for s in MODULE_DEFS.values()} <= {"generator", "transform"})
-check("there are generators and transforms",
-      module_names("generator") and module_names("transform"))
+check("categories are generator, path or transform",
+      {s["category"] for s in MODULE_DEFS.values()} <= {"generator", "path", "transform"})
+check("there are generators, paths and transforms",
+      module_names("generator") and module_names("path") and module_names("transform"))
 check("every parameter has a type and a default",
       all("type" in p and "default" in p
           for spec in MODULE_DEFS.values() for p in spec["params"].values()))
@@ -91,6 +91,21 @@ for _type in MODULE_DEFS:
     if _missing:
         _gaps[_type] = sorted(_missing)
 check("every key a module reads is in the registry", not _gaps, _gaps)
+
+# The runner's idea of an arm and the registry's must agree: an arm pushes
+# a base the scope machinery counts, so a generator that forgot to say so
+# would make "the last arm" mean the wrong thing.
+import configparser as _cp  # noqa: E402
+from main import load_module as _load  # noqa: E402
+_disagree = []
+for _type, _spec in MODULE_DEFS.items():
+    _c = _cp.ConfigParser()
+    _c.read_string("[m]\ntype = %s\n%s\n" % (
+        TYPE_TO_MODULE.get(_type, _type),
+        "surface = %s" % _spec["params"]["surface"]["default"] if "surface" in _spec["params"] else ""))
+    if _load("m", _c).is_generator != (_spec["category"] in ("generator", "path")):
+        _disagree.append(_type)
+check("the runner and the registry agree on what an arm is", not _disagree, _disagree)
 
 
 # -- the INI writer ---------------------------------------------------------- #
@@ -193,6 +208,58 @@ check("a module answers for one moment as it does for the whole draw",
       np.iscomplexobj(_many) and abs(_many[1] - _one) < 1e-12)
 check("and a transform on a scalar stays a scalar",
       np.ndim(load_module("s1", _cfg).transform(1 + 0j, 0.5)) == 0)
+
+# -- scope: a transform on the last k arms ------------------------------------- #
+
+print("scope:")
+_S = {"initial_samples": 12000, "output_samples": 2000}
+_gear = {"type": "spirograph_gear", "fixed_teeth": 96, "rolling_teeth": 36, "hole_position": 0.7}
+_circ = {"type": "circle", "radius": 40, "cycles": 7}
+_rot = {"type": "rotation", "total_degrees": 90}
+_scl = {"type": "scale", "start_scale": 1, "end_scale": 0.3}
+
+
+def _pts(steps):
+    return np.concatenate(run(build_ini(steps=steps, sampling=_S)).paths)
+
+
+def _single(p, **extra):
+    return {"kind": "single", "params": dict(p, **extra)}
+
+
+def _group(*branches):
+    return {"kind": "group", "branches": [list(b) for b in branches]}
+
+
+_grouped = _pts([_group([_gear, _rot], [_circ, _scl])])
+_flat = _pts([_single(_gear), _single(_rot, scope=1), _single(_circ), _single(_scl, scope=1)])
+check("a group of two branches is the flat chain with scope on each transform",
+      np.allclose(_grouped, _flat))
+check("and differs from the chain with no scope",
+      not np.allclose(_grouped, _pts([_single(_gear), _single(_rot), _single(_circ), _single(_scl)])))
+check("scope = all is the plain chain",
+      np.allclose(_pts([_single(_gear), _single(_rot, scope="all")]),
+                  _pts([_single(_gear), _single(_rot)])))
+check("scope = 0 on a rotation does nothing",
+      np.allclose(_pts([_single(_gear), _single(_rot, scope=0)]), _pts([_single(_gear)])))
+check("a path in its own branch is the path in the chain — a path is an arm",
+      np.allclose(_pts([_single(_gear), _single({"type": "arc", "radius": 100})]),
+                  _pts([_group([_gear], [{"type": "arc", "radius": 100}])])))
+check("scope = 2 over the only two arms equals scope = all",
+      np.allclose(_pts([_single(_gear), _single(_circ), _single(_rot, scope=2)]),
+                  _pts([_single(_gear), _single(_circ), _single(_rot)])))
+_nested_ini = build_ini(steps=[_single(_circ), _group([_gear, _rot, _circ, _scl], [_circ]),
+                               _single(_scl)], sampling=_S)
+_doc = Document.from_ini(_nested_ini)
+check("a document reads a group as flat steps", all(s["kind"] == "single" for s in _doc.steps))
+check("with the scope counting that branch's arms",
+      [s["params"].get("scope", "-") for s in _doc.steps] == ["-", "-", 1, "-", 2, "-", "-"],
+      [s["params"].get("scope", "-") for s in _doc.steps])
+check("and draws exactly what the group drew",
+      np.allclose(np.concatenate(run(_doc.to_ini(_S)).paths),
+                  np.concatenate(run(_nested_ini).paths)))
+check("scope = all is not written to the file",
+      "scope = all" not in _doc.to_ini(_S) and "scope = 2" in _doc.to_ini(_S))
 
 GEAR = build_ini(steps=[{"kind": "single", "params": {
     "type": "spirograph_gear", "fixed_teeth": 96, "rolling_teeth": 36,

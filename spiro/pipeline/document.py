@@ -12,7 +12,7 @@ from itertools import count
 from pathlib import Path
 
 from spiro.pipeline.ini import (OUTPUT_DEFAULTS, SAMPLING_DEFAULTS, build_ini)
-from spiro.pipeline.registry import MODULE_DEFS, modernise
+from spiro.pipeline.registry import MODULE_DEFS, is_arm, modernise
 
 # Which UI type a `surface` section really is — the reverse of the registry's
 # TYPE_TO_MODULE, keyed by the module's own `surface` parameter.
@@ -83,19 +83,7 @@ class Document:
                  config.get("pipeline", "modules", fallback="").split(",")
                  if n.strip()]
         for section in names:
-            kind = (config.get(section, "type", fallback=section).strip()
-                    if config.has_section(section) else section)
-            if kind != "group":
-                steps.append({"kind": "single",
-                              "params": _section_params(config, section)})
-                continue
-            branches = []
-            for branch in config.get(section, "modules", fallback="").split("|"):
-                chain = [_section_params(config, n.strip())
-                         for n in branch.split(",") if n.strip()]
-                if chain:
-                    branches.append(chain)
-            steps.append({"kind": "group", "branches": branches})
+            steps.extend(_flatten(config, section))
 
         def section(name):
             return ({k: _coerce(v) for k, v in config.items(name)}
@@ -249,3 +237,37 @@ class Document:
 def _label(params):
     spec = MODULE_DEFS.get(params.get("type"))
     return spec["label"] if spec else str(params.get("type", "?"))
+
+
+def _flatten(config, section):
+    """A section as flat steps — a group's branches written out with scopes.
+
+    A group is parentheses: a transform inside a branch acts on that branch's
+    arms alone. Written flat, that is the same transform with ``scope`` set
+    to the number of arms the branch has added so far — the runner's
+    "last k arms" is exactly the branch. So the tree becomes a list, and
+    nothing about the drawing changes (the pipeline gate holds the two
+    equal). Nested groups flatten the same way, the arm count carrying
+    through.
+
+    Returns a list of single steps.
+    """
+    kind = (config.get(section, "type", fallback=section).strip()
+            if config.has_section(section) else section)
+    if kind != "group":
+        return [{"kind": "single", "params": _section_params(config, section)}]
+    out = []
+    for branch in config.get(section, "modules", fallback="").split("|"):
+        arms = 0
+        for name in (n.strip() for n in branch.split(",") if n.strip()):
+            inner = _flatten(config, name)
+            for step in inner:
+                params = step["params"]
+                if is_arm(params["type"]):
+                    arms += 1
+                elif params.get("scope", "all") == "all":
+                    params["scope"] = arms
+                # a scope the file already set counts arms within its own
+                # nested branch, a subset of ours: keep it
+            out.extend(inner)
+    return out

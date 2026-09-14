@@ -105,8 +105,9 @@ def module_cases():
     for name, spec in sorted(MODULE_DEFS.items()):
         params = defaults_for(name)
         chain = [single(name, **{k: v for k, v in params.items() if k != "type"})]
-        if spec["category"] == "transform":
-            # A transform on its own moves nothing; give it an arm to move.
+        if spec["category"] != "generator":
+            # A transform on its own moves nothing, and a path on its own is
+            # only its path; give both an arm to carry.
             chain = [single("circle", radius=40, cycles=3)] + chain
         out["module/%s" % name] = _ini(chain)
 
@@ -119,7 +120,7 @@ def module_cases():
                 touched = True
         if touched:
             chain2 = [single(name, **{k: v for k, v in drifted.items() if k != "type"})]
-            if spec["category"] == "transform":
+            if spec["category"] != "generator":
                 chain2 = [single("circle", radius=40, cycles=3)] + chain2
             out["drift/%s" % name] = _ini(chain2)
     return out

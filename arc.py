@@ -42,6 +42,8 @@ class ArcModule(TransformModule):
         center_x, center_y: Center of the arc
         cycles: Number of times to traverse the arc (can be fractional)
     """
+
+    is_generator = True            # an arm: adds a vector to where the pen is
     
     def _load_config(self):
         """Load arc configuration."""
@@ -101,10 +103,6 @@ class ArcModule(TransformModule):
         """
         return self._period
     
-    @property
-    def is_generator(self) -> bool:
-        """This module transforms coordinates."""
-        return False
     
     def __repr__(self):
         return (f"ArcModule(r={self.radius}, start={self.start_angle}°, "

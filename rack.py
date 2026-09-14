@@ -39,6 +39,8 @@ class RackModule(TransformModule):
         laps: Number of complete circuits around the rack
         scale: Output scale factor
     """
+
+    is_generator = True            # an arm: adds a vector to where the pen is
     
     def _load_config(self):
         """Load rack configuration."""
