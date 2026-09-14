@@ -80,7 +80,7 @@ Each task ends with a commit and a push.
   `driver.available()` is True against the `axidrawinternal` already in `.venv`.
   *Done when:* `pytest tests/test_axiplot.py` passes in this repo.
 
-- [ ] **T2 — extract the generation core.** Move `MODULE_DEFS` to
+- [x] **T2 — extract the generation core.** Move `MODULE_DEFS` to
   `spiro/pipeline/registry.py`, the INI builder (`_build_ini`, `_emit_mod`) to
   `spiro/pipeline/ini.py`, and `_run_pipeline_points` to `spiro/pipeline/engine.py`,
   returning paths in *source units* plus their bounds — no normalising to a
