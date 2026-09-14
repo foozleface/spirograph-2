@@ -115,7 +115,7 @@ Each task ends with a commit and a push.
   *Done when:* the Test button reports success against the configured service,
   and a two-layer plot sends "layer 1/2 done, swap to …".
 
-- [ ] **T7 — retire the web server.** Once the desktop app has parity, delete
+- [x] **T7 — retire the web server.** Once the desktop app has parity, delete
   `server.py`, rewrite `launch.sh` to launch the GUI, and update the README.
 
 ## Notes
@@ -124,3 +124,28 @@ Each task ends with a commit and a push.
 * `QT_QPA_PLATFORM=xcb;wayland` is the proven backend on this machine.
 * Never open the serial port from two processes; `axiplot`'s preview path never
   connects, so use it for anything speculative.
+
+## Done
+
+All seven tasks are in. What changed, in one line each:
+
+* `axiplot/` — the pen plotter, vendored standalone from busy-python.
+* `spiro/pipeline/` — the mathematics, with no server or Qt anywhere near it.
+* `spiro/scene/` — the sheet in millimetres, and the single transform that
+  places a pattern on it. This is the placement fix.
+* `spiro/ui/` — the window: build, effects, paper, sheet, plot, alerts.
+* Pens: one layer each, a real pause between them, resume where it stopped.
+* Alerts: Home Assistant, MQTT, webhook — per layer and at the end.
+* `server.py` is gone; `launch.sh` opens the window.
+
+`./run_tests.sh` — 241 checks across six gates, no hardware and no network.
+
+### Not carried over from the web UI
+
+* **Draw animation.** The old canvas could animate the pen tracing the curve.
+  Worth having back as a canvas overlay; nothing depends on it.
+* **Randomize.** The old UI could invent a pipeline. It was a large table of
+  hand-tuned recipes living inside the React app; it belongs in
+  `spiro/pipeline/` as data if it comes back, not in a panel.
+* **Per-pattern tabs.** Replaced by placing several patterns on one sheet,
+  which is what they were being used for.

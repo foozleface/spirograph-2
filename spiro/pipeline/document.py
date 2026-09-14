@@ -60,6 +60,8 @@ class Document:
     output: dict = field(default_factory=dict)
     sampling: dict = field(default_factory=dict)
     symmetry: dict = field(default_factory=dict)
+    # The sections that are neither modules nor settings: pen_lift, moire.
+    extras: dict = field(default_factory=dict)
     path: object = None                 # Path it was loaded from, or None
     name: str = "untitled"
 
@@ -95,10 +97,12 @@ class Document:
 
         output = section("output")
         output.pop("filename", None)     # never carry someone else's output path
+        extras = {name_: section(name_) for name_ in ("pen_lift", "moire")
+                  if config.has_section(name_)}
         stem = Path(path).stem if path else "untitled"
         return cls(steps=steps, output=output, sampling=section("sampling"),
-                   symmetry=section("symmetry"), path=Path(path) if path else None,
-                   name=name or stem)
+                   symmetry=section("symmetry"), extras=extras,
+                   path=Path(path) if path else None, name=name or stem)
 
     @classmethod
     def load(cls, path):
@@ -115,8 +119,13 @@ class Document:
         if symmetry and int(symmetry.get("n_fold", 1)) <= 1 \
                 and not symmetry.get("mirror"):
             symmetry = {}
+        # A moire section regenerates its own module list from the pipeline,
+        # so a stale one from a loaded file must not survive an edit.
+        extras = {name: dict(values) for name, values in self.extras.items() if values}
+        if "moire" in extras:
+            extras["moire"].pop("modules", None)
         return build_ini(steps=self.steps, output=self.output,
-                         sampling=sampling, symmetry=symmetry)
+                         sampling=sampling, symmetry=symmetry, extras=extras)
 
     def save(self, path=None):
         path = Path(path or self.path)
@@ -126,6 +135,34 @@ class Document:
         return path
 
     # -- editing --------------------------------------------------------------- #
+
+    def effect(self, section):
+        """The pen_lift or moire settings, creating the dict on first use."""
+        return self.extras.setdefault(section, {})
+
+    def drop_effect(self, section):
+        self.extras.pop(section, None)
+
+    def single_step_params(self):
+        """``(section name, label, param name)`` for every parameter a moire
+        pass could vary — the single steps only, because a group's sections are
+        named by branch and position and a person should not have to know that.
+        """
+        from spiro.pipeline.registry import MODULE_DEFS
+        out = []
+        for index, step in enumerate(self.steps):
+            if step.get("kind") == "group":
+                continue
+            params = step["params"]
+            spec = MODULE_DEFS.get(params.get("type"))
+            if not spec:
+                continue
+            for key, meta in spec["params"].items():
+                if meta.get("type") in ("int", "float") and "drift_for" not in meta:
+                    out.append(("s%d" % index, "%d. %s → %s"
+                                % (index + 1, spec["label"],
+                                   meta.get("desc") or key), key))
+        return out
 
     def add_module(self, module_type, index=None):
         """Append (or insert) a step holding one module at its defaults."""

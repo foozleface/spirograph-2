@@ -99,12 +99,17 @@ def _emit_steps(lines, steps):
 
 
 def build_ini(steps=None, output=None, sampling=None, symmetry=None,
-              arms=None, global_mods=None, pipeline=None):
+              arms=None, global_mods=None, pipeline=None, extras=None):
     """INI text for a pipeline spec.
 
     ``steps`` is the current shape. ``arms``/``global_mods``/``pipeline`` are
-    the two older ones, kept because saved files and the web UI still send
-    them; they are folded into the same output.
+    the two older ones, kept because saved files still use them; they are
+    folded into the same output.
+
+    ``extras`` is ``{section: {key: value}}`` for the sections that are neither
+    modules nor settings — ``pen_lift`` and ``moire``. They are written last,
+    and ``moire`` has its ``modules`` filled in from the pipeline when the
+    caller has not named one, because the pipeline is what it makes copies of.
     """
     lines = []
 
@@ -159,6 +164,16 @@ def build_ini(steps=None, output=None, sampling=None, symmetry=None,
     if symmetry:
         tail.append("[symmetry]")
         tail += ["%s = %s" % (k, _fmt(v)) for k, v in symmetry.items()]
+        tail.append("")
+
+    for section, values in (extras or {}).items():
+        if not values:
+            continue
+        values = dict(values)
+        if section == "moire":
+            values.setdefault("modules", ", ".join(names))
+        tail.append("[%s]" % section)
+        tail += ["%s = %s" % (k, _fmt(v)) for k, v in values.items()]
         tail.append("")
 
     return "\n".join(head + lines + tail)

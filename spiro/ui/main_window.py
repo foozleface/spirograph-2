@@ -26,6 +26,7 @@ from spiro.scene import Paper, Scene
 from spiro.ui import theme
 from spiro.ui.canvas_view import PaperCanvas
 from spiro.ui.design_panel import DesignPanel
+from spiro.ui.effects_panel import EffectsPanel
 from spiro.ui.notify_panel import NotifyPanel
 from spiro.ui.plot_panel import PlotPanel
 from spiro.ui.sheet_panel import SheetPanel
@@ -63,6 +64,12 @@ class MainWindow(QMainWindow):
 
     def _build_ui(self):
         self.design = DesignPanel(self.document)
+        self.effects = EffectsPanel(self.document)
+        left = QTabWidget()
+        left.addTab(self.design, "Build")
+        left.addTab(self.effects, "Effects")
+        self.left_tabs = left
+
         self.canvas = PaperCanvas(self.scene)
         self.sheet = SheetPanel(self.scene)
         self.plot = PlotPanel(QSettings("spirograph-2", "plotter"))
@@ -80,7 +87,7 @@ class MainWindow(QMainWindow):
         centre_layout.addWidget(self.canvas, 1)
 
         splitter = QSplitter(Qt.Horizontal)
-        for widget, width in ((self.design, 340), (centre, 900), (right, 380)):
+        for widget, width in ((left, 340), (centre, 900), (right, 380)):
             widget.setMinimumWidth(280 if widget is not centre else 320)
             splitter.addWidget(widget)
         splitter.setStretchFactor(1, 1)
@@ -149,7 +156,9 @@ class MainWindow(QMainWindow):
 
     def _connect(self):
         self.design.documentChanged.connect(self._schedule_render)
+        self.design.structureChanged.connect(self.effects.reload)
         self.design.addRequested.connect(self._place)
+        self.effects.documentChanged.connect(self._schedule_render)
 
         self.canvas.selectionChanged.connect(self._canvas_selected)
         self.canvas.itemChanged.connect(self._item_moved)
@@ -190,10 +199,12 @@ class MainWindow(QMainWindow):
         self.document.output = {}
         self.document.sampling = dict(self.design.quality_sampling())
         self.document.symmetry = {}
+        self.document.extras = {}
         self.document.path = None
         self.document.name = "untitled"
         self.document.add_module("spirograph_gear")
         self.design.refresh(select=0)
+        self.effects.reload()
         self._update_title()
         self._schedule_render()
 
@@ -209,6 +220,7 @@ class MainWindow(QMainWindow):
             return
         self.document.__dict__.update(loaded.__dict__)
         self.design.refresh(select=0 if self.document.steps else None)
+        self.effects.reload()
         self._update_title()
         self._schedule_render()
         self.status_left.setText("Opened %s" % Path(path).name)

@@ -32,6 +32,7 @@ class DesignPanel(QWidget):
     """Palette, pipeline, parameters."""
 
     documentChanged = Signal()          # the pattern needs regenerating
+    structureChanged = Signal()         # steps added, removed or reordered
     addRequested = Signal()             # put the current pattern on the paper
 
     def __init__(self, document, parent=None):
@@ -135,6 +136,7 @@ class DesignPanel(QWidget):
             return
         self.document.add_module(module_type)
         self.refresh(select=len(self.document.steps) - 1)
+        self.structureChanged.emit()
         self.documentChanged.emit()
 
     # -- the pipeline ------------------------------------------------------- #
@@ -177,6 +179,7 @@ class DesignPanel(QWidget):
             return
         moved = self.document.move_step(self.selected_step, delta)
         self.refresh(select=moved)
+        self.structureChanged.emit()
         self.documentChanged.emit()
 
     def _remove(self):
@@ -185,6 +188,7 @@ class DesignPanel(QWidget):
         self.document.remove_step(self.selected_step)
         self.refresh(select=min(self.selected_step,
                                 len(self.document.steps) - 1) or None)
+        self.structureChanged.emit()
         self.documentChanged.emit()
 
     def _make_group(self):
@@ -192,6 +196,7 @@ class DesignPanel(QWidget):
             return
         self.document.make_group(self.selected_step)
         self.refresh(select=self.selected_step)
+        self.structureChanged.emit()
         self.documentChanged.emit()
 
     def _add_arm(self):
@@ -200,6 +205,7 @@ class DesignPanel(QWidget):
         module_type = self.picker.currentData() or "circle"
         self.document.add_branch(self.selected_step, module_type)
         self.refresh(select=self.selected_step)
+        self.structureChanged.emit()
         self.documentChanged.emit()
 
     # -- the parameters -------------------------------------------------------- #

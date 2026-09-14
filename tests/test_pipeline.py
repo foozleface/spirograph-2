@@ -184,6 +184,47 @@ check("the bounds cover every copy, not just the first",
       close(sx0, sym.min_x) and close(sx1, sym.max_x)
       and close(sy0, sym.min_y) and close(sy1, sym.max_y))
 
+# -- whole-pattern effects ---------------------------------------------------- #
+
+print("effects:")
+from spiro.pipeline.document import Document  # noqa: E402
+
+doc = Document()
+doc.add_module("spirograph_gear")
+doc.sampling = {"initial_samples": 20000, "output_samples": 1200}
+
+doc.extras["pen_lift"] = {"mode": "periodic", "draw_length": 200,
+                          "skip_length": 60}
+lifted = run(doc.to_ini())
+check("pen lift breaks one curve into several strokes", len(lifted.paths) > 1)
+check("and the strokes still share one bounding box",
+      close(lifted.width, run(Document.from_ini(
+          build_ini(steps=doc.steps, sampling=doc.sampling)).to_ini()).width, 1e-6))
+
+doc.drop_effect("pen_lift")
+doc.extras["moire"] = {"copies": 4, "vary_param": "s0.hole_position",
+                       "vary_range": 0.05}
+moire = run(doc.to_ini())
+check("a moire pass runs the pipeline once per copy", len(moire.paths) == 4)
+check("the copies differ, which is what makes the interference",
+      not np.allclose(moire.paths[0], moire.paths[-1]))
+check("moire fills in its own module list from the pipeline",
+      "modules = s0" in doc.to_ini().split("[moire]")[1])
+
+reloaded = Document.from_ini(doc.to_ini())
+check("effects survive a save and a reload",
+      reloaded.extras["moire"]["vary_param"] == "s0.hole_position"
+      and reloaded.extras["moire"]["copies"] == 4)
+check("a stale module list from a loaded file is not carried forward",
+      reloaded.to_ini() == doc.to_ini())
+
+doc.add_module("rotation")
+check("only single steps are offered as moire targets",
+      all(section.startswith("s") for section, _, _ in doc.single_step_params()))
+doc.make_group(1)
+check("and a group's modules are not offered at all",
+      not any(label.startswith("2.") for _, label, _ in doc.single_step_params()))
+
 print()
 print("pipeline: %d passed, %d failed" % (len(PASS), len(FAIL)))
 if FAIL:

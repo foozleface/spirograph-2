@@ -20,6 +20,4 @@ venv/
 .DS_Store
 Thumbs.db
 
-# Server runtime state
-.server.pid
-server.log
+# Qt settings written by the app live under ~/.config, not here.

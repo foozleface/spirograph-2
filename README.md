@@ -6,41 +6,78 @@ A modular system for creating complex mathematical art through composed transfor
 
 *Harmonograph + circle + translation running as simultaneous parallel arms, with rotation and parameter drift*
 
-## Web UI
-
-The interactive frontend runs as a single-file FastAPI + React app — no build step required.
+## The app
 
 ```bash
-./launch.sh                # start in the background on http://127.0.0.1:8890/
-./launch.sh 9000           # ... or on port 9000
-./launch.sh status         # running? which pid, which port?
-./launch.sh restart        # pick up code changes
-./launch.sh stop
-./launch.sh fg             # run in the foreground instead (Ctrl-C to quit)
+./run_gui.sh              # open an empty pattern
+./run_gui.sh some.ini     # open a pattern file
 ```
 
-`start` is the default, so a bare `./launch.sh` (or `./launch.sh 9000`) still
-works. The background server writes its pid to `.server.pid` and its output to
-`server.log`; a pidfile left behind by a crash is detected and ignored rather
-than trusted.
+(`./launch.sh` still works and hands over to the same thing.)
 
-On first run `launch.sh` creates a `.venv/` alongside the sources and installs
-FastAPI, Uvicorn and NumPy into it; later runs just reuse it. It also installs
-the [AxiDraw API](https://cdn.evilmadscientist.com/dl/ad/public/AxiDraw_API.zip)
-for pen-plotter support — without it the plotter controls return HTTP 500.
+Three columns: **build** the pattern on the left, arrange it on the **paper**
+in the middle, drive the **machine** on the right.
 
-### Features
+![the app](docs/app.png)
 
-- **Drag-and-drop pipeline builder** — drag generators and transforms from the palette onto a visual pipeline tree
-- **Parallel arms (groups)** — drop a module *onto* an existing step to create simultaneous branches, like independent drawing arms on a mechanical machine
-- **Placeholder slots** — click `+` to add empty slots, then drag modules into them
-- **Continuous parameter drift** — expand any parameter's drift control to smoothly interpolate its value over the draw (e.g., hole position drifts from 0.5 to 0.8)
-- **Moire effects** — overlay multiple copies of the pattern with a parameter varying across copies
-- **Quality presets** — Draft / Fine / Ultra sampling resolution
-- **File browser** — load, save, delete `.ini` files; click to load and auto-generate
-- **SVG export** — download the generated pattern
-- **Symmetry** — apply n-fold rotational and mirror symmetry
-- **Live parameter editing** — sliders and number inputs with instant regeneration
+The middle column is a real sheet. It is drawn at a known number of pixels per
+millimetre, and every pattern on it is drawn through the same transform that
+writes the SVG the plotter gets — so a pattern 90 mm wide sitting 120 mm from
+the left edge is drawn 90 mm wide, 120 mm from the left edge, and *plots there*.
+Drag moves it by the millimetres the pointer crossed. Arrow keys nudge by one,
+shift by a tenth. A scale bar at the bottom says what the zoom means. Anything
+that reaches past the drawable area turns red and says so before you plot it.
+
+On first run the script builds `.venv/` and installs PySide6, NumPy and the
+[AxiDraw API](https://cdn.evilmadscientist.com/dl/ad/public/AxiDraw_API.zip);
+without the last one the app still runs and the plotter controls say why not.
+
+### What it does
+
+**Build** — a palette of every generator and transform, chained into a
+pipeline. Drop a module into a *group* to run arms in parallel. Any parameter
+with an `end_*` twin gets a drift control that interpolates it over the draw.
+Draft / Fine / Ultra sampling for the preview; plots always run at Ultra.
+
+**Effects** — symmetry (n-fold, with or without a mirror), pen lift (periodic,
+threshold or angular), and moiré, which runs the whole pipeline several times
+with one parameter nudged so the copies interfere.
+
+**Sheet** — pick an AxiDraw model or a paper size, set a margin, and place as
+many patterns as you like. Each one carries a **pen**; the pen list says what
+that pen number means in ink and in name.
+
+**Plot** — speeds, pen positions, path reordering, manual jogging. *Estimate*
+motion-plans every layer without opening the serial port. *Dry run* rehearses
+the whole job with the pen up. *Plot* draws it, one layer per pen, stopping
+between them to ask for the next nib — and remembering which layers are already
+on the paper, so a stopped plot resumes rather than drawing them twice.
+
+**Alerts** — Home Assistant, MQTT or a webhook, told when each layer finishes
+and which pen goes in next, so the wait happens somewhere other than beside the
+machine.
+
+## How it is put together
+
+```
+spiro/pipeline/    the mathematics: the module table, INI <-> a pipeline
+                   spec, and the engine that runs one. No Qt, no plotter.
+spiro/scene/       the sheet, in millimetres: paper, a placed item's box and
+                   the one transform that places it, pens, and the SVG.
+spiro/ui/          the window: canvas, panels, and the two worker threads.
+axiplot/           the pen plotter, standalone — the in-process AxiDraw
+                   driver, the layer loop, path optimisation, notifications.
+                   Vendored from busy-python; see axiplot/VENDOR.md.
+*.py at the root   the generators themselves (arc, harmonograph, rose, ...).
+```
+
+One millimetre is one unit throughout, and one user unit in the SVG that
+reaches the machine. There are no percentages of a widget anywhere in it.
+
+```bash
+./run_tests.sh            # every gate: 241 checks, no hardware, no network
+./run_tests.sh scene      # just one
+```
 
 ## Command Line
 
@@ -153,8 +190,10 @@ See `complete.ini` for documentation of every parameter.
 
 - Python 3.8+
 - NumPy
-- FastAPI + Uvicorn (for web UI)
-- Optional: `cairosvg` for PNG export
+- PySide6 (for the app; `run_gui.sh` installs it)
+- The [AxiDraw API](https://cdn.evilmadscientist.com/dl/ad/public/AxiDraw_API.zip)
+  for plotting; without it everything but the machine works
+- Optional: `cairosvg` for PNG export from the command line
 
 ## License
 
