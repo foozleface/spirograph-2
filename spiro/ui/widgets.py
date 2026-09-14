@@ -7,7 +7,7 @@ form per module, one row reads the registry and builds itself — which is why
 adding a module to the registry is all it takes to make it editable.
 """
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox,
                                QDoubleSpinBox, QHBoxLayout, QLabel, QLineEdit,
@@ -40,6 +40,7 @@ class ParamRow(QWidget):
     """
 
     valueChanged = Signal(str, object)
+    hovered = Signal(str)               # the parameter under the pointer
 
     def __init__(self, name, spec, value, drift_name=None, drift_spec=None,
                  drift_value=None, osc_value=None, parent=None):
@@ -47,6 +48,7 @@ class ParamRow(QWidget):
         self.name = name
         self.drift_name = drift_name
         self.spec = spec
+        self.drift_spec = drift_spec
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 1, 0, 1)
         layout.setSpacing(2)
@@ -82,6 +84,7 @@ class ParamRow(QWidget):
             self.drift_editor = _editor(drift_spec, drift_value)
             _connect(self.drift_editor,
                      lambda v: self.valueChanged.emit(self.drift_name, v))
+            self.drift_editor.installEventFilter(self)
             drift_row.addWidget(self.drift_editor)
             # Once there is a drift, it can slide once or go there and back.
             self.osc_mode = QComboBox()
@@ -123,6 +126,15 @@ class ParamRow(QWidget):
             self.drift_toggle.toggled.connect(self._toggle_drift)
             self._toggle_drift(self.drift_toggle.isChecked())
             self._osc_changed(emit=False)
+
+    def enterEvent(self, event):
+        self.hovered.emit(self.name)
+        super().enterEvent(event)
+
+    def eventFilter(self, obj, event):
+        if obj is self.drift_editor and event.type() == QEvent.Enter:
+            self.hovered.emit(self.drift_name)
+        return super().eventFilter(obj, event)
 
     def _editor_changed(self, value):
         if self.slider is not None:
@@ -287,16 +299,22 @@ def _editor(spec, value):
         return combo
     if kind == "int":
         box = QSpinBox()
-        box.setRange(int(spec.get("min", -10 ** 6)), int(spec.get("max", 10 ** 6)))
-        box.setValue(int(value if value is not None else spec.get("default", 0)))
+        current = int(value if value is not None else spec.get("default", 0))
+        # A file may hold a value outside the registry's range; the editor
+        # shows the truth rather than clamping it to the nearest bound.
+        box.setRange(min(int(spec.get("min", -10 ** 6)), current),
+                     max(int(spec.get("max", 10 ** 6)), current))
+        box.setValue(current)
         box.setFixedWidth(90)
         return box
     if kind == "float":
         box = QDoubleSpinBox()
-        box.setRange(float(spec.get("min", -10 ** 6)), float(spec.get("max", 10 ** 6)))
+        current = float(value if value is not None else spec.get("default", 0))
+        box.setRange(min(float(spec.get("min", -10 ** 6)), current),
+                     max(float(spec.get("max", 10 ** 6)), current))
         box.setDecimals(4)
         box.setSingleStep(float(spec.get("step", 0.1)))
-        box.setValue(float(value if value is not None else spec.get("default", 0)))
+        box.setValue(current)
         box.setFixedWidth(90)
         return box
     line = QLineEdit(str(value if value is not None else spec.get("default", "")))

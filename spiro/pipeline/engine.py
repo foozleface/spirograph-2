@@ -51,6 +51,9 @@ class Drawing:
     # (moiré) file, where there is no single pipeline to stage.
     stages: list = field(default_factory=list)
     t_values: object = None
+    # The module instances behind ``stages``, in the same order — so the
+    # window can ask a table move where it puts a point at a given moment.
+    modules: list = field(default_factory=list)
 
     @property
     def width(self):
@@ -141,7 +144,7 @@ def run(ini_text, reload_generators=False):
                     config.getfloat("output", "start_y", fallback=0.0))
 
     paths = []
-    stages, t_values = [], None
+    stages, t_values, modules = [], None, []
     layers = [s for s in config.sections() if s.startswith("layer.")]
     if layers:
         for section in layers:
@@ -155,7 +158,7 @@ def run(ini_text, reload_generators=False):
                 scroll_repeats=config.getfloat(section, "scroll_repeats", fallback=scroll)))
     else:
         names = [m.strip() for m in config.get("pipeline", "modules").split(",")]
-        points, t_values, stages = run_single_pipeline(
+        points, t_values, stages, modules = run_single_pipeline(
             config, names, initial, output, arc_len, start,
             scroll_repeats=scroll, want_stages=True)
         paths.append(points)
@@ -167,7 +170,7 @@ def run(ini_text, reload_generators=False):
                    min_x=float(combined.real.min()), max_x=float(combined.real.max()),
                    min_y=float(combined.imag.min()), max_y=float(combined.imag.max()),
                    style=style, ini_text=ini_text,
-                   stages=stages, t_values=t_values)
+                   stages=stages, t_values=t_values, modules=modules)
 
 
 def normalize(drawing, width=None, height=None, margin=None):

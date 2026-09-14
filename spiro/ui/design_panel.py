@@ -12,12 +12,13 @@ Everything here edits one :class:`spiro.pipeline.document.Document`;
 nothing here knows about paper, pens or the plotter.
 """
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QTimer, Qt, Signal
 from PySide6.QtWidgets import (QComboBox, QFrame, QLabel, QPushButton,
                                QScrollArea, QVBoxLayout, QWidget)
 
 from spiro.pipeline.registry import COMMON_PARAMS, MODULE_DEFS, OSC_PREFIX
 from spiro.ui import glyphs, theme
+from spiro.ui.explainer import ExplainerCard
 from spiro.ui.finishing_panel import FinishingPanel
 from spiro.ui.gallery import GalleryDialog
 from spiro.ui.step_strip import ROW, StepStrip
@@ -57,6 +58,7 @@ class DesignPanel(QWidget):
     selectionChanged = Signal(object)   # the step index picked, or None
     addRequested = Signal()             # put the current pattern on the paper
     randomRequested = Signal()          # invent a pipeline
+    renderWanted = Signal(object)       # small renders for the explainer
 
     def __init__(self, document, parent=None):
         super().__init__(parent)
@@ -100,6 +102,10 @@ class DesignPanel(QWidget):
         self.down = QPushButton("↓")
         self.delete = QPushButton("Remove")
         self.delete.setObjectName("danger")
+        self.clear = QPushButton("Clear")
+        self.clear.setObjectName("danger")
+        self.clear.setToolTip("Take every step and every finishing pass off — an empty machine")
+        self.clear.clicked.connect(self.clear_machine)
         self.up.setToolTip("Move this step earlier (Alt+Up)")
         self.down.setToolTip("Move this step later (Alt+Down)")
         self.delete.setToolTip("Take this step out of the machine (Delete)")
@@ -108,7 +114,8 @@ class DesignPanel(QWidget):
         self.up.clicked.connect(lambda: self._move(self.selected_step, -1))
         self.down.clicked.connect(lambda: self._move(self.selected_step, 1))
         self.delete.clicked.connect(self._remove)
-        outer.addWidget(row(self.add, self.up, self.down, 1, self.delete, spacing=4))
+        outer.addWidget(row(self.add, self.up, self.down, 1, self.delete, self.clear,
+                            spacing=4))
 
         outer.addWidget(theme.hline())
 
@@ -127,6 +134,14 @@ class DesignPanel(QWidget):
         self.step_layout.setContentsMargins(0, 0, 0, 0)
         self.step_layout.setSpacing(2)
         host_layout.addWidget(self.step_box)
+        # The explainer lives outside the step box so a rebuild keeps its
+        # cache; it is re-parented into the step box's layout on each build.
+        self.explainer = ExplainerCard()
+        self.explainer.renderWanted.connect(self.renderWanted.emit)
+        self._explain_timer = QTimer(self)
+        self._explain_timer.setSingleShot(True)
+        self._explain_timer.setInterval(250)     # a slider drag, coalesced
+        self._explain_timer.timeout.connect(self.explainer.refresh)
 
         host_layout.addWidget(theme.hline())
         self.finishing_toggle = QPushButton()
@@ -149,7 +164,7 @@ class DesignPanel(QWidget):
         quality_label = QLabel("Preview quality")
         self.quality = QComboBox()
         self.quality.addItems(list(QUALITY))
-        self.quality.setCurrentText("Draft")
+        self.quality.setCurrentText("Fine")
         self.quality.currentTextChanged.connect(self._quality_changed)
         outer.addWidget(row(quality_label, 1, self.quality))
         outer.addWidget(theme.muted(
@@ -199,6 +214,8 @@ class DesignPanel(QWidget):
         has = self.selected_step is not None
         for button in (self.up, self.down, self.delete):
             button.setEnabled(has)
+        self.clear.setEnabled(bool(self.document.steps) or bool(self.document.symmetry)
+                              or bool(self.document.extras))
         self.add_button.setEnabled(bool(self.document.steps))
 
     def _add_step(self):
@@ -212,6 +229,15 @@ class DesignPanel(QWidget):
                  else len(self.document.steps))
         self.document.add_module(module_type, index)
         self.refresh(select=index)
+        self.structureChanged.emit()
+        self.documentChanged.emit()
+
+    def clear_machine(self):
+        """An empty machine: no steps, no finishing."""
+        self.document.steps = []
+        self.document.symmetry = {}
+        self.document.extras = {}
+        self.refresh(select=None)
         self.structureChanged.emit()
         self.documentChanged.emit()
 
@@ -235,6 +261,7 @@ class DesignPanel(QWidget):
     # -- the parameters -------------------------------------------------------- #
 
     def _clear_step_box(self):
+        self.explainer.setParent(None)
         while self.step_layout.count():
             child = self.step_layout.takeAt(0)
             if child.widget():
@@ -268,6 +295,11 @@ class DesignPanel(QWidget):
             self.step_layout.addWidget(
                 theme.muted("No editor for '%s'." % module_type))
             return
+        self.step_layout.addWidget(self.explainer)
+        self.explainer.setVisible(False)
+        self._step_spec = spec
+        self._step_params = params
+        self._step_kind = kind
 
         if kind == "transform":
             scope = ScopeRow(params.get("scope", "all"),
@@ -288,6 +320,8 @@ class DesignPanel(QWidget):
 
         for name, param_spec in plain:
             self.step_layout.addWidget(self._row_for(params, spec, drift_of, name, param_spec))
+        if plain:
+            self.explain(plain[0][0])
 
         if more:
             self.more_toggle = QPushButton()
@@ -318,7 +352,21 @@ class DesignPanel(QWidget):
             osc_value=params.get(OSC_PREFIX + name))
         widget.valueChanged.connect(
             lambda key, value, target=params: self._set_param(target, key, value))
+        widget.hovered.connect(self.explain)
         return widget
+
+    def explain(self, name):
+        """Show what one parameter of the selected step does."""
+        spec = self._step_spec["params"].get(name) or COMMON_PARAMS.get(name)
+        if spec is None:
+            return
+        self.explainer.show_param(self._step_params, name, spec, self._step_kind)
+
+    def explained(self, ini, drawing):
+        self.explainer.deliver(ini, drawing)
+
+    def explain_failed(self, ini, message):
+        self.explainer.fail(ini, message)
 
     def _toggle_more(self, on):
         self._show_more = on
@@ -332,6 +380,8 @@ class DesignPanel(QWidget):
         else:
             params[name] = value
         self.strip.update()              # the summary line and the brackets
+        if self.explainer.params is params:
+            self._explain_timer.start()  # the pictures follow the new value
         self.documentChanged.emit()
 
     def show_recipe(self, name):

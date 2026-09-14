@@ -278,7 +278,9 @@ class MainWindow(QMainWindow):
         self.library.openRequested.connect(self._open_path)
         self.library.statusMessage.connect(self.status_left.setText)
         self.ideas.openRequested.connect(self._open_path)
-        self.ideas.thumbnailsWanted.connect(self._render_thumbnails)
+        self.ideas.thumbnailsWanted.connect(
+            lambda jobs: self._render_thumbnails([(("ideas", path), ini) for path, ini in jobs]))
+        self.design.renderWanted.connect(self._render_thumbnails)
         # Have the pictures ready before anyone looks for them.
         QTimer.singleShot(1500, self.ideas.request_thumbnails)
 
@@ -675,10 +677,12 @@ class MainWindow(QMainWindow):
                       len(drawing.paths), "{:,}".format(drawing.point_count),
                       drawing.width, drawing.height))
         self.status_left.setText(caption)
-        kinds = [glyphs.kind_of(step["params"]["type"])
-                 for step in self.document.steps if step.get("kind") == "single"]
+        singles = [step["params"] for step in self.document.steps
+                   if step.get("kind") == "single"]
+        kinds = [glyphs.kind_of(params["type"]) for params in singles]
+        scopes = [params.get("scope", "all") for params in singles]
         self.render_panel.set_drawing(drawing, "%s   ·   %s" % (self.document.name, caption),
-                                      kinds)
+                                      kinds, scopes)
         self.design.set_stages(drawing)
         # Re-generating replaces the drawing behind any item that came from
         # this document, so an edit is visible on the paper immediately.
@@ -707,11 +711,19 @@ class MainWindow(QMainWindow):
         self.plot_token += 1
         self.thumbsRequested.emit(self.plot_token, jobs)
 
-    def _thumb_ready(self, _token, path, drawing):
-        self.ideas.set_thumbnail(path, drawing)
+    def _thumb_ready(self, _token, key, drawing):
+        what, ref = key
+        if what == "ideas":
+            self.ideas.set_thumbnail(ref, drawing)
+        else:
+            self.design.explained(ref, drawing)
 
-    def _thumb_failed(self, _token, path, message):
-        self.ideas.set_failure(path, message)
+    def _thumb_failed(self, _token, key, message):
+        what, ref = key
+        if what == "ideas":
+            self.ideas.set_failure(ref, message)
+        else:
+            self.design.explain_failed(ref, message)
 
     # -- the paper ---------------------------------------------------------------------- #
 

@@ -22,6 +22,9 @@ from spiro.ui.main_window import MainWindow
 def main(argv=None):
     argv = list(sys.argv if argv is None else argv)
     app = QApplication(argv)
+    # Fusion everywhere: the same widgets the eyetest renders offscreen, and
+    # sliders with a visible track (the native macOS style draws a bare knob).
+    app.setStyle("Fusion")
     app.setApplicationName("Spirograph")
     app.setOrganizationName("spirograph-2")
     app.setStyleSheet(theme.STYLESHEET)

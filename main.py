@@ -728,8 +728,9 @@ def run_single_pipeline(config: configparser.ConfigParser,
 
     Returns:
         Resampled complex point array; with want_stages, the tuple
-        ``(points, t_values, stages)`` where stages[k][i] is output point i
-        as it stood after module k
+        ``(points, t_values, stages, modules)`` where stages[k][i] is output
+        point i as it stood after module k and modules are the instances
+        that drew it (the window asks them what a table move does)
     """
     prefix = f"[{label}] " if label else ""
 
@@ -775,7 +776,7 @@ def run_single_pipeline(config: configparser.ConfigParser,
     print(f"{prefix}Path length: {arc_lengths[-1]:.2f} units")
 
     if want_stages:
-        return points, t_values, stages
+        return points, t_values, stages, modules
     return points
 
 

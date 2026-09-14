@@ -372,7 +372,7 @@ MODULE_DEFS = {
         "label": "Rotation",
         "desc": "Spin pattern around center as it draws",
         "params": {
-            "total_degrees": {"type": "float", "default": 360.0, "min": 0, "max": 3600, "desc": "Total rotation°"},
+            "total_degrees": {"type": "float", "default": 360.0, "min": -3600, "max": 3600, "desc": "Total rotation°"},
             "origin_x":      {"type": "float", "default": 0.0,   "min": -200, "max": 200, "desc": "Origin X"},
             "origin_y":      {"type": "float", "default": 0.0,   "min": -200, "max": 200, "desc": "Origin Y"},
             "normalize":     {"type": "bool",  "default": True,   "desc": "Normalize timing"},

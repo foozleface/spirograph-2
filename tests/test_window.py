@@ -482,6 +482,70 @@ check("pressing it repeatedly does not sit on one recipe", len(picks) >= 10, len
 check("it remembers what it has used recently",
       len(window.recent_recipes) == len(set(window.recent_recipes)))
 
+# -- the machine overlay's geometry ------------------------------------------------------- #
+
+print("the machine:")
+from spiro.pipeline.registry import MODULE_DEFS, defaults_for  # noqa: E402
+from spiro.ui.explainer import sweep_values  # noqa: E402
+from spiro.ui.render_view import machine_links, table_frame  # noqa: E402
+from spiro.ui import glyphs  # noqa: E402
+
+transforms = [name for name, spec in MODULE_DEFS.items() if spec["category"] == "transform"]
+frames_ok = True
+for name in transforms:
+    window.document.steps = [{"kind": "single", "params": defaults_for("circle")},
+                             {"kind": "single", "params": defaults_for("harmonograph")},
+                             {"kind": "single", "params": defaults_for(name)}]
+    window.document.steps[2]["params"]["scope"] = 1
+    window.design.refresh(select=2)
+    window.drawing = None
+    window._render_now()
+    wait_for(lambda: window.drawing is not None)
+    kinds = [glyphs.kind_of(s["params"]["type"]) for s in window.document.steps]
+    scopes = [s["params"].get("scope", "all") for s in window.document.steps]
+    try:
+        before, after = table_frame(window.drawing, kinds, scopes, 2, len(window.drawing.t_values) // 3)
+        base = complex(window.drawing.stages[0][len(window.drawing.t_values) // 3])
+        ok = (len(before) == len(after) and np.all(np.isfinite(after))
+              and abs(before.mean() - base) < 1e-6)
+    except Exception as exc:                       # noqa: BLE001
+        ok = False
+        print("    %s: %s" % (name, exc))
+    frames_ok = frames_ok and ok
+    check("%s draws a table frame around the last arm's base" % name, ok)
+check("every table move can show the paper it moves", frames_ok)
+
+links = machine_links(window.drawing, kinds, 5)
+check("the linkage ends where the pen is",
+      abs(links[-1][3] - complex(window.drawing.stages[-1][5])) < 1e-9)
+check("and its arms chain from the origin", links[0][2] == 0j)
+
+window.document.steps = [{"kind": "single", "params": defaults_for("arc")},
+                         {"kind": "single", "params": defaults_for("circle")}]
+window.design.refresh(select=0)
+window.drawing = None
+window._render_now()
+wait_for(lambda: window.drawing is not None)
+links = machine_links(window.drawing, ["path", "generator"], 7)
+check("within a run of arms the carriage goes first", [l[0] for l in links] == ["path", "generator"])
+check("and the sum is still the pen",
+      abs(links[-1][3] - complex(window.drawing.stages[-1][7])) < 1e-9)
+
+vals = sweep_values({"type": "float", "min": 0, "max": 300}, 50)
+check("a sweep brackets the current value", vals[0] < 50 < vals[-1] and 50 in vals, vals)
+check("and stays inside the range", min(vals) >= 0 and max(vals) <= 300)
+check("a bool sweeps off and on", sweep_values({"type": "bool"}, True) == [False, True])
+check("a choice sweeps its choices",
+      sweep_values({"type": "choice", "choices": ["a", "b"]}, "a") == ["a", "b"])
+check("an out-of-range file value is shown, not clamped",
+      (lambda w: (w.editor.minimum() <= -180 and w.editor.value() == -180))(
+          __import__("spiro.ui.widgets", fromlist=["ParamRow"]).ParamRow(
+              "total_degrees", MODULE_DEFS["rotation"]["params"]["total_degrees"], -180)))
+
+window.design.clear_machine()
+check("clear empties the machine", window.document.steps == [] and not window.design.strip.steps)
+check("and disables itself", not window.design.clear.isEnabled())
+
 window.plotter.stop()
 window.close()          # stops the worker threads; leaving them running aborts at exit
 pump(100)

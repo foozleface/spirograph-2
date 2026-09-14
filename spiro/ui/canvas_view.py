@@ -21,6 +21,7 @@ from PySide6.QtGui import (QBrush, QColor, QFont, QPainter, QPainterPath, QPen,
 from PySide6.QtWidgets import QWidget
 
 from spiro.ui import theme
+from spiro.ui.zooming import WheelZoom
 
 # Above this many points a drag draws a decimated copy instead. 8000 points is
 # already past what a screen can show on a 600 mm sheet; the full path comes
@@ -47,6 +48,7 @@ class PaperCanvas(QWidget):
         self._paths = {}                  # id(drawing) -> (full, fast)
         self._drag = None
         self._interacting = False
+        self._wheel = WheelZoom(self, attr="_interacting")
         self.show_grid = True
         self.show_margin = True
         self.setMouseTracking(True)
@@ -347,9 +349,8 @@ class PaperCanvas(QWidget):
         self.update()
 
     def wheelEvent(self, event):
-        delta = event.angleDelta().y()
-        if delta:
-            self.zoom_by(1.0015 ** delta, event.position())
+        if not self._wheel.wheel(event):
+            super().wheelEvent(event)
 
     def keyPressEvent(self, event):
         item = self.scene.find(self.selected_id) if self.selected_id else None

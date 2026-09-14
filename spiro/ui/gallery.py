@@ -27,15 +27,29 @@ KIND_ORDER = ["generator", "path", "transform", "clock"]
 _cache = {}          # module type -> Drawing
 
 
+def carried(params):
+    """The steps that show one module on its own.
+
+    An arm draws by itself. A carriage path carries a circle — a wheel
+    rolling along the track. A table move or a clock works on a triangle
+    drawn three times: a circle turned, grown or re-timed is still a circle,
+    but a triangle shows every one of those."""
+    steps = [{"kind": "single", "params": dict(params)}]
+    category = MODULE_DEFS[params["type"]]["category"]
+    if category == "path":
+        carrier = {"type": "circle", "radius": 40, "cycles": 5}
+    elif category in ("transform", "clock"):
+        carrier = {"type": "polygon", "sides": 3, "radius": 45, "cycles": 3}
+    else:
+        return steps
+    return [{"kind": "single", "params": carrier}] + steps
+
+
 def drawing_for(module_type):
-    """The module at its defaults, carrying a circle if it is not an arm."""
+    """The module at its defaults, carried as :func:`carried` says."""
     if module_type not in _cache:
-        params = defaults_for(module_type)
-        steps = [{"kind": "single", "params": params}]
-        if MODULE_DEFS[module_type]["category"] != "generator":
-            steps = [{"kind": "single", "params": {"type": "circle", "radius": 40,
-                                                   "cycles": 5}}] + steps
-        _cache[module_type] = run(build_ini(steps=steps, sampling=SAMPLING))
+        _cache[module_type] = run(build_ini(steps=carried(defaults_for(module_type)),
+                                            sampling=SAMPLING))
     return _cache[module_type]
 
 
@@ -127,7 +141,7 @@ class GalleryDialog(QDialog):
         count = grid.count()
         if not count:
             return 0
-        columns = max(1, (self.width() - 40) // (THUMB + 58))
+        columns = max(1, (self.width() - 40) // (THUMB + 52 + 6))   # grid cell + spacing
         rows = (count + columns - 1) // columns
         return rows * (THUMB + 44) + 8
 

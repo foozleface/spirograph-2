@@ -55,17 +55,27 @@ The pattern is a **machine**, and the window says so in four colours:
 drawing *as it stands after that step*. **Add a step…** opens a gallery of
 what every module draws. Click a step and its numbers appear underneath,
 with a slider beside every bounded one and a drift control (once, or there
-and back) on every parameter that can move over the draw. **Finishing** —
-symmetry, pen lift, moiré, tile, clip — sits under the steps, because it
-happens after the ink is down.
+and back) on every parameter that can move over the draw. Hover any number
+and the **explainer** above the list shows that knob as pictures: the step
+on its own, rendered at five values from low to high with the current one
+marked — so "wave oscillations" or "pen hole" is something you can see
+before you touch it. **Finishing** — symmetry, pen lift, moiré, tile, clip
+— sits under the steps, because it happens after the ink is down. **Clear**
+empties the machine.
+
+![the explainer](docs/explainer.png)
+
+**Render** shows the pattern and, over it, the machine: each arm as a
+segment in its colour from the pivot it turns on; a carriage path as the
+track it runs on, with the carriage riding it and the arms hanging from the
+carriage; a table move as the paper itself — a violet frame drawn where the
+paper was and where the move has put it at this moment, so a rotation turns
+it, a scale grows it, a bend bends it. Drag the scrubber (or press play)
+and the arms turn while the ink lays down. Pick a step on the left and what
+it contributes is drawn over the finished curve: an arm's own curve, a
+path's track, a table move's frame.
 
 ![the machine](docs/machine.png)
-
-**Render** shows the pattern and, over it, the machine: each arm as a segment
-in its colour, a table move as a dashed jump, the pen at the end. Drag the
-scrubber (or press play) and the arms turn while the ink lays down. Pick a
-step on the left and the curve as it stood after that step is drawn over the
-finished one.
 
 ![the gallery](docs/gallery.png)
 
