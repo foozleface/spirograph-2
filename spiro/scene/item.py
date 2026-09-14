@@ -42,6 +42,7 @@ class PlacedItem:
     name: str = "pattern"
     visible: bool = True
     item_id: int = field(default_factory=lambda: next(_ids))
+    _unit: object = field(default=None, repr=False, compare=False)
 
     # -- construction -------------------------------------------------------- #
 
@@ -118,21 +119,51 @@ class PlacedItem:
 
     # -- geometry ------------------------------------------------------------ #
 
-    def paths_mm(self):
-        """The curves in paper millimetres, y down from the top-left corner.
+    def unit_paths(self):
+        """The curves in the item's own frame: a box ``aspect`` wide and 1
+        tall, y down, origin at its top-left.
 
-        The single source of truth. The canvas draws these, the SVG writer
-        writes these, and the plotter plots what the SVG writer wrote — so what
-        is on screen and what reaches the paper cannot drift apart.
+        Independent of where the item is or how big it is, so it is computed
+        once per drawing and cached. Moving or resizing an item then costs a
+        transform, not a re-fit of a hundred thousand points — which is what
+        makes dragging on the canvas smooth.
         """
-        placed = self.drawing.fitted(self.w_mm, self.h_mm)   # box-local, y down
-        offset = complex(self.x_mm - self.w_mm / 2, self.y_mm - self.h_mm / 2)
-        if not self.rotation_deg % 360:
-            return [p + offset for p in placed]
+        if self._unit is None:
+            self._unit = self.drawing.fitted(self.aspect, 1.0)
+        return self._unit
+
+    def affine(self):
+        """``(scale, rotation_deg, tx, ty)`` mapping the item's own frame to
+        paper millimetres.
+
+        THE placement. :meth:`paths_mm` applies it to get geometry and the
+        canvas builds its QTransform from the same four numbers, so the screen
+        and the paper cannot describe the item differently.
+        """
         rad = math.radians(self.rotation_deg)
-        turn = complex(math.cos(rad), math.sin(rad))
-        pivot = complex(self.w_mm / 2, self.h_mm / 2)
-        return [(p - pivot) * turn + pivot + offset for p in placed]
+        cos_r, sin_r = math.cos(rad), math.sin(rad)
+        # The rotation pivot is the box's centre, which in the item's own frame
+        # (after scaling by h_mm) sits at (w/2, h/2).
+        px, py = self.w_mm / 2, self.h_mm / 2
+        tx = self.x_mm - (px * cos_r - py * sin_r)
+        ty = self.y_mm - (px * sin_r + py * cos_r)
+        return (self.h_mm, self.rotation_deg, tx, ty)
+
+    def paths_mm(self):
+        """The curves in paper millimetres, y down from the sheet's top-left.
+
+        The single source of truth. The canvas draws these (through
+        :meth:`affine`), the SVG writer writes these, and the plotter plots
+        what the SVG writer wrote — so what is on screen and what reaches the
+        paper cannot drift apart.
+        """
+        scale, rotation, tx, ty = self.affine()
+        offset = complex(tx, ty)
+        if not rotation % 360:
+            return [p * scale + offset for p in self.unit_paths()]
+        rad = math.radians(rotation)
+        turn = complex(math.cos(rad), math.sin(rad)) * scale
+        return [p * turn + offset for p in self.unit_paths()]
 
     def point_count(self):
         return self.drawing.point_count

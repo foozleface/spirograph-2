@@ -97,7 +97,7 @@ Each task ends with a commit and a push.
   *Done when:* unit tests assert a round trip — place an item at a known mm
   position, render the SVG, and read the path bounds back within a tolerance.
 
-- [ ] **T4 — the desktop app.** PySide6, launched by `run_gui.sh`, same shape as
+- [x] **T4 — the desktop app.** PySide6, launched by `run_gui.sh`, same shape as
   busy-python's GUI: palette + pipeline on the left, paper canvas in the middle
   showing the real bed with a mm ruler, plot side on the right. Drag moves an
   item by real millimetres; what you see is what gets drawn.

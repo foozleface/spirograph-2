@@ -11,14 +11,25 @@ from dataclasses import dataclass
 
 MM_PER_INCH = 25.4
 
-# AxiDraw model id -> the machine's travel. The ids are pyaxidraw's
-# `options.model`, so this table is also what gets sent to the machine.
+# AxiDraw model id -> the machine's travel, transcribed from
+# axidrawinternal's own table (axidraw.py's model switch and the
+# x_travel_*/y_travel_* defaults in axidraw_conf.py). The ids ARE
+# pyaxidraw's `options.model`, so a wrong row here is a machine clamped to
+# the wrong bed.
+#
+# The old web UI's table had model 4 as the SE/A2. It is the MiniKit — a
+# 160 x 102 mm bed against the A2's 594 x 432 — so anything plotted on an
+# SE/A2 selected by that name was silently clipped to a sixth of the sheet.
+# The SE/A2 is model 6. Model 1 is not in the switch at all; it falls to the
+# default travel, which is the A4's, which is what it should be.
 AXIDRAW_MODELS = {
-    1: {"label": "AxiDraw V3/SE A4", "width_in": 11.81, "height_in": 8.58},
-    2: {"label": "AxiDraw V3/A3", "width_in": 16.93, "height_in": 11.69},
+    1: {"label": "AxiDraw V2 / V3 / SE A4", "width_in": 11.81, "height_in": 8.58},
+    2: {"label": "AxiDraw V3/A3 or SE/A3", "width_in": 16.93, "height_in": 11.69},
     3: {"label": "AxiDraw V3 XLX", "width_in": 23.42, "height_in": 8.58},
-    4: {"label": "AxiDraw SE/A2", "width_in": 23.39, "height_in": 17.01},
+    4: {"label": "AxiDraw MiniKit", "width_in": 6.30, "height_in": 4.00},
     5: {"label": "AxiDraw SE/A1", "width_in": 34.02, "height_in": 23.39},
+    6: {"label": "AxiDraw SE/A2", "width_in": 23.39, "height_in": 17.01},
+    7: {"label": "AxiDraw V3/B6", "width_in": 7.48, "height_in": 5.51},
 }
 
 # Sheet sizes worth having in a menu, portrait, in millimetres.

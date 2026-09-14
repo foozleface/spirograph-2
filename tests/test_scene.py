@@ -69,6 +69,29 @@ def svg_bounds(svg, stroke=None):
     return (min(xs), min(ys), max(xs), max(ys))
 
 
+def _matches_axidraw():
+    """The ids in AXIDRAW_MODELS are pyaxidraw's options.model, so the travel
+    has to be the travel that model really has. Read it from the AxiDraw
+    sources rather than trusting the transcription."""
+    try:
+        from axidrawinternal import axidraw_conf as conf
+    except ImportError:
+        print("    (axidrawinternal not importable; table not cross-checked)")
+        return True
+    from spiro.scene.paper import AXIDRAW_MODELS
+    names = {1: "default", 2: "V3A3", 3: "V3XLX", 4: "MiniKit", 5: "SEA1",
+             6: "SEA2", 7: "V3B6"}
+    for model, spec in AXIDRAW_MODELS.items():
+        want = (getattr(conf, "x_travel_" + names[model]),
+                getattr(conf, "y_travel_" + names[model]))
+        if not (close(spec["width_in"], want[0], 0.001)
+                and close(spec["height_in"], want[1], 0.001)):
+            print("    model %d: have %s, axidraw says %s"
+                  % (model, (spec["width_in"], spec["height_in"]), want))
+            return False
+    return True
+
+
 # -- paper -------------------------------------------------------------------- #
 
 print("paper:")
@@ -79,6 +102,8 @@ check("landscape swaps the axes",
       Paper.preset("A4", landscape=True).width_mm == 297.0)
 check("an AxiDraw model becomes a sheet of its travel",
       close(Paper.from_axidraw(2).width_mm, 16.93 * 25.4, 0.01))
+check("the model table matches axidrawinternal's own travel limits",
+      _matches_axidraw())
 check("the drawable area is the paper less the margin on all four sides",
       Paper(200, 100, margin_mm=10).drawable == (10, 10, 180.0, 80.0))
 check("a point inside the margin is inside", Paper(200, 100, 10).contains(15, 15))
