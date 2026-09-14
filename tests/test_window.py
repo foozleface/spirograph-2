@@ -330,7 +330,7 @@ if target is not None:
           and window.document.path.name == target.text(0) + ".ini")
     check("and lands in Build", window.left_tabs.currentWidget() is window.design)
     check("and the pipeline panel shows its steps",
-          window.design.steps.count() == len(window.document.steps))
+          len(window.design.strip.steps) == len(window.document.steps))
 
 # -- render and paper are two tabs --------------------------------------------------------- #
 
@@ -344,7 +344,7 @@ wait_for(lambda: window.drawing)
 check("the render view shows the pattern being built",
       window.render.drawing is window.drawing)
 check("and says what it is", window.document.name in window.render.caption)
-window.centre.setCurrentWidget(window.render)
+window.centre.setCurrentWidget(window.render_panel)
 window._place()
 check("placing switches to the paper", window.centre.currentWidget() is window.paper_host)
 placed = window.scene.items[-1]
@@ -400,7 +400,7 @@ with tempfile.TemporaryDirectory() as folder:
     window.sheet.clear_paper(confirm=False)
     window.sheet_path = None
     window.scene.pens[1].label = "Something else"
-    window.centre.setCurrentWidget(window.render)
+    window.centre.setCurrentWidget(window.render_panel)
     window._open_path(sheet_path)
     check("opening a sheet regenerates every pattern in the background",
           wait_for(lambda: len(window.scene.items) == 2, timeout=300))

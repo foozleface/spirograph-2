@@ -21,3 +21,4 @@ venv/
 Thumbs.db
 
 # Qt settings written by the app live under ~/.config, not here.
+tests/eyetest-results/

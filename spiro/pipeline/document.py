@@ -235,6 +235,41 @@ class Document:
     def is_empty(self):
         return not self.steps
 
+    def flatten(self):
+        """Rewrite any group step as flat, scoped singles (see
+        :func:`flatten_steps`). Returns True if anything changed."""
+        if not any(step.get("kind") == "group" for step in self.steps):
+            return False
+        self.steps[:] = flatten_steps(self.steps)
+        return True
+
+    def arms_before(self, index):
+        """How many arms the steps above ``index`` add — what a transform's
+        scope can count up to."""
+        return sum(1 for step in self.steps[:index]
+                   if step.get("kind") == "single" and is_arm(step["params"]["type"]))
+
+
+def flatten_steps(steps):
+    """Steps with every in-memory group written flat, the way a loaded file
+    is — a branch's transforms scoped to the arms of their branch. Recipes
+    still describe a few patterns as groups; the window keeps one list."""
+    out = []
+    for step in steps:
+        if step.get("kind") != "group":
+            out.append(step)
+            continue
+        for branch in step.get("branches", []):
+            arms = 0
+            for params in branch:
+                params = dict(params)
+                if is_arm(params["type"]):
+                    arms += 1
+                elif params.get("scope", "all") == "all":
+                    params["scope"] = arms
+                out.append({"kind": "single", "params": params})
+    return out
+
 
 def _label(params):
     spec = MODULE_DEFS.get(params.get("type"))

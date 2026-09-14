@@ -39,20 +39,47 @@ without the last one the app still runs and the plotter controls say why not.
 
 ### What it does
 
-**Build** — a palette of every generator and transform, chained into a
-pipeline. Drop a module into a *group* to run arms in parallel. Any parameter
-with an `end_*` twin gets a drift control that interpolates it over the draw.
-Draft / Fine / Ultra sampling for the preview; plots always run at Ultra.
+The pattern is a **machine**, and the window says so in four colours:
+
+* ⟲ **arm** (amber) — adds a moving arm; the pen rides the last one. Circle,
+  gear, harmonograph, pintograph, the wire surfaces…
+* ⤳ **carriage path** (teal) — carries the whole mechanism along a line, an
+  arc, a spiral, a rail.
+* ⟳ **table move** (violet) — turns, grows, bends or wobbles the paper under
+  what is drawn so far. Every table move says what it *acts on*: everything,
+  or only the last arm (or last few) — the bracket beside the steps shows it.
+* ⏱ **clock** (grey) — re-times every step after it: backwards, there and
+  back, in steps, faster.
+
+**Build** — the machine as a strip of steps, each with a picture of the
+drawing *as it stands after that step*. **Add a step…** opens a gallery of
+what every module draws. Click a step and its numbers appear underneath,
+with a slider beside every bounded one and a drift control (once, or there
+and back) on every parameter that can move over the draw. **Finishing** —
+symmetry, pen lift, moiré, tile, clip — sits under the steps, because it
+happens after the ink is down.
+
+![the machine](docs/machine.png)
+
+**Render** shows the pattern and, over it, the machine: each arm as a segment
+in its colour, a table move as a dashed jump, the pen at the end. Drag the
+scrubber (or press play) and the arms turn while the ink lays down. Pick a
+step on the left and the curve as it stood after that step is drawn over the
+finished one.
+
+![the gallery](docs/gallery.png)
+
+**Ideas** — every pattern in the project drawn small, the hand-made ones
+first, with what each is made of in the machine's words. Click one to load
+it and take it somewhere else.
+
+![ideas](docs/ideas.png)
 
 **Surprise me** (`Ctrl+R`) builds a pipeline from one of sixty-one recipes —
 ratios that close, decay rates that spiral rather than collapse, gear pairs
 whose common divisor leaves lobes instead of a smear — with a range around each
 number wide enough to keep surprising you. It says which recipe it used, and it
 does not repeat itself until it has been through most of them.
-
-**Effects** — symmetry (n-fold, with or without a mirror), pen lift (periodic,
-threshold or angular), and moiré, which runs the whole pipeline several times
-with one parameter nudged so the copies interfere.
 
 **Files** — every `.ini` in the project with its pipeline beside it, and every
 `.sheet.json` with what is on it, filtered as you type, one click to load.
@@ -116,9 +143,16 @@ One millimetre is one unit throughout, and one user unit in the SVG that
 reaches the machine. There are no percentages of a widget anywhere in it.
 
 ```bash
-./run_tests.sh            # every gate: 365 checks, no hardware, no network
+./run_tests.sh            # every gate: 562 checks, no hardware, no network
 ./run_tests.sh scene      # just one
+.venv/bin/python tests/eyetest_gui.py   # the window as pictures, one per step
 ```
+
+The last one is the eyetest: it drives the window offscreen and saves a PNG
+of every state into `tests/eyetest-results/gui/`. Assertions cannot see a
+bracket on the wrong rows or a strip that hides its third step; the pictures
+are the test, and each one is read before a change to the window is called
+done.
 
 ## Command Line
 

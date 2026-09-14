@@ -31,6 +31,8 @@ class RenderWorker(QObject):
     batchProgress = Signal(int, int, int)  # token, done, total
     failed = Signal(int, str)
     started = Signal(int)
+    eachFinished = Signal(int, object, object)   # token, key, Drawing
+    eachFailed = Signal(int, object, str)        # token, key, message
 
     def __init__(self):
         super().__init__()
@@ -45,6 +47,19 @@ class RenderWorker(QObject):
             self.failed.emit(token, str(exc))
             return
         self.finished.emit(token, drawing)
+
+    def render_each(self, token, jobs):
+        """Run several pipelines and report each as it finishes — for the
+        thumbnails, where one pattern that will not draw must not hide the
+        rest. ``jobs`` is ``[(key, ini_text)]``; each reports under its key."""
+        self.started.emit(token)
+        for key, ini_text in jobs:
+            try:
+                drawing = engine.run(ini_text)
+            except Exception as exc:
+                self.eachFailed.emit(token, key, str(exc))
+                continue
+            self.eachFinished.emit(token, key, drawing)
 
     def render_batch(self, token, ini_texts):
         """Run several pipelines and report them together.

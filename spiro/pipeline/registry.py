@@ -173,7 +173,7 @@ MODULE_DEFS = {
             "rolling_teeth":     {"type": "int",   "default": 36,   "min": 5,   "max": 200, "desc": "Rolling gear teeth"},
             "tooth_pitch":       {"type": "float", "default": 1.0,  "min": 0.1, "max": 5.0, "step": 0.1, "desc": "Size per tooth"},
             "end_tooth_pitch":   {"type": "float", "default": 1.0,  "min": 0.1, "max": 5.0, "step": 0.1, "desc": "End value", "drift_for": "tooth_pitch"},
-            "hole_position":     {"type": "float", "default": 0.7,  "min": 0.0, "max": 1.5, "step": 0.05, "desc": "Pen hole (0=center, 1=edge)"},
+            "hole_position":     {"type": "float", "default": 0.7,  "min": 0.0, "max": 1.5, "step": 0.05, "desc": "Pen hole (0 centre, 1 edge)"},
             "end_hole_position": {"type": "float", "default": 0.7,  "min": 0.0, "max": 1.5, "step": 0.05, "desc": "End value", "drift_for": "hole_position"},
             "inside":            {"type": "bool",  "default": True,  "desc": "Inside (hypo) vs outside (epi)"},
             "cycles":            {"type": "float", "default": 1.0,  "min": 1,   "max": 50, "step": 1, "desc": "Repetitions"},

@@ -11,6 +11,7 @@ serial port needs exactly one owner and a hundred-thousand-point pipeline needs
 exactly one queue.
 """
 
+import atexit
 import os
 import re
 import time
@@ -26,17 +27,18 @@ from PySide6.QtWidgets import (QApplication, QFileDialog, QLabel, QMainWindow,
 from axiplot import awake
 from axiplot import run as axirun
 from spiro.pipeline import PLOT_SAMPLING, recipes
-from spiro.pipeline.document import Document
+from spiro.pipeline.document import Document, flatten_steps
 from spiro.scene import SHEET_SUFFIX, Paper, Scene, item_inis
 from spiro.ui import theme
 from spiro.ui.canvas_view import PaperCanvas
+from spiro.ui import glyphs
 from spiro.ui.design_panel import DesignPanel
-from spiro.ui.effects_panel import EffectsPanel
+from spiro.ui.ideas_panel import IdeasPanel
 from spiro.ui.library_panel import LibraryPanel
 from spiro.ui.notify_panel import NotifyPanel
 from spiro.ui.paper_window import PaperWindow
 from spiro.ui.plot_panel import PlotPanel
-from spiro.ui.render_view import RenderView
+from spiro.ui.render_view import RenderPanel
 from spiro.ui.sheet_panel import SheetPanel
 from spiro.ui.workers import PlotWorker, RenderWorker, manual_command
 
@@ -47,6 +49,7 @@ class MainWindow(QMainWindow):
 
     renderRequested = Signal(int, str)
     batchRequested = Signal(int, object)
+    thumbsRequested = Signal(int, object)
     plotRequested = Signal(object, object, bool, bool, object)
     previewRequested = Signal(object, object)
 
@@ -83,16 +86,18 @@ class MainWindow(QMainWindow):
 
     def _build_ui(self):
         self.design = DesignPanel(self.document)
-        self.effects = EffectsPanel(self.document)
+        self.ideas = IdeasPanel(ROOT)
         self.library = LibraryPanel(ROOT)
         left = QTabWidget()
         left.addTab(self.design, "Build")
-        left.addTab(self.effects, "Effects")
+        left.addTab(self.ideas, "Ideas")
         left.addTab(self.library, "Files")
+        left.currentChanged.connect(self._left_tab_changed)
         self.left_tabs = left
 
         self.canvas = PaperCanvas(self.scene)
-        self.render = RenderView()
+        self.render_panel = RenderPanel()
+        self.render = self.render_panel.view
         self.sheet = SheetPanel(self.scene)
         self.plot = PlotPanel(QSettings("spirograph-2", "plotter"))
         self.notify = NotifyPanel(QSettings("spirograph-2", "notify"))
@@ -117,7 +122,7 @@ class MainWindow(QMainWindow):
         centre_layout.addWidget(self.detached_note, 1)
 
         self.centre = QTabWidget()
-        self.centre.addTab(self.render, "Render")
+        self.centre.addTab(self.render_panel, "Render")
         self.centre.addTab(self.paper_host, "Paper")
         self.centre.setDocumentMode(True)
         self.centre.currentChanged.connect(self._centre_tab_changed)
@@ -171,7 +176,7 @@ class MainWindow(QMainWindow):
 
         view_menu = self.menuBar().addMenu("&View")
         for label, shortcut, fn in (
-                ("&Render", "Ctrl+1", lambda: self.centre.setCurrentWidget(self.render)),
+                ("&Render", "Ctrl+1", lambda: self.centre.setCurrentWidget(self.render_panel)),
                 ("&Paper", "Ctrl+2", lambda: self.centre.setCurrentWidget(self.paper_host)),
                 ("&Fit the sheet", "Ctrl+0", self._fit_current),
                 ("Zoom &in", QKeySequence.ZoomIn, lambda: self._zoom_current(1.2)),
@@ -204,6 +209,14 @@ class MainWindow(QMainWindow):
         random_action.setShortcut("Ctrl+R")
         random_action.triggered.connect(self._randomize)
         pattern_menu.addAction(random_action)
+        add_action = QAction("&Add a step…", self)
+        add_action.setShortcut("Ctrl+Shift+A")
+        add_action.triggered.connect(self.design._add_step)
+        pattern_menu.addAction(add_action)
+        play_action = QAction("Play the &machine", self)
+        play_action.setShortcut("Ctrl+Space")
+        play_action.triggered.connect(self.render_panel.play.toggle)
+        pattern_menu.addAction(play_action)
         place = QAction("&Place on paper", self)
         place.setShortcut("Ctrl+Return")
         place.triggered.connect(self._place)
@@ -226,21 +239,48 @@ class MainWindow(QMainWindow):
         self.renderer.failed.connect(self._render_failed)
         self.render_thread.start()
 
+        # Thumbnails for the Ideas tab: their own thread, so seventy small
+        # renders never queue in front of the pattern being edited.
+        self.thumb_thread = QThread(self)
+        self.thumber = RenderWorker()
+        self.thumber.moveToThread(self.thumb_thread)
+        self.thumbsRequested.connect(self.thumber.render_each)
+        self.thumber.eachFinished.connect(self._thumb_ready)
+        self.thumber.eachFailed.connect(self._thumb_failed)
+        self.thumb_thread.start()
+
         self.plot_thread = QThread(self)
         self.plotter = PlotWorker(self.layer_state)
         self.plotter.moveToThread(self.plot_thread)
         self.plotRequested.connect(self.plotter.plot)
         self.previewRequested.connect(self.plotter.preview)
         self.plot_thread.start()
+        # A QThread destroyed while running aborts the process — and on
+        # macOS that is a crash dialog. Whatever way the interpreter leaves,
+        # the threads are stopped first.
+        atexit.register(self._stop_threads)
+
+    def _stop_threads(self):
+        for name in ("render_thread", "thumb_thread", "plot_thread"):
+            thread = getattr(self, name, None)
+            if thread is None or not thread.isRunning():
+                continue
+            thread.quit()
+            if not thread.wait(15000):
+                thread.terminate()
+                thread.wait(2000)
 
     def _connect(self):
         self.design.documentChanged.connect(self._schedule_render)
-        self.design.structureChanged.connect(self.effects.reload)
         self.design.addRequested.connect(self._place)
         self.design.randomRequested.connect(self._randomize)
+        self.design.selectionChanged.connect(self.render_panel.set_highlight)
         self.library.openRequested.connect(self._open_path)
         self.library.statusMessage.connect(self.status_left.setText)
-        self.effects.documentChanged.connect(self._schedule_render)
+        self.ideas.openRequested.connect(self._open_path)
+        self.ideas.thumbnailsWanted.connect(self._render_thumbnails)
+        # Have the pictures ready before anyone looks for them.
+        QTimer.singleShot(1500, self.ideas.request_thumbnails)
 
         self.canvas.selectionChanged.connect(self._canvas_selected)
         self.canvas.itemChanged.connect(self._item_moved)
@@ -292,7 +332,6 @@ class MainWindow(QMainWindow):
         self.document.add_module("spirograph_gear")
         self.design.refresh(select=0)
         self.design.show_recipe(None)
-        self.effects.reload()
         self._update_title()
         self._schedule_render()
 
@@ -316,10 +355,10 @@ class MainWindow(QMainWindow):
         self.document.renew()
         self.design.refresh(select=0 if self.document.steps else None)
         self.design.show_recipe(None)
-        self.effects.reload()
         self.library.select(path)
+        self.ideas.select(path)
         self.left_tabs.setCurrentWidget(self.design)
-        self.centre.setCurrentWidget(self.render)
+        self.centre.setCurrentWidget(self.render_panel)
         self._update_title()
         self._schedule_render()
         self.status_left.setText("Opened %s" % Path(path).name)
@@ -330,7 +369,7 @@ class MainWindow(QMainWindow):
         self.recent_recipes.append(made["index"])
         del self.recent_recipes[:-40]
 
-        self.document.steps = made["steps"]
+        self.document.steps = flatten_steps(made["steps"])
         self.document.symmetry = made["symmetry"]
         self.document.output.update(made["output"])
         self.document.extras = {}
@@ -339,10 +378,9 @@ class MainWindow(QMainWindow):
         self.document.renew()
 
         self.left_tabs.setCurrentWidget(self.design)
-        self.centre.setCurrentWidget(self.render)
+        self.centre.setCurrentWidget(self.render_panel)
         self.design.refresh(select=0)
         self.design.show_recipe(made["name"])
-        self.effects.reload()
         self._update_title()
         self._schedule_render()
         self.status_left.setText("%s — %d step%s"
@@ -455,16 +493,20 @@ class MainWindow(QMainWindow):
             self.paper_window.retitle(self._sheet_label() or self._document_label())
 
     def _fit_current(self):
-        if self.centre.currentWidget() is self.render:
+        if self.centre.currentWidget() is self.render_panel:
             self.render.fit()
         else:
             self.canvas.fit()
 
     def _zoom_current(self, factor):
-        if self.centre.currentWidget() is self.render:
+        if self.centre.currentWidget() is self.render_panel:
             self.render.zoom_by(factor)
         else:
             self.canvas.zoom_by(factor)
+
+    def _left_tab_changed(self, _index):
+        if self.left_tabs.currentWidget() is self.ideas:
+            self.ideas.request_thumbnails()
 
     def _centre_tab_changed(self, _index):
         if self.centre.currentWidget() is self.paper_host:
@@ -598,7 +640,6 @@ class MainWindow(QMainWindow):
         self.document.sampling.update(self.design.quality_sampling())
         self.design.refresh(select=0 if self.document.steps else None)
         self.design.show_recipe(None)
-        self.effects.reload()
         self.left_tabs.setCurrentWidget(self.design)
         self._update_title()
         self._schedule_render()
@@ -613,7 +654,8 @@ class MainWindow(QMainWindow):
     def _render_now(self):
         if self.document.is_empty():
             self.drawing = None
-            self.render.set_drawing(None)
+            self.render_panel.set_drawing(None)
+            self.design.set_stages(None)
             return
         self.render_token += 1
         self.status_left.setText("Generating…")
@@ -633,7 +675,11 @@ class MainWindow(QMainWindow):
                       len(drawing.paths), "{:,}".format(drawing.point_count),
                       drawing.width, drawing.height))
         self.status_left.setText(caption)
-        self.render.set_drawing(drawing, "%s   ·   %s" % (self.document.name, caption))
+        kinds = [glyphs.kind_of(step["params"]["type"])
+                 for step in self.document.steps if step.get("kind") == "single"]
+        self.render_panel.set_drawing(drawing, "%s   ·   %s" % (self.document.name, caption),
+                                      kinds)
+        self.design.set_stages(drawing)
         # Re-generating replaces the drawing behind any item that came from
         # this document, so an edit is visible on the paper immediately.
         touched = False
@@ -656,6 +702,16 @@ class MainWindow(QMainWindow):
             return
         if token == self.render_token:
             self.status_left.setText("Generator error: %s" % message)
+
+    def _render_thumbnails(self, jobs):
+        self.plot_token += 1
+        self.thumbsRequested.emit(self.plot_token, jobs)
+
+    def _thumb_ready(self, _token, path, drawing):
+        self.ideas.set_thumbnail(path, drawing)
+
+    def _thumb_failed(self, _token, path, message):
+        self.ideas.set_failure(path, message)
 
     # -- the paper ---------------------------------------------------------------------- #
 
@@ -980,9 +1036,8 @@ class MainWindow(QMainWindow):
         self.plot.save_settings()
         self.notify.save_settings()
         self.inhibitor.stop()
-        for thread in (self.render_thread, self.plot_thread):
-            thread.quit()
-            thread.wait(2000)
+        self.render_panel.play.setChecked(False)
+        self._stop_threads()
         super().closeEvent(event)
 
 

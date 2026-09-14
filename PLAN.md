@@ -331,9 +331,13 @@ What is wrong, in order of damage:
   arms, the pen where the arms meet. *Tile* (rows × columns) and *clip to a
   circle or rectangle* as finishing passes, because the paper is a sheet.
 
-- [ ] **G1 — a window that shows what each thing does.** The pipeline as
+- [x] **G1 — a window that shows what each thing does.** The pipeline as
   stages with a thumbnail of the drawing *up to that stage*; a scrubber in
   Render that draws the linkage at any moment of the draw — each arm as a
   segment, the pen at the end, the path so far; a palette that is a gallery
   of what every module draws; Effects folded into Build as *Finishing*; a
-  scope toggle on every transform; sliders beside the numbers.
+  scope toggle on every transform; sliders beside the numbers. Plus an
+  *Ideas* tab: the project's own patterns as pictures. Verified by eye:
+  `tests/eyetest_gui.py` walks the window and saves a PNG at every step
+  (`tests/eyetest-results/gui/`), and every one was read before this was
+  ticked.

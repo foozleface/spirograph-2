@@ -11,37 +11,58 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox,
                                QDoubleSpinBox, QHBoxLayout, QLabel, QLineEdit,
-                               QPushButton, QSpinBox, QVBoxLayout, QWidget)
+                               QPushButton, QSlider, QSpinBox, QVBoxLayout,
+                               QWidget)
 
 from spiro.ui import theme
 
+SLIDER_STEPS = 1000
+LABEL_WIDTH = 118          # the name column; longer names elide, the tooltip has the rest
+
+
+def name_label(text, tooltip=""):
+    """A fixed-width label for a parameter name, elided if it is long."""
+    label = QLabel()
+    label.setFixedWidth(LABEL_WIDTH)
+    label.setText(label.fontMetrics().elidedText(text, Qt.ElideRight, LABEL_WIDTH))
+    label.setToolTip(tooltip or text)
+    return label
+
 
 class ParamRow(QWidget):
-    """One parameter: a label, an editor, and (when it has one) its drift twin.
+    """One parameter: a label, a slider where the range allows one, an
+    editor, and (when it has one) its drift twin.
 
     ``valueChanged`` carries ``(name, value)``; the drift twin reports under
     its own ``end_*`` name, so the caller never has to know which is which.
+    A drift can also oscillate — ``osc_<name> = speed, irregularity`` in the
+    file — which is reported under that key.
     """
 
     valueChanged = Signal(str, object)
 
     def __init__(self, name, spec, value, drift_name=None, drift_spec=None,
-                 drift_value=None, parent=None):
+                 drift_value=None, osc_value=None, parent=None):
         super().__init__(parent)
         self.name = name
         self.drift_name = drift_name
+        self.spec = spec
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 1, 0, 1)
         layout.setSpacing(2)
 
         row = QHBoxLayout()
         row.setSpacing(6)
-        label = QLabel(spec.get("desc") or name.replace("_", " "))
-        label.setToolTip("%s — %s" % (name, spec.get("desc", "")))
-        label.setMinimumWidth(120)
-        row.addWidget(label, 1)
+        label = name_label(spec.get("desc") or name.replace("_", " "),
+                           "%s — %s" % (name, spec.get("desc", "")))
+        row.addWidget(label, 0)
         self.editor = _editor(spec, value)
-        _connect(self.editor, lambda v: self.valueChanged.emit(self.name, v))
+        _connect(self.editor, self._editor_changed)
+        self.slider = _slider_for(spec)
+        if self.slider is not None:
+            self.slider.setValue(_to_slider(spec, _value_of(self.editor)))
+            self.slider.valueChanged.connect(self._slider_moved)
+            row.addWidget(self.slider, 2)
         row.addWidget(self.editor, 0)
         layout.addLayout(row)
 
@@ -62,21 +83,194 @@ class ParamRow(QWidget):
             _connect(self.drift_editor,
                      lambda v: self.valueChanged.emit(self.drift_name, v))
             drift_row.addWidget(self.drift_editor)
+            # Once there is a drift, it can slide once or go there and back.
+            self.osc_mode = QComboBox()
+            self.osc_mode.addItem("once", None)
+            self.osc_mode.addItem("there and back", "osc")
+            self.osc_mode.setToolTip(
+                "Once: slide from the value to the end value over the draw.\n"
+                "There and back: oscillate between them — speed is how many "
+                "times, wander mixes in two incommensurate rhythms so it does "
+                "not tick.")
+            self.osc_speed = QDoubleSpinBox()
+            self.osc_speed.setRange(0.1, 200)
+            self.osc_speed.setDecimals(1)
+            self.osc_speed.setSuffix("×")
+            self.osc_speed.setFixedWidth(64)
+            self.osc_wander = QDoubleSpinBox()
+            self.osc_wander.setRange(0, 1)
+            self.osc_wander.setSingleStep(0.1)
+            self.osc_wander.setDecimals(1)
+            self.osc_wander.setFixedWidth(52)
+            self.osc_wander.setToolTip("wander, 0 to 1")
+            speed, wander = _parse_osc(osc_value)
+            self.osc_speed.setValue(speed)
+            self.osc_wander.setValue(wander)
+            self.osc_mode.setCurrentIndex(1 if osc_value else 0)
+            osc_row = QHBoxLayout()
+            osc_row.setSpacing(6)
+            osc_row.addStretch(1)
+            osc_row.addWidget(self.osc_mode)
+            osc_row.addWidget(self.osc_speed)
+            osc_row.addWidget(self.osc_wander)
+            self.osc_host = QWidget()
+            self.osc_host.setLayout(osc_row)
             layout.addLayout(drift_row)
+            layout.addWidget(self.osc_host)
+            for widget in (self.osc_speed, self.osc_wander):
+                widget.valueChanged.connect(self._osc_changed)
+            self.osc_mode.currentIndexChanged.connect(self._osc_changed)
             self.drift_toggle.toggled.connect(self._toggle_drift)
             self._toggle_drift(self.drift_toggle.isChecked())
+            self._osc_changed(emit=False)
+
+    def _editor_changed(self, value):
+        if self.slider is not None:
+            self.slider.blockSignals(True)
+            self.slider.setValue(_to_slider(self.spec, value))
+            self.slider.blockSignals(False)
+        self.valueChanged.emit(self.name, value)
+
+    def _slider_moved(self, position):
+        value = _from_slider(self.spec, position)
+        _set_value(self.editor, value)
+        self.valueChanged.emit(self.name, _value_of(self.editor))
 
     def _toggle_drift(self, on):
         self.drift_editor.setVisible(on)
+        self.osc_host.setVisible(on)
         if not on:
             # Off means "no drift", which in the INI is the end value equalling
             # the start — not a missing key, which would mean the default.
             value = _value_of(self.editor)
             _set_value(self.drift_editor, value)
             self.valueChanged.emit(self.drift_name, value)
+            if self.osc_mode.currentData():
+                self.osc_mode.setCurrentIndex(0)
+
+    def _osc_changed(self, *_args, emit=True):
+        on = self.osc_mode.currentData() is not None
+        self.osc_speed.setVisible(on)
+        self.osc_wander.setVisible(on)
+        if emit:
+            value = ("%g,%g" % (self.osc_speed.value(), self.osc_wander.value())
+                     if on else None)
+            self.valueChanged.emit("osc_" + self.name, value)
 
     def set_value(self, value):
         _set_value(self.editor, value)
+        if self.slider is not None:
+            self.slider.blockSignals(True)
+            self.slider.setValue(_to_slider(self.spec, value))
+            self.slider.blockSignals(False)
+
+
+def _parse_osc(text):
+    """'speed,wander' -> (speed, wander), with the module's own defaults."""
+    if not text:
+        return 3.0, 0.3
+    parts = [p.strip() for p in str(text).split(",")]
+    try:
+        speed = float(parts[0]) if parts and parts[0] else 3.0
+        wander = float(parts[1]) if len(parts) > 1 and parts[1] else 0.3
+    except ValueError:
+        return 3.0, 0.3
+    return speed, wander
+
+
+def _slider_for(spec):
+    """A slider for a bounded number; None for anything else."""
+    if spec.get("type") not in ("int", "float"):
+        return None
+    if "min" not in spec or "max" not in spec:
+        return None
+    if abs(float(spec["max"]) - float(spec["min"])) > 1e5:
+        return None
+    slider = QSlider(Qt.Horizontal)
+    slider.setRange(0, SLIDER_STEPS)
+    slider.setMinimumWidth(40)
+    slider.setFocusPolicy(Qt.NoFocus)
+    return slider
+
+
+def _to_slider(spec, value):
+    low, high = float(spec["min"]), float(spec["max"])
+    if high <= low:
+        return 0
+    frac = (float(value) - low) / (high - low)
+    return int(round(max(0.0, min(1.0, frac)) * SLIDER_STEPS))
+
+
+def _from_slider(spec, position):
+    low, high = float(spec["min"]), float(spec["max"])
+    value = low + (high - low) * position / SLIDER_STEPS
+    if spec.get("type") == "int":
+        return int(round(value))
+    step = float(spec.get("step", 0)) or 0
+    if step:
+        value = round(value / step) * step
+    return round(value, 4)
+
+
+class ScopeRow(QWidget):
+    """What a table move acts on: everything so far, or the last few arms.
+
+    ``valueChanged`` carries ``("scope", "all" | int)``.
+    """
+
+    valueChanged = Signal(str, object)
+
+    def __init__(self, value="all", arms_available=0, parent=None):
+        super().__init__(parent)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 1, 0, 1)
+        layout.setSpacing(6)
+        label = name_label(
+            "Acts on",
+            "Everything: the paper moves under all the arms drawn so far.\n"
+            "The last arm(s): only those arms ride the moving table — like "
+            "spinning one arm's pivot instead of the whole paper.")
+        layout.addWidget(label, 0)
+        layout.addStretch(1)
+        self.mode = QComboBox()
+        self.mode.addItem("everything so far", "all")
+        self.mode.addItem("the last arm", 1)
+        self.mode.addItem("the last N arms", "n")
+        self.count = QSpinBox()
+        self.count.setRange(2, max(2, arms_available))
+        self.count.setFixedWidth(56)
+        self.count.setSuffix(" arms")
+        layout.addWidget(self.mode)
+        layout.addWidget(self.count)
+        self.set_value(value)
+        self.mode.currentIndexChanged.connect(self._changed)
+        self.count.valueChanged.connect(self._changed)
+
+    def set_value(self, value):
+        self.mode.blockSignals(True)
+        self.count.blockSignals(True)
+        try:
+            if value in ("all", None, ""):
+                self.mode.setCurrentIndex(0)
+            elif int(value) == 1:
+                self.mode.setCurrentIndex(1)
+            else:
+                self.mode.setCurrentIndex(2)
+                self.count.setValue(max(2, int(value)))
+        finally:
+            self.mode.blockSignals(False)
+            self.count.blockSignals(False)
+        self.count.setVisible(self.mode.currentData() == "n")
+
+    def value(self):
+        data = self.mode.currentData()
+        if data == "n":
+            return self.count.value()
+        return data
+
+    def _changed(self, *_args):
+        self.count.setVisible(self.mode.currentData() == "n")
+        self.valueChanged.emit("scope", self.value())
 
 
 def _editor(spec, value):
@@ -87,14 +281,15 @@ def _editor(spec, value):
         return box
     if kind == "choice":
         combo = QComboBox()
-        combo.addItems([str(c) for c in spec.get("choices", [])])
+        for choice in spec.get("choices", []):
+            combo.addItem(str(choice), choice)
         combo.setCurrentText(str(value))
         return combo
     if kind == "int":
         box = QSpinBox()
         box.setRange(int(spec.get("min", -10 ** 6)), int(spec.get("max", 10 ** 6)))
         box.setValue(int(value if value is not None else spec.get("default", 0)))
-        box.setFixedWidth(96)
+        box.setFixedWidth(90)
         return box
     if kind == "float":
         box = QDoubleSpinBox()
@@ -102,7 +297,7 @@ def _editor(spec, value):
         box.setDecimals(4)
         box.setSingleStep(float(spec.get("step", 0.1)))
         box.setValue(float(value if value is not None else spec.get("default", 0)))
-        box.setFixedWidth(96)
+        box.setFixedWidth(90)
         return box
     line = QLineEdit(str(value if value is not None else spec.get("default", "")))
     line.setFixedWidth(140)
@@ -113,7 +308,12 @@ def _connect(editor, fn):
     if isinstance(editor, QCheckBox):
         editor.toggled.connect(fn)
     elif isinstance(editor, QComboBox):
-        editor.currentTextChanged.connect(fn)
+        # Report the choice as it was declared (an int stays an int), not
+        # its label.
+        editor.currentIndexChanged.connect(
+            lambda index: fn(editor.itemData(index)
+                             if editor.itemData(index) is not None
+                             else editor.currentText()))
     elif isinstance(editor, (QSpinBox, QDoubleSpinBox)):
         editor.valueChanged.connect(fn)
     else:
@@ -124,7 +324,8 @@ def _value_of(editor):
     if isinstance(editor, QCheckBox):
         return editor.isChecked()
     if isinstance(editor, QComboBox):
-        return editor.currentText()
+        data = editor.currentData()
+        return data if data is not None else editor.currentText()
     if isinstance(editor, (QSpinBox, QDoubleSpinBox)):
         return editor.value()
     return editor.text()
