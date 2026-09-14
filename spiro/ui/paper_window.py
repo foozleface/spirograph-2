@@ -25,9 +25,11 @@ class PaperWindow(QMainWindow):
 
     closed = Signal()
 
-    def __init__(self, canvas, title="Spirograph — paper", parent=None):
+    def __init__(self, canvas, title="", parent=None):
         super().__init__(parent)
-        self.setWindowTitle(title)
+        # Distinct from the main window's title on purpose: two windows called
+        # the same thing are two identical entries in the task switcher.
+        self.setWindowTitle("Paper — %s" % title if title else "Paper")
         self.setCentralWidget(canvas)
         self.canvas = canvas
         self.resize(1200, 800)
@@ -60,6 +62,9 @@ class PaperWindow(QMainWindow):
     def leave_fullscreen(self):
         if self.isFullScreen():
             self.showNormal()
+
+    def retitle(self, title):
+        self.setWindowTitle("Paper — %s" % title if title else "Paper")
 
     def show_position(self, text):
         self.readout.setText(text)

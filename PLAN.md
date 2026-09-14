@@ -138,7 +138,7 @@ All seven tasks are in. What changed, in one line each:
 * Alerts: Home Assistant, MQTT, webhook — per layer and at the end.
 * `server.py` is gone; `launch.sh` opens the window.
 
-`./run_tests.sh` — 323 checks across eight gates, no hardware and no network.
+`./run_tests.sh` — 324 checks across eight gates, no hardware and no network.
 
 ### Not carried over from the web UI
 
@@ -194,4 +194,4 @@ Asked for after the first seven landed:
 * **Surprise me** (`Ctrl+R`): 61 recipes in `spiro/pipeline/recipes.py`, each
   one run by the gate.
 
-`./run_tests.sh` — 323 checks across eight gates.
+`./run_tests.sh` — 324 checks across eight gates.

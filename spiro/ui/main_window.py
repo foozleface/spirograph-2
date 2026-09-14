@@ -331,7 +331,7 @@ class MainWindow(QMainWindow):
         """Move the canvas into a window of its own, or bring it back."""
         if on and self.paper_window is None:
             self.centre_layout.removeWidget(self.canvas)
-            self.paper_window = PaperWindow(self.canvas, self.windowTitle())
+            self.paper_window = PaperWindow(self.canvas, self._document_label())
             self.paper_window.closed.connect(self._reattach_paper)
             self.detached_note.setVisible(True)
             self.paper_window.show()
@@ -399,9 +399,13 @@ class MainWindow(QMainWindow):
         self.status_left.setText("Wrote %s — %d mm across"
                                  % (Path(path).name, round(self.scene.paper.width_mm)))
 
+    def _document_label(self):
+        return self.document.path.name if self.document.path else "untitled"
+
     def _update_title(self):
-        name = self.document.path.name if self.document.path else "untitled"
-        self.setWindowTitle("Spirograph — %s" % name)
+        self.setWindowTitle("Spirograph — %s" % self._document_label())
+        if self.paper_window is not None:
+            self.paper_window.retitle(self._document_label())
 
     # -- generating ------------------------------------------------------------------ #
 

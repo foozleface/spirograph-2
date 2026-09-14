@@ -101,7 +101,7 @@ One millimetre is one unit throughout, and one user unit in the SVG that
 reaches the machine. There are no percentages of a widget anywhere in it.
 
 ```bash
-./run_tests.sh            # every gate: 323 checks, no hardware, no network
+./run_tests.sh            # every gate: 324 checks, no hardware, no network
 ./run_tests.sh scene      # just one
 ```
 

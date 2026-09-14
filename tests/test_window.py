@@ -275,6 +275,9 @@ check("the canvas moved into it — the same widget, not a copy",
       window.canvas.window() is window.paper_window)
 check("the main window says where the paper went",
       window.detached_note.isVisible())
+check("the two windows are not called the same thing",
+      window.paper_window.windowTitle() != window.windowTitle()
+      and "Paper" in window.paper_window.windowTitle())
 window.canvas.statusMessage.emit("12.0, 34.0 mm")
 pump(30)
 check("pointer position is reported in the paper window too",
