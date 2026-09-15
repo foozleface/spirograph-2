@@ -61,7 +61,7 @@ class SheetPanel(QWidget):
         layout.addWidget(self.preset)
 
         self.margin = QDoubleSpinBox()
-        self.margin.setRange(0, 100)
+        self.margin.setRange(0, 100000)      # a number box is not the place for limits
         self.margin.setSuffix(" mm")
         self.margin.setDecimals(1)
         self.margin.valueChanged.connect(self._margin_changed)
@@ -122,9 +122,13 @@ class SheetPanel(QWidget):
         # Dragging is for roughly; these are for exactly. Centre in mm from
         # the sheet's top-left, width in mm (the height follows the pattern's
         # own shape), and the angle about the centre.
-        self.sel_x = _mm_box(-2000, 2000)
-        self.sel_y = _mm_box(-2000, 2000)
-        self.sel_w = _mm_box(0.1, 2000)
+        # Wide on purpose: a pattern may be parked off the sheet while an
+        # arrangement is worked out, and a big one tiled down later. What is
+        # actually off the drawable area is said in the status bar, which is
+        # the honest place for it.
+        self.sel_x = _mm_box(-100000, 100000)
+        self.sel_y = _mm_box(-100000, 100000)
+        self.sel_w = _mm_box(0.1, 100000)
         self.sel_rot = QDoubleSpinBox()
         self.sel_rot.setRange(0, 360)
         self.sel_rot.setDecimals(1)

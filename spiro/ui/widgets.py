@@ -17,6 +17,46 @@ from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox,
 from spiro.ui import theme
 
 SLIDER_STEPS = 1000
+# What a number box will take, whatever its slider sweeps. The registry's
+# min and max say which range is worth having under a slider — they were
+# never a law about the value, and a gear asked for sixty repetitions is a
+# real thing to want. So only a floor survives, and only where a count below
+# one has no meaning.
+TYPED_CEILING = 1e6
+
+
+def typed_range(spec, kind):
+    """(floor, ceiling) for a number box — see TYPED_CEILING.
+
+    ``hard_min``/``hard_max`` in a registry entry override it, for the day a
+    parameter really does have a limit.
+    """
+    ceiling = float(spec.get("hard_max", TYPED_CEILING))
+    low = float(spec.get("min", 0.0))
+    if "hard_min" in spec:
+        floor = float(spec["hard_min"])
+    elif low < 0:
+        floor = -ceiling
+    elif kind == "int" and low >= 1:
+        floor = 1.0                  # teeth, sides, points, folds: counts
+    else:
+        floor = 0.0
+    return floor, ceiling
+
+
+def slider_span(spec, value):
+    """The range a slider sweeps: the registry's, widened to hold a value
+    that has been typed past it, so the slider never becomes a lie."""
+    if "min" not in spec or "max" not in spec:
+        return None
+    low, high = float(spec["min"]), float(spec["max"])
+    if abs(high - low) > 1e5:
+        return None
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return (low, high)
+    return (min(low, value), max(high, value))
 LABEL_WIDTH = 118          # the name column; longer names elide, the tooltip has the rest
 
 
@@ -60,9 +100,10 @@ class ParamRow(QWidget):
         row.addWidget(label, 0)
         self.editor = _editor(spec, value)
         _connect(self.editor, self._editor_changed)
-        self.slider = _slider_for(spec)
+        self.span = slider_span(spec, value)
+        self.slider = _slider_for(spec) if self.span else None
         if self.slider is not None:
-            self.slider.setValue(_to_slider(spec, _value_of(self.editor)))
+            self.slider.setValue(_to_slider(self.span, _value_of(self.editor)))
             self.slider.valueChanged.connect(self._slider_moved)
             row.addWidget(self.slider, 2)
         row.addWidget(self.editor, 0)
@@ -96,7 +137,7 @@ class ParamRow(QWidget):
                 "times, wander mixes in two incommensurate rhythms so it does "
                 "not tick.")
             self.osc_speed = QDoubleSpinBox()
-            self.osc_speed.setRange(0.1, 200)
+            self.osc_speed.setRange(0.0, TYPED_CEILING)
             self.osc_speed.setDecimals(1)
             self.osc_speed.setSuffix("×")
             self.osc_speed.setFixedWidth(64)
@@ -137,14 +178,21 @@ class ParamRow(QWidget):
         return super().eventFilter(obj, event)
 
     def _editor_changed(self, value):
-        if self.slider is not None:
-            self.slider.blockSignals(True)
-            self.slider.setValue(_to_slider(self.spec, value))
-            self.slider.blockSignals(False)
+        self._sync_slider(value)
         self.valueChanged.emit(self.name, value)
 
+    def _sync_slider(self, value):
+        """Put the slider where the number is, growing its span if the number
+        has been typed past the end of it."""
+        if self.slider is None:
+            return
+        self.span = slider_span(self.spec, value) or self.span
+        self.slider.blockSignals(True)
+        self.slider.setValue(_to_slider(self.span, value))
+        self.slider.blockSignals(False)
+
     def _slider_moved(self, position):
-        value = _from_slider(self.spec, position)
+        value = _from_slider(self.spec, self.span, position)
         _set_value(self.editor, value)
         self.valueChanged.emit(self.name, _value_of(self.editor))
 
@@ -171,10 +219,7 @@ class ParamRow(QWidget):
 
     def set_value(self, value):
         _set_value(self.editor, value)
-        if self.slider is not None:
-            self.slider.blockSignals(True)
-            self.slider.setValue(_to_slider(self.spec, value))
-            self.slider.blockSignals(False)
+        self._sync_slider(value)
 
 
 def _parse_osc(text):
@@ -194,10 +239,6 @@ def _slider_for(spec):
     """A slider for a bounded number; None for anything else."""
     if spec.get("type") not in ("int", "float"):
         return None
-    if "min" not in spec or "max" not in spec:
-        return None
-    if abs(float(spec["max"]) - float(spec["min"])) > 1e5:
-        return None
     slider = QSlider(Qt.Horizontal)
     slider.setRange(0, SLIDER_STEPS)
     slider.setMinimumWidth(40)
@@ -205,16 +246,16 @@ def _slider_for(spec):
     return slider
 
 
-def _to_slider(spec, value):
-    low, high = float(spec["min"]), float(spec["max"])
+def _to_slider(span, value):
+    low, high = span
     if high <= low:
         return 0
     frac = (float(value) - low) / (high - low)
     return int(round(max(0.0, min(1.0, frac)) * SLIDER_STEPS))
 
 
-def _from_slider(spec, position):
-    low, high = float(spec["min"]), float(spec["max"])
+def _from_slider(spec, span, position):
+    low, high = span
     value = low + (high - low) * position / SLIDER_STEPS
     if spec.get("type") == "int":
         return int(round(value))
@@ -297,26 +338,8 @@ def _editor(spec, value):
             combo.addItem(str(choice), choice)
         combo.setCurrentText(str(value))
         return combo
-    if kind == "int":
-        box = QSpinBox()
-        current = int(value if value is not None else spec.get("default", 0))
-        # A file may hold a value outside the registry's range; the editor
-        # shows the truth rather than clamping it to the nearest bound.
-        box.setRange(min(int(spec.get("min", -10 ** 6)), current),
-                     max(int(spec.get("max", 10 ** 6)), current))
-        box.setValue(current)
-        box.setFixedWidth(90)
-        return box
-    if kind == "float":
-        box = QDoubleSpinBox()
-        current = float(value if value is not None else spec.get("default", 0))
-        box.setRange(min(float(spec.get("min", -10 ** 6)), current),
-                     max(float(spec.get("max", 10 ** 6)), current))
-        box.setDecimals(4)
-        box.setSingleStep(float(spec.get("step", 0.1)))
-        box.setValue(current)
-        box.setFixedWidth(90)
-        return box
+    if kind in ("int", "float"):
+        return number_box(spec, value, kind)
     line = QLineEdit(str(value if value is not None else spec.get("default", "")))
     line.setFixedWidth(140)
     return line
@@ -364,6 +387,32 @@ def _set_value(editor, value):
             editor.setText(str(value))
     finally:
         editor.blockSignals(False)
+
+
+def number_box(spec, value, kind=None, width=90):
+    """A spin box that takes what a person types.
+
+    The registry's range steers the slider beside it; this takes anything
+    from the floor up to the ceiling, and a value already outside even that
+    is shown rather than clamped — a file is allowed to be stranger than the
+    table.
+    """
+    kind = kind or spec.get("type", "float")
+    floor, ceiling = typed_range(spec, kind)
+    if kind == "int":
+        box = QSpinBox()
+        current = int(value if value is not None else spec.get("default", 0))
+        box.setRange(int(min(floor, current)), int(max(ceiling, current)))
+    else:
+        box = QDoubleSpinBox()
+        current = float(value if value is not None else spec.get("default", 0))
+        box.setRange(min(floor, current), max(ceiling, current))
+        box.setDecimals(4 if float(spec.get("max", 1)) > 1 else 4)
+        box.setSingleStep(float(spec.get("step", 0.1)))
+    box.setValue(current)
+    box.setFixedWidth(width)
+    box.setKeyboardTracking(False)      # a number is read when it is finished
+    return box
 
 
 class Swatch(QPushButton):

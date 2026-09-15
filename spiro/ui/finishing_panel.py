@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QGroupBox,
 
 from spiro.pipeline.registry import FINISHING_DEFS
 from spiro.ui import theme
-from spiro.ui.widgets import row
+from spiro.ui.widgets import number_box, row
 
 ORDER = ["symmetry", "pen_lift", "moire", "tile", "clip"]
 
@@ -97,17 +97,10 @@ class FinishingPanel(QWidget):
             widget.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
             widget.setMinimumContentsLength(8)
             widget.currentIndexChanged.connect(self._apply)
-        elif kind == "int":
-            widget = QSpinBox()
-            widget.setRange(int(p.get("min", 0)), int(p.get("max", 10 ** 6)))
-            widget.setFixedWidth(100)
-            widget.valueChanged.connect(self._apply)
         else:
-            widget = QDoubleSpinBox()
-            widget.setRange(float(p.get("min", -10 ** 6)), float(p.get("max", 10 ** 6)))
-            widget.setDecimals(4 if float(p.get("max", 1)) <= 1 else 2)
-            widget.setSingleStep(float(p.get("step", 1)))
-            widget.setFixedWidth(100)
+            widget = number_box(p, p.get("default"), kind, width=100)
+            if kind != "int":
+                widget.setDecimals(4 if float(p.get("max", 1)) <= 1 else 2)
             widget.valueChanged.connect(self._apply)
         return widget
 

@@ -675,7 +675,8 @@ window.sheet.clear_paper(confirm=False)
 # -- the machine overlay's geometry ------------------------------------------------------- #
 
 print("the machine:")
-from spiro.pipeline.registry import MODULE_DEFS, defaults_for  # noqa: E402
+from spiro.pipeline.registry import (FINISHING_DEFS, MODULE_DEFS,  # noqa: E402
+                                     defaults_for)
 from spiro.ui.explainer import sweep_values  # noqa: E402
 from spiro.ui.render_view import machine_links, table_frame  # noqa: E402
 from spiro.ui import glyphs  # noqa: E402
@@ -722,6 +723,41 @@ links = machine_links(window.drawing, ["path", "generator"], 7)
 check("within a run of arms the carriage goes first", [l[0] for l in links] == ["path", "generator"])
 check("and the sum is still the pen",
       abs(links[-1][3] - complex(window.drawing.stages[-1][7])) < 1e-9)
+
+print("what a number box will take:")
+from spiro.ui.widgets import ParamRow, number_box, slider_span, typed_range  # noqa: E402
+
+gear = MODULE_DEFS["spirograph_gear"]["params"]
+reps = ParamRow("cycles", gear["cycles"], 1.0)
+check("the registry's range does not cap what can be typed",
+      reps.editor.maximum() >= 1000, reps.editor.maximum())
+reps.editor.setValue(400)
+check("so a gear can repeat four hundred times", reps.editor.value() == 400)
+check("and the slider grows to hold it",
+      reps.span[1] >= 400 and reps.slider.value() == reps.slider.maximum(),
+      reps.span)
+check("while it still sweeps the useful range at rest",
+      slider_span(gear["cycles"], 1.0) == (1.0, 50.0))
+check("a count cannot go below one",
+      typed_range(gear["fixed_teeth"], "int")[0] == 1)
+check("but a measurement can reach zero",
+      typed_range(gear["hole_position"], "float")[0] == 0)
+check("and a signed number reaches as far each way",
+      typed_range(MODULE_DEFS["rotation"]["params"]["total_degrees"], "float")
+      == (-1e6, 1e6))
+check("a hard limit in the table is still obeyed",
+      typed_range({"type": "int", "min": 1, "max": 4, "hard_max": 4}, "int")[1] == 4)
+check("every module's numbers are open at the top",
+      all(number_box(p, p["default"], p["type"]).maximum() >= 1000
+          for spec in MODULE_DEFS.values() for p in spec["params"].values()
+          if p.get("type") in ("int", "float")))
+check("and so is every finishing pass's",
+      all(number_box(p, p["default"], p["type"]).maximum() >= 1000
+          for spec in FINISHING_DEFS.values() for p in spec["params"].values()
+          if p.get("type") in ("int", "float")))
+check("the explainer sweeps past the top when the value is past it",
+      max(sweep_values(gear["cycles"], 400)) > 400,
+      sweep_values(gear["cycles"], 400))
 
 vals = sweep_values({"type": "float", "min": 0, "max": 300}, 50)
 check("a sweep brackets the current value", vals[0] < 50 < vals[-1] and 50 in vals, vals)

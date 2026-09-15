@@ -25,6 +25,7 @@ import math
 from spiro.pipeline import build_ini
 from spiro.ui import glyphs, theme, thumbs
 from spiro.ui.gallery import carried
+from spiro.ui.widgets import typed_range
 
 THUMB = 52
 SAMPLING = {"initial_samples": 5000, "output_samples": 1200}
@@ -41,19 +42,26 @@ def sweep_values(spec, current):
         return list(spec.get("choices", []))[:8]
     if kind not in ("int", "float"):
         return [current]
-    low = float(spec.get("min", -1e6))
-    high = float(spec.get("max", 1e6))
-    span = high - low
-    if span > 1e5:                       # an open-ended range: sweep around the value
-        span = max(abs(float(current)) * 4, 4 * float(spec.get("step", 1) or 1))
     current = float(current)
+    # The registry's range says what is worth sweeping, not what is allowed:
+    # a value typed past it widens the sweep rather than being clamped into
+    # a row of five identical pictures.
+    low = min(float(spec.get("min", -1e6)), current)
+    high = max(float(spec.get("max", 1e6)), current)
+    span = high - low
+    if span > 1e5 or span <= 0:          # open-ended: sweep around the value
+        span = max(abs(current) * 4, 4 * float(spec.get("step", 1) or 1))
+    ceiling = typed_range(spec, kind)[1]
     offsets = [-span / 4, -span / 12, 0, span / 12, span / 4]
     values = []
     for offset in offsets:
         value = current + offset
         if offset:
             value = nice(value)
-        value = min(max(value, low), high)
+        # The bottom of the sweep is the useful low end; the top is only the
+        # number box's own ceiling, so a knob turned past its usual range
+        # still shows what lies further up.
+        value = min(max(value, low), ceiling)
         if kind == "int":
             value = int(round(value))
         else:
@@ -80,14 +88,29 @@ def explain_steps(params, name, value):
     return carried(trial)
 
 
+def sampling_for(steps):
+    """Enough samples to draw these steps small.
+
+    A pattern asked to repeat two hundred times needs two hundred times the
+    points to be the same picture; at a fixed sampling the thumbnail turns
+    into a smear, which is a lie about what the knob does. Capped, because a
+    thumbnail is a thumbnail.
+    """
+    repeats = max([float(step["params"].get("cycles") or 1)
+                   for step in steps] + [1.0])
+    factor = min(max(repeats, 1.0), 40.0)
+    return {"initial_samples": int(SAMPLING["initial_samples"] * factor),
+            "output_samples": int(SAMPLING["output_samples"] * min(factor, 8.0))}
+
+
 def explain_jobs(params, name, spec):
     """``[(value, ini_text)]`` for the sweep of one parameter."""
     current = params.get(name, spec.get("default"))
     out = []
     for value in sweep_values(spec, current):
+        steps = explain_steps(params, name, value)
         try:
-            ini = build_ini(steps=explain_steps(params, name, value),
-                            sampling=SAMPLING)
+            ini = build_ini(steps=steps, sampling=sampling_for(steps))
         except ValueError:
             continue                     # a value the module refuses
         out.append((value, ini))

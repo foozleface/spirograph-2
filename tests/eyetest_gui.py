@@ -27,6 +27,7 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from spiro.ui import theme  # noqa: E402
 from spiro.ui.gallery import GalleryDialog  # noqa: E402
+from spiro.ui.widgets import ParamRow  # noqa: E402
 from spiro.ui.main_window import MainWindow  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -84,6 +85,25 @@ snap(window, "fresh-window")
 wait_for(lambda: not window.design.explainer.pending, timeout=60)
 pump(100)
 snap(window.design, "build-panel")
+
+print("a number typed past the registry's range:")
+window.design.explain("cycles")
+row = None
+for index in range(window.design.step_layout.count()):
+    widget = window.design.step_layout.itemAt(index).widget()
+    if isinstance(widget, ParamRow) and widget.name == "cycles":
+        row = widget
+        break
+row.editor.setValue(200)
+rendered(window)
+wait_for(lambda: not window.design.explainer.pending, timeout=120)
+pump(200)
+snap(window.design, "build-two-hundred-repetitions")
+snap(window, "window-two-hundred-repetitions")
+print("  repetitions box allows up to %g; slider span %s"
+      % (row.editor.maximum(), row.span))
+row.editor.setValue(1)
+rendered(window)
 
 print("the gallery:")
 gallery = GalleryDialog(window)

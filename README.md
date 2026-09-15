@@ -57,7 +57,11 @@ The pattern is a **machine**, and the window says so in four colours:
 drawing *as it stands after that step*. **Add a step…** opens a gallery of
 what every module draws. Click a step and its numbers appear underneath,
 with a slider beside every bounded one and a drift control (once, or there
-and back) on every parameter that can move over the draw. Hover any number
+and back) on every parameter that can move over the draw. The slider's
+range is the range worth sweeping, not a limit: type a bigger number and it
+is taken, and the slider grows to hold it. (More repetitions want more
+points — raise Preview quality, and remember a plot samples for the paper,
+not the screen.) Hover any number
 and the **explainer** above the list shows that knob as pictures: the step
 on its own, rendered at five values from low to high with the current one
 marked — so "wave oscillations" or "pen hole" is something you can see
