@@ -67,6 +67,16 @@ empties the machine.
 
 ![the explainer](docs/explainer.png)
 
+**One pattern in Build, one live copy on the paper.** *Place on paper* puts
+what you are building on the sheet and links the two, so an edit redraws it
+there. *New pattern* starts a fresh one and leaves the paper alone — place
+one, start another, place that. Clicking a pattern on the paper brings it
+back into Build. *Take off the paper* — the red × on the selection, the
+Delete key, Remove in the sheet list, or the button in Build — takes it off
+the sheet and leaves it in Build, so nothing is ever lost by it. Emptying
+the machine takes its own copy off too: an empty machine draws nothing, and
+a picture no pipeline can make again has no business on the sheet.
+
 **Render** shows the pattern and, over it, the machine: each arm as a
 segment in its colour from the pivot it turns on; a carriage path as the
 track it runs on, with the carriage riding it and the arms hanging from the

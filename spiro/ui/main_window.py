@@ -76,6 +76,7 @@ class MainWindow(QMainWindow):
         self.sheet_path = None           # the .sheet.json the paper came from
         self.inhibitor = awake.SleepInhibitor("A plot is running", "Spirograph")
         self._plot_started = 0.0
+        self._status_until = 0.0         # see _say
 
         self._build_ui()
         self._start_workers()
@@ -222,6 +223,10 @@ class MainWindow(QMainWindow):
         place.triggered.connect(self._place)
         pattern_menu.addAction(place)
         pattern_menu.addSeparator()
+        take_off = QAction("&Take this pattern off the paper", self)
+        take_off.setShortcut("Ctrl+Backspace")
+        take_off.triggered.connect(self._remove_linked)
+        pattern_menu.addAction(take_off)
         clear = QAction("&Clear the paper", self)
         clear.setShortcut("Ctrl+Shift+Backspace")
         clear.triggered.connect(lambda: self.sheet.clear_paper())
@@ -273,6 +278,8 @@ class MainWindow(QMainWindow):
     def _connect(self):
         self.design.documentChanged.connect(self._schedule_render)
         self.design.addRequested.connect(self._place)
+        self.design.newRequested.connect(self._new_document)
+        self.design.offPaperRequested.connect(self._remove_linked)
         self.design.randomRequested.connect(self._randomize)
         self.design.selectionChanged.connect(self.render_panel.set_highlight)
         self.library.openRequested.connect(self._open_path)
@@ -286,6 +293,7 @@ class MainWindow(QMainWindow):
 
         self.canvas.selectionChanged.connect(self._canvas_selected)
         self.canvas.itemChanged.connect(self._item_moved)
+        self.canvas.deleteRequested.connect(self._remove_item)
         self.canvas.statusMessage.connect(self._canvas_message)
 
         self.sheet.sceneChanged.connect(self._scene_changed)
@@ -334,6 +342,7 @@ class MainWindow(QMainWindow):
         self.document.add_module("spirograph_gear")
         self.design.refresh(select=0)
         self.design.show_recipe(None)
+        self._update_placement()
         self._update_title()
         self._schedule_render()
 
@@ -357,6 +366,7 @@ class MainWindow(QMainWindow):
         self.document.renew()
         self.design.refresh(select=0 if self.document.steps else None)
         self.design.show_recipe(None)
+        self._update_placement()
         self.library.select(path)
         self.ideas.select(path)
         self.left_tabs.setCurrentWidget(self.design)
@@ -383,6 +393,7 @@ class MainWindow(QMainWindow):
         self.centre.setCurrentWidget(self.render_panel)
         self.design.refresh(select=0)
         self.design.show_recipe(made["name"])
+        self._update_placement()
         self._update_title()
         self._schedule_render()
         self.status_left.setText("%s — %d step%s"
@@ -643,6 +654,7 @@ class MainWindow(QMainWindow):
         self.design.refresh(select=0 if self.document.steps else None)
         self.design.show_recipe(None)
         self.left_tabs.setCurrentWidget(self.design)
+        self._update_placement()
         self._update_title()
         self._schedule_render()
         self.status_left.setText("Editing %s — changes redraw it on the paper."
@@ -658,9 +670,24 @@ class MainWindow(QMainWindow):
             self.drawing = None
             self.render_panel.set_drawing(None)
             self.design.set_stages(None)
+            # An empty machine draws nothing. Leaving its copy on the paper
+            # would leave a picture no pipeline can make again — so it comes
+            # off, and New pattern is the way to start another and keep the
+            # paper as it is.
+            stale = self._linked_items()
+            if stale:
+                for item in stale:
+                    self.scene.remove(item.item_id)
+                self.canvas.select(None)
+                self.sheet.refresh()
+                self._scene_changed()
+                self._say("The machine is empty, so %s came off the paper. "
+                          "New pattern starts another and leaves the paper alone."
+                          % stale[-1].name)
+            self._update_placement()
             return
         self.render_token += 1
-        self.status_left.setText("Generating…")
+        self._say_idle("Generating…")
         try:
             ini = self.document.to_ini(self.design.quality_sampling())
         except Exception as exc:
@@ -676,7 +703,7 @@ class MainWindow(QMainWindow):
                    % (self.document.describe_step(0) if self.document.steps else "pattern",
                       len(drawing.paths), "{:,}".format(drawing.point_count),
                       drawing.width, drawing.height))
-        self.status_left.setText(caption)
+        self._say_idle(caption)
         singles = [step["params"] for step in self.document.steps
                    if step.get("kind") == "single"]
         kinds = [glyphs.kind_of(params["type"]) for params in singles]
@@ -728,23 +755,82 @@ class MainWindow(QMainWindow):
     # -- the paper ---------------------------------------------------------------------- #
 
     def _place(self):
+        """Put what is in Build on the paper, and follow *that* copy.
+
+        The token is renewed first, so a second copy becomes the one an edit
+        redraws and the first keeps the curves it was placed with. One
+        pattern in Build, one live item on the paper.
+        """
         if self.drawing is None:
             self.status_left.setText("Nothing generated yet.")
             return
         item = self.scene.add(self.drawing, name=self.document.name,
-                              source=self.document.token)
+                              source=self.document.renew())
         self.scene.ensure_pens(item.pen + 1)
         self.sheet.refresh(select=item.item_id)
         self.canvas.select(item.item_id)
         self.canvas.invalidate()
         self.centre.setCurrentWidget(self.paper_host)
-        self.status_left.setText(
-            "Placed %s — %.0f x %.0f mm at %.0f, %.0f on pen %d"
-            % (item.name, item.w_mm, item.h_mm, item.x_mm, item.y_mm, item.pen + 1))
+        self._update_placement()
+        self._say("Placed %s — %.0f x %.0f mm at %.0f, %.0f on pen %d"
+                  % (item.name, item.w_mm, item.h_mm, item.x_mm, item.y_mm,
+                     item.pen + 1))
+
+    def _say(self, text, hold=4.0):
+        """Say something the person did, and hold it.
+
+        Every click schedules a re-generation that finishes a moment later
+        and wants the status line for its own caption; without a hold, "took
+        it off the paper" is on screen for a fifth of a second.
+        """
+        self.status_left.setText(text)
+        self._status_until = time.time() + hold
+
+    def _say_idle(self, text):
+        """The generator's own chatter: shown only if nothing is being held."""
+        if time.time() >= self._status_until:
+            self.status_left.setText(text)
+
+    def _linked_items(self):
+        """What on the paper is drawn by the pattern in Build."""
+        return [item for item in self.scene.items
+                if item.source == self.document.token]
+
+    def _update_placement(self):
+        """Tell Build whether it is looking at something on the paper."""
+        linked = self._linked_items()
+        self.design.set_placed(linked[-1] if linked else None)
+
+    def _take_off(self, items):
+        """Take items off the paper and say so. Nothing is lost by it:
+        whatever is picked on the paper is the pattern in Build, so it can be
+        placed again — which is why nothing here asks first."""
+        if not items:
+            return False
+        for item in items:
+            self.scene.remove(item.item_id)
+        self.canvas.select(None)
+        self.sheet.refresh()
+        self._scene_changed()
+        self._say("Took %s off the paper — it is still here in Build."
+                  % items[-1].name)
+        return True
+
+    def _remove_item(self, item_id):
+        """Take one pattern off the paper — the × on it, or the Delete key."""
+        item = self.scene.find(item_id)
+        if item is not None:
+            self._take_off([item])
+
+    def _remove_linked(self):
+        """The Build panel's own way off the paper."""
+        if not self._take_off(self._linked_items()):
+            self._say("This pattern is not on the paper.")
 
     def _scene_changed(self):
         self.canvas.update()
         self.sheet.refresh(select=self.sheet.selected_id())
+        self._update_placement()
         self._warn_out_of_bounds()
 
     def _paper_changed(self):

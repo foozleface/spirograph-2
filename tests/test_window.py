@@ -482,6 +482,116 @@ check("pressing it repeatedly does not sit on one recipe", len(picks) >= 10, len
 check("it remembers what it has used recently",
       len(window.recent_recipes) == len(set(window.recent_recipes)))
 
+# -- one pattern in Build, one live item on the paper -------------------------------------- #
+
+print("place, start another, take one off:")
+window.sheet.clear_paper(confirm=False)
+window.document.steps = []
+window._new_document()
+check("a new pattern is not on the paper yet",
+      "Not on the paper" in window.design.placed_label.text())
+check("so there is nothing to take off", not window.design.off_button.isEnabled())
+wait_for(lambda: window.drawing)
+window._place()
+first_item = window.scene.items[-1]
+check("placing puts it there", len(window.scene.items) == 1)
+check("and Build says so", "On the paper" in window.design.placed_label.text())
+check("and offers to take it off", window.design.off_button.isEnabled())
+check("and offers another copy", "copy" in window.design.add_button.text())
+check("the item follows the pattern in Build",
+      first_item.source == window.document.token)
+
+window.design.newRequested.emit()                # the New pattern button
+pump(60)
+check("starting a new pattern leaves the paper alone", len(window.scene.items) == 1)
+check("and Build is free again",
+      "Not on the paper" in window.design.placed_label.text()
+      and not window.design.off_button.isEnabled())
+check("the placed one stopped following Build",
+      first_item.source != window.document.token)
+
+window.document.add_module("rose")
+window.document.name = "second"
+window.design.refresh(select=1)
+window.drawing = None
+window._render_now()
+wait_for(lambda: window.drawing)
+window._place()
+second_item = window.scene.items[-1]
+check("a second pattern goes on beside the first", len(window.scene.items) == 2)
+check("and it is the one Build now follows",
+      second_item.source == window.document.token
+      and first_item.source != window.document.token)
+
+was_first, was_second = first_item.drawing, second_item.drawing
+window.document.steps[1]["params"]["radius"] = 63.0
+window.drawing = None
+window._render_now()
+wait_for(lambda: window.drawing is not None and second_item.drawing is not was_second)
+check("an edit redraws the one it follows", second_item.drawing is not was_second)
+check("and leaves the other alone", first_item.drawing is was_first)
+
+window.design.clear_machine()
+check("emptying the machine takes its own copy off the paper",
+      wait_for(lambda: len(window.scene.items) == 1))
+check("and leaves the other one there", window.scene.items == [first_item])
+check("and says why", "off the paper" in window.status_left.text())
+
+window.canvas._select(first_item.item_id)
+pump(60)
+check("clicking a pattern on the paper brings it into Build",
+      window.document.name == first_item.name and bool(window.document.steps))
+check("and Build shows it as placed", window.design.off_button.isEnabled())
+
+print("taking one off:")
+button = window.canvas.delete_button(first_item)
+corner = window.canvas.to_px(*__import__("spiro.ui.canvas_view",
+                                         fromlist=["_corners"])._corners(first_item)[1])
+centre = window.canvas.to_px(first_item.x_mm, first_item.y_mm)
+check("the take-off button sits outside the item's top-right corner",
+      abs(button.x() - centre.x()) > abs(corner.x() - centre.x())
+      and abs(button.y() - centre.y()) > abs(corner.y() - centre.y()))
+check("the pointer finds it", window.canvas._on_delete_button(button, first_item))
+check("and does not find it in the middle of the item",
+      not window.canvas._on_delete_button(centre, first_item))
+steps_before = len(window.document.steps)
+window.canvas.deleteRequested.emit(first_item.item_id)
+pump(60)
+check("pressing it takes the pattern off the paper", window.scene.items == [])
+check("but leaves it in Build, so it can go back",
+      len(window.document.steps) == steps_before)
+check("and says so", "still here in Build" in window.status_left.text())
+check("Build is free again",
+      "Not on the paper" in window.design.placed_label.text())
+
+window._render_now()
+wait_for(lambda: window.drawing)
+window._place()
+back = window.scene.items[-1]
+check("placing it again works", len(window.scene.items) == 1)
+window.canvas.select(back.item_id)
+window.canvas.keyPressEvent(QKeyEvent(QEvent.KeyPress, Qt.Key_Delete, Qt.NoModifier))
+pump(60)
+check("the Delete key does the same", window.scene.items == [])
+
+window._render_now()
+wait_for(lambda: window.drawing)
+window._place()
+window.design.offPaperRequested.emit()           # Build's own Take off button
+pump(60)
+check("so does Take off the paper in Build", window.scene.items == [])
+
+window._render_now()
+wait_for(lambda: window.drawing)
+window._place()
+window.sheet.select(window.scene.items[-1].item_id)
+window.sheet._remove_selected()
+pump(60)
+check("and so does Remove in the sheet list", window.scene.items == [])
+check("the generator's caption does not wipe what you were told",
+      window._say("held", 4.0) is None
+      and (window._say_idle("chatter"), window.status_left.text() == "held")[1])
+
 # -- turning a placed item ---------------------------------------------------------------- #
 
 print("the turn handle:")

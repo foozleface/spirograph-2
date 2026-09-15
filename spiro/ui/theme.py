@@ -55,6 +55,7 @@ QPushButton#primary { background: %(ACCENT)s; border-color: %(ACCENT)s; color: w
                       font-weight: 600; }
 QPushButton#primary:hover { background: #8f74ff; }
 QPushButton#danger { border-color: %(ERR)s; color: %(ERR)s; }
+QPushButton#danger:disabled { border-color: %(LINE)s; color: %(MUTED)s; background: %(PANEL)s; }
 QPushButton#flat { background: transparent; border: none; padding: 2px 6px; color: %(MUTED)s; }
 QPushButton#flat:hover { color: %(TEXT)s; }
 QGroupBox { border: 1px solid %(LINE)s; border-radius: 5px; margin-top: 14px;

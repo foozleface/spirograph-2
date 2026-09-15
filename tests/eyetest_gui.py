@@ -223,12 +223,37 @@ window._place()
 pump(200)
 snap(window, "paper-after-place")
 
+print("place, start another, take one off:")
+snap(window.design, "build-placed-state")
+window.design.newRequested.emit()
+rendered(window)
+pump(150)
+snap(window.design, "build-new-pattern-state")
+window.document.add_module("rose")
+window.document.name = "rose"
+window.design.refresh(select=1)
+rendered(window)
+window._place()
+window.scene.items[-1].move_to(420, 110)
+window.scene.items[0].move_to(150, 110)
+window._scene_changed()
+window.canvas.fit()
+window.canvas.select(window.scene.items[-1].item_id)
+pump(150)
+snap(window.canvas, "paper-two-patterns-one-selected")
+snap(window, "window-two-patterns")
+window.canvas.deleteRequested.emit(window.scene.items[-1].item_id)
+pump(150)
+snap(window, "window-after-taking-one-off")
+print("  items now: %d — %s" % (len(window.scene.items), window.status_left.text()))
+
 print("turning it on the paper:")
 import math  # noqa: E402
 
 from PySide6.QtGui import QMouseEvent  # noqa: E402
 
 item = window.scene.items[-1]
+window.canvas.select(item.item_id)
 item.move_to(240, 110)
 item.set_width(110)
 window.canvas.fit()

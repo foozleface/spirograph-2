@@ -31,6 +31,7 @@ FAST_POINTS = 8000
 HANDLE_PX = 7.0           # the corner grab square
 ROTATE_PX = 22.0          # how far the turn knob stands off the top edge
 KNOB_PX = 5.0             # the turn knob's radius
+CROSS_PX = 7.0            # the take-off-the-paper button's radius
 MIN_SIZE_MM = 2.0
 SNAP_DEG = 15.0           # what shift snaps a turn to
 
@@ -40,6 +41,7 @@ class PaperCanvas(QWidget):
 
     selectionChanged = Signal(object)     # item_id or None
     itemChanged = Signal(object)          # item_id whose geometry moved
+    deleteRequested = Signal(object)      # item_id to take off the paper
     statusMessage = Signal(str)
 
     def __init__(self, scene, parent=None):
@@ -238,6 +240,16 @@ class PaperCanvas(QWidget):
         painter.setPen(QPen(theme.SELECT, 1.5))
         painter.drawEllipse(knob, KNOB_PX, KNOB_PX)
 
+        # take it off the paper
+        button = self.delete_button(item)
+        painter.setBrush(QBrush(QColor(theme.ERR)))
+        painter.setPen(QPen(QColor(theme.PAPER), 1.2))
+        painter.drawEllipse(button, CROSS_PX, CROSS_PX)
+        arm = CROSS_PX * 0.45
+        painter.setPen(QPen(QColor(theme.PAPER), 1.8, Qt.SolidLine, Qt.RoundCap))
+        painter.drawLine(button + QPointF(-arm, -arm), button + QPointF(arm, arm))
+        painter.drawLine(button + QPointF(-arm, arm), button + QPointF(arm, -arm))
+
         painter.setBrush(Qt.NoBrush)
         painter.setPen(QPen(QColor(theme.MUTED), 1))
         font = QFont("monospace", 8)
@@ -327,6 +339,10 @@ class PaperCanvas(QWidget):
             return
 
         selected = self.scene.find(self.selected_id) if self.selected_id else None
+        if selected is not None and self._on_delete_button(pos, selected):
+            self.setCursor(Qt.ArrowCursor)
+            self.deleteRequested.emit(selected.item_id)
+            return
         if selected is not None and self._on_rotate_knob(pos, selected):
             # Remember where on the knob it was grabbed, so the item does not
             # jump to meet the pointer.
@@ -355,7 +371,11 @@ class PaperCanvas(QWidget):
         pos = event.position()
         if self._drag is None:
             selected = self.scene.find(self.selected_id) if self.selected_id else None
-            if selected is not None and self._on_rotate_knob(pos, selected):
+            if selected is not None and self._on_delete_button(pos, selected):
+                self.setCursor(Qt.PointingHandCursor)
+                self.statusMessage.emit(
+                    "Take %s off the paper — it stays in Build" % selected.name)
+            elif selected is not None and self._on_rotate_knob(pos, selected):
                 self.setCursor(_rotate_cursor())
                 self.statusMessage.emit(
                     "Drag to turn %s — shift snaps to %g°" % (selected.name, SNAP_DEG))
@@ -440,6 +460,8 @@ class PaperCanvas(QWidget):
             self.statusMessage.emit("%s at %.0f°" % (item.name, item.rotation_deg))
             self.itemChanged.emit(item.item_id)
             self.update()
+        elif item is not None and event.key() in (Qt.Key_Delete, Qt.Key_Backspace):
+            self.deleteRequested.emit(item.item_id)
         elif event.key() in (Qt.Key_Plus, Qt.Key_Equal):
             self.zoom_by(1.15)
         elif event.key() == Qt.Key_Minus:
@@ -470,6 +492,22 @@ class PaperCanvas(QWidget):
         handle = self.to_px(*_corners(item)[2])
         return (abs(pos.x() - handle.x()) <= HANDLE_PX
                 and abs(pos.y() - handle.y()) <= HANDLE_PX)
+
+    def delete_button(self, item):
+        """Where the take-it-off button sits: just outside the item's own
+        top-right corner, so it turns with the box and never lands on the
+        turn knob at the top edge's middle."""
+        centre = self.to_px(item.x_mm, item.y_mm)
+        corner = self.to_px(*_corners(item)[1])
+        dx, dy = corner.x() - centre.x(), corner.y() - centre.y()
+        length = math.hypot(dx, dy) or 1.0
+        return corner + QPointF(dx / length * (CROSS_PX + 2),
+                                dy / length * (CROSS_PX + 2))
+
+    def _on_delete_button(self, pos, item):
+        button = self.delete_button(item)
+        return (abs(pos.x() - button.x()) <= CROSS_PX + 2
+                and abs(pos.y() - button.y()) <= CROSS_PX + 2)
 
     def rotate_knob(self, item):
         """Where the turn knob sits, in widget pixels.

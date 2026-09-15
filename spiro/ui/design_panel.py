@@ -57,6 +57,8 @@ class DesignPanel(QWidget):
     structureChanged = Signal()         # steps added, removed or reordered
     selectionChanged = Signal(object)   # the step index picked, or None
     addRequested = Signal()             # put the current pattern on the paper
+    newRequested = Signal()             # start a pattern from scratch
+    offPaperRequested = Signal()        # take the placed one off the paper
     randomRequested = Signal()          # invent a pipeline
     renderWanted = Signal(object)       # small renders for the explainer
 
@@ -104,7 +106,11 @@ class DesignPanel(QWidget):
         self.delete.setObjectName("danger")
         self.clear = QPushButton("Clear")
         self.clear.setObjectName("danger")
-        self.clear.setToolTip("Take every step and every finishing pass off — an empty machine")
+        self.clear.setToolTip(
+            "Take every step and every finishing pass off. An empty machine "
+            "draws nothing, so a copy of this pattern on the paper comes off "
+            "with it — use New pattern to start another and leave the paper "
+            "alone.")
         self.clear.clicked.connect(self.clear_machine)
         self.up.setToolTip("Move this step earlier (Alt+Up)")
         self.down.setToolTip("Move this step later (Alt+Down)")
@@ -171,10 +177,30 @@ class DesignPanel(QWidget):
             "Plots always run at Ultra sampling, whatever the preview shows.",
             wrap=True))
 
+        # What this pattern is to the paper, and the three things you can do
+        # about it. One pattern is in Build at a time: a new one, or the one
+        # picked on the paper. Placing links them — edits redraw it there —
+        # and taking it off leaves the pattern here, so nothing is ever lost.
+        outer.addWidget(theme.hline())
+        self.placed_label = theme.muted("", wrap=True)
+        outer.addWidget(self.placed_label)
         self.add_button = QPushButton("Place on paper")
         self.add_button.setObjectName("primary")
+        self.add_button.setToolTip("Put this pattern on the sheet (Ctrl+Return)")
         self.add_button.clicked.connect(self.addRequested.emit)
         outer.addWidget(self.add_button)
+        self.new_button = QPushButton("New pattern")
+        self.new_button.setToolTip(
+            "Start a fresh pattern. Anything already on the paper stays there.")
+        self.new_button.clicked.connect(self.newRequested.emit)
+        self.off_button = QPushButton("Take off the paper")
+        self.off_button.setObjectName("danger")
+        self.off_button.setToolTip(
+            "Take this pattern off the sheet. It stays here in Build, so you "
+            "can place it again.")
+        self.off_button.clicked.connect(self.offPaperRequested.emit)
+        outer.addWidget(row(self.new_button, 1, self.off_button, spacing=4))
+        self.set_placed(None)
 
         self._show_finishing(False)
         self.refresh()
@@ -231,6 +257,19 @@ class DesignPanel(QWidget):
         self.refresh(select=index)
         self.structureChanged.emit()
         self.documentChanged.emit()
+
+    def set_placed(self, item):
+        """Say whether what is in Build is on the paper, and offer the moves
+        that make sense either way."""
+        if item is None:
+            self.placed_label.setText("Not on the paper yet.")
+            self.add_button.setText("Place on paper")
+            self.off_button.setEnabled(False)
+        else:
+            self.placed_label.setText(
+                "On the paper as “%s” — edits redraw it there." % item.name)
+            self.add_button.setText("Place another copy")
+            self.off_button.setEnabled(True)
 
     def clear_machine(self):
         """An empty machine: no steps, no finishing."""
