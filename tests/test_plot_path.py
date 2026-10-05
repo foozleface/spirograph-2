@@ -188,6 +188,21 @@ else:
               % layer["label"],
               close(drawn_mm, layer["drawLenMm"], max(2.0, 0.01 * layer["drawLenMm"])),
               "machine %.1f mm vs file %.1f mm" % (drawn_mm, layer["drawLenMm"]))
+    for layer, item, result in zip(layers, scene.items, results):
+        # And where it draws, not just how much: the machine's own preview of
+        # the pen-down path, in bed millimetres, against the item's placed
+        # box. A machine that centred the drawing would pass the length
+        # check above and fail this one.
+        points = np.concatenate(item.paths_mm())
+        placed = (points.real.min(), points.imag.min(),
+                  points.real.max(), points.imag.max())
+        bounds = result["inkBoundsMm"]
+        check("%s: the machine draws it where it was placed" % layer["label"],
+              bounds is not None
+              and all(close(a, b, 1.0) for a, b in zip(bounds, placed)),
+              "machine %s vs placed %s" % (
+                  tuple(round(v, 1) for v in bounds) if bounds else None,
+                  tuple(round(v, 1) for v in placed)))
     check("nothing was reported out of bounds",
           not any("bounds" in (r["raw"] or "").lower() for r in results),
           "; ".join(r["raw"][:120] for r in results))

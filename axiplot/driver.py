@@ -21,6 +21,7 @@ anything -- it drives Evil Mad Scientist's own code.
 """
 
 import os
+import re
 import sys
 import threading
 import time
@@ -182,6 +183,34 @@ class ProgressFeed:
         pass
 
 
+def pen_down_bounds_mm(document):
+    """``(x0, y0, x1, y1)`` in millimetres of the pen-down movement the AxiDraw
+    planned, read off its own preview rendering -- so it is where the machine
+    will put the pen, in bed coordinates from its home corner, not where the
+    file asked. ``None`` if nothing is drawn.
+
+    The preview layer (``rendering`` 1 or 3) holds one path per kind of move,
+    tagged ``plot:desc="pen-down drawing"`` / ``"pen-up transit"``, with its
+    coordinates in physical inches.
+    """
+    root = document.getroot()
+    xs, ys = [], []
+    for element in root.iter():
+        if not str(element.tag).endswith("path"):
+            continue
+        descs = [value for key, value in element.attrib.items()
+                 if key.endswith("desc")]
+        if "pen-down drawing" not in descs:
+            continue
+        values = [float(v) for v in
+                  re.findall(r"-?\d+\.?\d*(?:e-?\d+)?", element.get("d") or "")]
+        xs += values[0::2]
+        ys += values[1::2]
+    if not xs:
+        return None
+    return (min(xs) * 25.4, min(ys) * 25.4, max(xs) * 25.4, max(ys) * 25.4)
+
+
 class InProcessDriver:
     """The same jobs ``plotter.Plotter`` runs, without leaving the process.
 
@@ -259,6 +288,7 @@ class InProcessDriver:
                 "drawLenM": st.down_travel_inch * 0.0254,
                 "penUpLenM": st.up_travel_inch * 0.0254,
                 "totalLenM": (st.down_travel_inch + st.up_travel_inch) * 0.0254,
+                "inkBoundsMm": pen_down_bounds_mm(ad.document),
                 "tookSec": time.time() - t0,
                 "raw": "\n".join(self.messages)}
 
