@@ -252,14 +252,13 @@ def manual_command(command, opts=None):
     opts = dict(opts or {})
     from pyaxidraw import axidraw
 
+    if command == "home":
+        _walk_home(axidraw, opts)
+        return
+
     machine = axidraw.AxiDraw()
     machine.interactive()
-    machine.options.model = int(opts.get("model", 3))
-    machine.options.penlift = opts.get("penlift", 3)
-    machine.options.pen_pos_up = opts.get("penPosUp", 60)
-    machine.options.pen_pos_down = opts.get("penPosDown", 30)
-    if opts.get("port"):
-        machine.options.port = opts["port"]
+    _apply(machine, opts)
     if not machine.connect():
         raise RuntimeError("could not reach the AxiDraw on %s"
                            % (opts.get("port") or "any port"))
@@ -268,9 +267,36 @@ def manual_command(command, opts=None):
             machine.penup()
         elif command == "pen_down":
             machine.pendown()
-        elif command == "home":
-            machine.penup()
-            machine.moveto(0, 0)
         # disable_motors: disconnecting releases them, which is the whole job.
     finally:
         machine.disconnect()
+
+
+def _apply(machine, opts):
+    machine.options.model = int(opts.get("model", 3))
+    machine.options.penlift = opts.get("penlift", 3)
+    machine.options.pen_pos_up = opts.get("penPosUp", 60)
+    machine.options.pen_pos_down = opts.get("penPosDown", 30)
+    if opts.get("port"):
+        machine.options.port = opts["port"]
+
+
+def _walk_home(axidraw, opts):
+    """Send the carriage back to the home corner.
+
+    Not ``moveto(0, 0)``. Interactive mode tracks the pen by dead reckoning
+    from where it believes the carriage started, and a fresh connection
+    believes that is home -- so ``moveto(0, 0)`` plans a zero-length move and
+    the machine sits exactly where it is, reporting success. After a plot,
+    which ran on a different connection, that is always wrong.
+
+    The board knows better. Manual mode's ``walk_home`` reads the EBB's own
+    step counters and walks back by what they say, which is right however the
+    carriage got there. Needs firmware 2.6.2 or newer.
+    """
+    machine = axidraw.AxiDraw()
+    machine.plot_setup()
+    machine.options.mode = "manual"
+    machine.options.manual_cmd = "walk_home"
+    _apply(machine, opts)
+    machine.plot_run()
