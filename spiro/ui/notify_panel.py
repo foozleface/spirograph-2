@@ -16,7 +16,7 @@ import configparser
 import os
 
 from PySide6.QtCore import QSettings, Signal
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QGroupBox, QLabel,
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QGroupBox, QLabel, QSpinBox,
                                QLineEdit, QPushButton, QVBoxLayout, QWidget)
 
 from axiplot import notify
@@ -50,6 +50,16 @@ class NotifyPanel(QWidget):
         self.enabled = QCheckBox("Send alerts")
         self.enabled.setChecked(self._get("enabled", "false") == "true")
         layout.addWidget(self.enabled)
+
+        # Short jobs are not worth a phone buzz: you are still at the machine.
+        self.min_seconds = QSpinBox()
+        self.min_seconds.setRange(0, 3600)
+        self.min_seconds.setSuffix(" s")
+        self.min_seconds.setValue(int(self._get("min_seconds", 90)))
+        self.min_seconds.setToolTip(
+            "Nothing is sent for work quicker than this. A pen change still "
+            "gets through when the layer either side of it is longer.")
+        layout.addWidget(row(QLabel("Only alert past"), 1, self.min_seconds))
 
         # -- Home Assistant -------------------------------------------------- #
         box = QGroupBox("Home Assistant")
@@ -152,6 +162,7 @@ class NotifyPanel(QWidget):
                           ("mqtt_enabled", self.mqtt_enabled),
                           ("hook_enabled", self.hook_enabled)):
             self.settings.setValue(name, "true" if box.isChecked() else "false")
+        self.settings.setValue("min_seconds", self.min_seconds.value())
         self.settings.setValue("ha_level", self.ha_level.currentText())
         self.settings.setValue("mqtt_level", self.mqtt_level.currentText())
 
@@ -222,7 +233,10 @@ class NotifyPanel(QWidget):
             transports.append(notify.CallableNotifier(log))
         if not transports:
             return None
-        return notify.Async(notify.MultiNotifier(*transports))
+        # Threshold on the outside: it decides per call, Async only moves the
+        # send off this thread, so wrapping the other way would send anyway.
+        return notify.Threshold(notify.Async(notify.MultiNotifier(*transports)),
+                                self.min_seconds.value())
 
     def send_test(self):
         """Send synchronously, so the button can say what happened."""

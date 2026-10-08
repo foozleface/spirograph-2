@@ -69,6 +69,40 @@ class Notifier:
                          {"layers": len(layers), "seconds": seconds})
 
 
+class Threshold(Notifier):
+    """Pass an alert on only when the work was long enough to be worth one.
+
+    A plot that is over in fifteen seconds does not need a message on a phone
+    -- whoever started it is still standing at the machine. ``min_seconds`` is
+    the bar. A pen change clears it if either the layer just finished or the
+    one about to start is longer than that, because both are reasons to have
+    walked away.
+    """
+
+    def __init__(self, inner, min_seconds=90.0):
+        self.inner = inner
+        self.min_seconds = float(min_seconds)
+
+    def configured(self):
+        return getattr(self.inner, "configured", lambda: True)()
+
+    def _long(self, seconds):
+        return seconds is not None and float(seconds) >= self.min_seconds
+
+    def send(self, title, message, data=None):
+        return self.inner.send(title, message, data)
+
+    def layer_done(self, layer, index, total, seconds=None, next_layer=None):
+        if self._long(seconds) or self._long((next_layer or {}).get("estSec")):
+            return self.inner.layer_done(layer, index, total, seconds, next_layer)
+        return None
+
+    def plot_done(self, layers, seconds=None):
+        if self._long(seconds):
+            return self.inner.plot_done(layers, seconds)
+        return None
+
+
 class HomeAssistantNotifier(Notifier):
     """POST to a Home Assistant notify service.
 

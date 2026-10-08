@@ -123,17 +123,46 @@ while time.time() < deadline and not finished:
 thread.join(5)
 
 check("the plot ran to the end", bool(finished) and finished[0]["complete"])
-check("three alerts went out: one per layer, then the plot itself",
-      len(alerts.sent) == 3, [t for t, _, _ in alerts.sent])
+check("two alerts went out: the pen change, then the finish (not both for the last layer)",
+      len(alerts.sent) == 2, [t for t, _, _ in alerts.sent])
 check("the first names layer 1 of 2 and the pen to swap to",
       alerts.sent[0][0] == "Layer 1/2 done -- Black"
       and "swap to Red" in alerts.sent[0][1],
       alerts.sent[0][:2] if alerts.sent else None)
-check("the second says the plot is complete",
-      "plot complete" in alerts.sent[1][1], alerts.sent[1][1] if alerts.sent else None)
 check("and the last is the finish, with the layer count",
-      alerts.sent[2][0] == "Plot finished" and "2 layers" in alerts.sent[2][1],
-      alerts.sent[2][:2] if alerts.sent else None)
+      len(alerts.sent) > 1 and alerts.sent[1][0] == "Plot finished"
+      and "2 layers" in alerts.sent[1][1],
+      alerts.sent[1][:2] if len(alerts.sent) > 1 else None)
+# -- short work is not worth a phone buzz ---------------------------------------- #
+
+print()
+print("the ninety-second bar:")
+seen = []
+bar = notify.Threshold(notify.CallableNotifier(lambda t, m, d: seen.append(t)), 90)
+LAYERS = [{"label": "Black", "hex": "#000"}, {"label": "Red", "hex": "#c00"}]
+
+bar.plot_done(LAYERS, 15)
+check("a fifteen-second plot sends nothing", seen == [], seen)
+bar.plot_done(LAYERS, 120)
+check("a two-minute one does", seen == ["Plot finished"], seen)
+
+seen.clear()
+bar.layer_done(LAYERS[0], 0, 2, seconds=12, next_layer={"estSec": 9})
+check("a pen change between two quick layers stays quiet", seen == [], seen)
+bar.layer_done(LAYERS[0], 0, 2, seconds=12, next_layer={"estSec": 600})
+check("but one with a long layer coming up gets through", len(seen) == 1, seen)
+seen.clear()
+bar.layer_done(LAYERS[0], 0, 2, seconds=300, next_layer={"estSec": 5})
+check("and so does one you have been waiting five minutes for", len(seen) == 1, seen)
+
+seen.clear()
+bar.plot_done(LAYERS, None)
+check("an unknown duration is treated as short, not as forever", seen == [], seen)
+
+off = notify.Threshold(notify.CallableNotifier(lambda t, m, d: seen.append(t)), 0)
+off.plot_done(LAYERS, 1)
+check("a bar of zero lets everything through", len(seen) == 1, seen)
+
 check("each alert carries the layer numbers for a receiver to act on",
       alerts.sent[0][2].get("layer") == 1 and alerts.sent[0][2].get("layers") == 2)
 
@@ -184,9 +213,12 @@ panel.mqtt_enabled.setChecked(True)
 panel.mqtt_host.setText("192.0.2.1")
 panel.mqtt_topic.setText("alerts/raise")
 notifier = panel.notifier()
-check("a configured transport gives an async, fanned-out notifier",
-      isinstance(notifier, notify.Async)
-      and isinstance(notifier.inner, notify.MultiNotifier))
+check("a configured transport gives a thresholded, async, fanned-out notifier",
+      isinstance(notifier, notify.Threshold)
+      and isinstance(notifier.inner, notify.Async)
+      and isinstance(notifier.inner.inner, notify.MultiNotifier))
+check("and the bar is ninety seconds unless it was changed",
+      notifier.min_seconds == 90.0, notifier.min_seconds)
 check("async sending returns at once, whatever the network does",
       time_send(notifier) < 0.2)
 
@@ -194,17 +226,23 @@ panel.ha_enabled.setChecked(True)
 panel.ha_url.setText("http://192.0.2.1:8123")
 panel.ha_token.setText("token")
 panel.ha_service.setText("notify.phone")
+def fan_out(notifier):
+    """The MultiNotifier inside however many wrappers the panel put round it."""
+    while not isinstance(notifier, notify.MultiNotifier):
+        notifier = notifier.inner
+    return notifier
+
+
 def transport(panel, kind):
     """The one transport of a given class inside the panel's fan-out."""
-    for entry in panel.notifier().inner.notifiers:
+    for entry in fan_out(panel.notifier()).notifiers:
         if isinstance(entry, kind):
             return entry
     return None
 
 
-inner = panel.notifier().inner
 check("two transports switched on means two in the fan-out",
-      len(inner.notifiers) == 2)
+      len(fan_out(panel.notifier()).notifiers) == 2)
 check("both kinds are there",
       transport(panel, notify.HomeAssistantNotifier) is not None
       and transport(panel, notify.MqttNotifier) is not None)
