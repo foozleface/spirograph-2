@@ -214,18 +214,21 @@ def test_run_loop(tmp):
     check("progress carries the layer index",
           len(progress) == 6 and progress[-1]["layer"] == 2
           and progress[-1]["layers"] == 3, str(len(progress)))
-    check("one notification per layer, plus the finish",
-          len(sent) == 4 and sent[0][0].startswith("Layer 1/3")
-          and sent[-1][0] == "Plot finished", str([s[0] for s in sent]))
+    check("one note per pen change, and the last layer is the finish",
+          [s[0] for s in sent][1:] == [sent[1][0], "Plot finished"]
+          and len(sent) == 3 and sent[0][0].startswith("Layer 1/3")
+          and sent[1][0].startswith("Layer 2/3"), str([s[0] for s in sent]))
     check("the layer note says which pen to swap to",
           "swap to" in sent[0][1] and "pen1" in sent[0][1], sent[0][1])
-    check("the last layer says the plot is complete",
-          "plot complete" in sent[2][1], sent[2][1])
 
-    # resume: the same job, two layers already marked
-    rec2 = Recorder()
-    out2 = run.plot_job(job, rec2, state=state, prepared=prep)
+    # resume: the same job, every layer already marked
+    rec2, sent2 = Recorder(), []
+    out2 = run.plot_job(job, rec2, state=state, prepared=prep,
+                        notifier=notify.CallableNotifier(
+                            lambda t, m, d: sent2.append(t)))
     check("nothing left to plot on a finished drawing", rec2.plotted == [])
+    check("a finished drawing re-run sends no Plot finished ... 0 s",
+          sent2 == [], str(sent2))
 
     state.mark(1, False)
     rec3 = Recorder()

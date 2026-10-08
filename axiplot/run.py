@@ -179,7 +179,9 @@ def plot_job(job, driver, state=None, prepared=None, notifier=None,
             break
         if on_layer_done:
             on_layer_done(index, layer, result, True)
-        if notifier is not None:
+        # The layer that completes the plot is announced by plot_done below;
+        # sending both put two alerts on the phone for one moment.
+        if notifier is not None and not (nxt is None and state.complete()):
             try:
                 notifier.layer_done(layer, index, len(layers), seconds, nxt)
             except Exception:
@@ -188,7 +190,9 @@ def plot_job(job, driver, state=None, prepared=None, notifier=None,
     summary = {"layers": layers, "results": results, "stopped": stopped,
                "cleared": cleared, "seconds": time.time() - started,
                "state": state, "complete": state.complete()}
-    if not stopped and notifier is not None and state.complete():
+    # Only when this run drew something: re-running a finished job plots
+    # nothing and used to send "Plot finished ... in 0 s".
+    if not stopped and notifier is not None and results and state.complete():
         try:
             notifier.plot_done(layers, summary["seconds"])
         except Exception:
