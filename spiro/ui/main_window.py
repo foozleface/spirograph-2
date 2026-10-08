@@ -50,7 +50,7 @@ class MainWindow(QMainWindow):
     renderRequested = Signal(int, str)
     batchRequested = Signal(int, object)
     thumbsRequested = Signal(int, object)
-    plotRequested = Signal(object, object, bool, bool, object)
+    plotRequested = Signal(object, object, bool, bool, object, bool)
     previewRequested = Signal(object, object)
 
     def __init__(self):
@@ -310,6 +310,9 @@ class MainWindow(QMainWindow):
         self.plot.manualRequested.connect(self._manual)
         self.plot.penChangeAcknowledged.connect(self._pen_change_done)
         self.plot.resetLayersRequested.connect(self._reset_layers)
+        self.plot.scopeChanged.connect(lambda _s: self._refresh_scope_note())
+
+        self._refresh_scope_note()
 
         self.plotter.prepared.connect(self._plot_prepared)
         self.plotter.layerStarted.connect(self._layer_started)
@@ -832,6 +835,7 @@ class MainWindow(QMainWindow):
         self.sheet.refresh(select=self.sheet.selected_id())
         self._update_placement()
         self._warn_out_of_bounds()
+        self._refresh_scope_note()
 
     def _paper_changed(self):
         self.canvas.fit()
@@ -848,11 +852,13 @@ class MainWindow(QMainWindow):
 
     def _canvas_selected(self, item_id):
         self.sheet.select(item_id)
+        self._refresh_scope_note()
         if item_id is not None:
             self._edit_item(item_id)
 
     def _sheet_selected(self, item_id):
         self.canvas.select(item_id)
+        self._refresh_scope_note()
         if item_id is not None:
             self._edit_item(item_id)
 
@@ -868,7 +874,7 @@ class MainWindow(QMainWindow):
 
     # -- plotting ------------------------------------------------------------------------ #
 
-    def _plot_job(self, drawings=None):
+    def _plot_job(self, drawings=None, only=None):
         """The job to send, optionally with each item's curves replaced.
 
         ``drawings`` is the Ultra-quality re-render, one per item in order.
@@ -876,24 +882,26 @@ class MainWindow(QMainWindow):
         the new curves at the same width, so a finer sampling changes the
         smoothness and nothing else.
         """
-        if not self.scene.items:
+        items = self.scene.plot_items(only)
+        if not items:
             self.status_left.setText("Nothing on the paper to plot.")
             return None
-        if not self.scene.pens_in_use():
+        if not self.scene.pens_in_use(only):
             self.status_left.setText("No pen is switched on.")
             return None
         if drawings:
             # Only the curves change. An item's size is its height, so it is
             # untouched; the width follows the new drawing's aspect ratio,
             # which a finer sampling measures a few microns differently.
-            for item, drawing in zip(self.scene.items, drawings):
+            for item, drawing in zip(items, drawings):
                 item.drawing = drawing
                 item._unit = None
                 self.canvas.invalidate(item)
             self.canvas.update()
-        return self.scene.job(opts=self.plot.options(self.sheet.current_model()))
+        return self.scene.job(opts=self.plot.options(self.sheet.current_model()),
+                              only=only)
 
-    def _needs_plot_quality(self):
+    def _needs_plot_quality(self, only=None):
         """The items whose curves came from a coarser preview.
 
         Facet depth on a plotted curve goes as chord squared over eight times
@@ -903,23 +911,23 @@ class MainWindow(QMainWindow):
         """
         want = int(PLOT_SAMPLING["output_samples"])
         stale = []
-        for item in self.scene.items:
+        for item in self.scene.plot_items(only):
             text = getattr(item.drawing, "ini_text", "")
             match = re.search(r"^output_samples\s*=\s*(\d+)", text, re.M)
             if not match or int(match.group(1)) < want:
                 stale.append(item)
         return stale
 
-    def _with_plot_quality(self, then):
+    def _with_plot_quality(self, then, only=None):
         """Re-generate every item at plot sampling, then do ``then(drawings)``.
 
         Returns True if it started a re-render (and ``then`` will be called
         later), False if the sheet was already at plot quality.
         """
-        if not self._needs_plot_quality():
+        if not self._needs_plot_quality(only):
             return False
         inis = []
-        for item in self.scene.items:
+        for item in self.scene.plot_items(only):
             text = getattr(item.drawing, "ini_text", "")
             inis.append(Document.from_ini(text).to_ini(PLOT_SAMPLING)
                         if text else text)
@@ -962,15 +970,22 @@ class MainWindow(QMainWindow):
         then(drawings)
 
     def _start_preview(self):
-        if not self.scene.items:
+        if self._busy_answer():
+            return
+        only, problem = self._plot_only()
+        if problem:
+            self.status_left.setText(problem)
+            return
+        if not self.scene.plot_items(only):
             self.status_left.setText("Nothing on the paper to plot.")
             return
-        if self._with_plot_quality(self._preview_with):
+        if self._with_plot_quality(lambda drawings:
+                                   self._preview_with(drawings, only), only):
             return
-        self._preview_with(None)
+        self._preview_with(None, only)
 
-    def _preview_with(self, drawings):
-        job = self._plot_job(drawings)
+    def _preview_with(self, drawings, only=None):
+        job = self._plot_job(drawings, only)
         if job is None:
             self.plot.set_running(False)
             return
@@ -991,21 +1006,114 @@ class MainWindow(QMainWindow):
                                  % (_hms(total), len(layers),
                                     "" if len(layers) == 1 else "s"))
 
+    def _plot_only(self):
+        """The item ids this plot covers, and why not if it cannot.
+
+        ``(None, None)`` is the whole sheet. ``({item_id}, None)`` is the one
+        selected pattern. A message in the second slot means the chosen mode
+        cannot be honoured and nothing should be sent.
+        """
+        if self.plot.plot_scope() != "selection":
+            return None, None
+        item_id = self.canvas.selected_id or self.sheet.selected_id()
+        if not item_id or self.scene.find(item_id) is None:
+            return None, ("No pattern is selected — click one on the paper, "
+                          "or switch to plotting everything.")
+        return {item_id}, None
+
+    def _refresh_scope_note(self):
+        """Say what the chosen mode will actually do, before it is pressed."""
+        only, problem = self._plot_only()
+        if problem:
+            self.plot.set_scope_note(problem)
+            return
+        items = self.scene.plot_items(only)
+        pens = self.scene.pens_in_use(only)
+        if not items:
+            self.plot.set_scope_note("Nothing on the paper yet.")
+        elif len(pens) > 1:
+            self.plot.set_scope_note(
+                "%d patterns across %d pens — the plot stops between pens so "
+                "the nib can be changed." % (len(items), len(pens)))
+        else:
+            nib = pens[0][1].label if pens else "no"
+            self.plot.set_scope_note(
+                "%d pattern%s on the %s pen — one layer, no stops."
+                % (len(items), "" if len(items) == 1 else "s", nib))
+
+    def _busy_answer(self):
+        """What to say to a Plot press while a plot is already in flight.
+
+        Returns True if it answered, meaning the caller should stop. A plot
+        paused between layers can wait for a long time, and until now the
+        only sign of that was three dead buttons.
+        """
+        if not self.plotter.busy:
+            return False
+        self.right_tabs.setCurrentWidget(self.plot)
+        if self.plot.pen_prompt.isVisible():
+            self.plot.show_pen_prompt()
+            self.status_left.setText(
+                "The plot is paused, waiting for the next pen — press "
+                "\u201cPen changed — carry on\u201d to go on, or "
+                "\u201cStop here\u201d to end it.")
+        else:
+            self.status_left.setText(
+                "A plot is already running — Stop it before starting another.")
+        return True
+
+    def _already_plotted(self, only=None):
+        """True when every layer of the sheet as it stands is marked down.
+
+        Plotting then draws nothing. The marks are what let a stopped plot
+        resume rather than redraw, and a setting like pen-down speed is not
+        part of what tells one sheet from another — so changing one leaves
+        them standing, and the press that follows moves no pen.
+        """
+        if not self.layer_state.complete() or not self.scene.plot_items(only):
+            return False
+        if not self.scene.pens_in_use(only):
+            return False
+        return axirun.job_stamp(self.scene.identity(only)) == self.layer_state.stamp
+
     def _start_plot(self, dry_run):
-        if not self.scene.items:
+        if self._busy_answer():
+            return
+        only, problem = self._plot_only()
+        if problem:
+            self.status_left.setText(problem)
+            return
+        if not self.scene.plot_items(only):
             self.status_left.setText("Nothing on the paper to plot.")
             return
+        if self._already_plotted(only):
+            answer = QMessageBox.question(
+                self, "Already plotted",
+                "Every layer of this sheet is already marked as drawn, so this "
+                "would send nothing to the machine.\n\n"
+                "The marks are what let a stopped plot pick up where it left "
+                "off. Settings like pen-down speed are not part of what tells "
+                "one sheet from another, so changing one leaves them "
+                "standing.\n\nForget them and %s?"
+                % ("rehearse it again" if dry_run else "draw it again"),
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if answer != QMessageBox.Yes:
+                self.status_left.setText(
+                    "Left alone — every layer of this sheet is already drawn.")
+                return
+            self.layer_state.clear()
+            self.plot.layers_label.setText("Layer marks cleared.")
         if self._with_plot_quality(lambda drawings:
-                                   self._plot_with(drawings, dry_run)):
+                                   self._plot_with(drawings, dry_run, only), only):
             return
-        self._plot_with(None, dry_run)
+        self._plot_with(None, dry_run, only)
 
-    def _plot_with(self, drawings, dry_run):
-        job = self._plot_job(drawings)
+    def _plot_with(self, drawings, dry_run, only=None):
+        job = self._plot_job(drawings, only)
         if job is None:
             self.plot.set_running(False)
             return
-        stray = self.scene.out_of_bounds()
+        stray = self.scene.out_of_bounds(only)
         if stray and not dry_run:
             answer = QMessageBox.question(
                 self, "Off the paper",
@@ -1026,8 +1134,11 @@ class MainWindow(QMainWindow):
         if not dry_run:
             self.inhibitor.start()
         notifier = None if dry_run else self.notify.notifier()
+        # Stop between layers only when there is a nib to change. One pattern
+        # on one pen is one layer, so it runs start to finish.
+        pause = len(self.scene.pens_in_use(only)) > 1
         self.plotRequested.emit(job, self.plot.options(self.sheet.current_model()),
-                                dry_run, True, notifier)
+                                dry_run, True, notifier, pause)
 
     def _stop_plot(self):
         self.status_left.setText("Stopping — the pen will lift at the next segment.")
@@ -1081,10 +1192,19 @@ class MainWindow(QMainWindow):
             self.status_left.setText(
                 "Stopped. %d layer%s still to draw — plotting again resumes there."
                 % (pending, "" if pending == 1 else "s"))
+        elif not summary.get("results"):
+            # Every layer was already marked down, so the loop in plot_job ran
+            # zero times and the pen never moved. "Finished — 1 layer in 0 s"
+            # is how a plot that did nothing reads as one that worked.
+            self.status_left.setText(
+                "Nothing to plot — every layer of this sheet is already down. "
+                "\u201cForget what is already plotted\u201d draws it again.")
+            self.plot.layers_label.setText(
+                "Already plotted — nothing was sent to the machine.")
         else:
+            drawn = len(summary["results"])
             self.status_left.setText("Finished — %d layer%s in %s"
-                                     % (len(summary["layers"]),
-                                        "" if len(summary["layers"]) == 1 else "s",
+                                     % (drawn, "" if drawn == 1 else "s",
                                         _hms(summary.get("seconds"))))
 
     def _plot_failed(self, message):

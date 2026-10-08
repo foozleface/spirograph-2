@@ -6,11 +6,12 @@ serial port must have exactly one owner in the process and a panel is the wrong
 place for that.
 """
 
-from PySide6.QtCore import QSettings, Qt, Signal
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFrame,
-                               QGridLayout, QGroupBox, QLabel, QLineEdit,
-                               QProgressBar, QPushButton, QScrollArea,
-                               QSpinBox, QVBoxLayout, QWidget)
+from PySide6.QtCore import QSettings, Qt, QTimer, Signal
+from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox,
+                               QDoubleSpinBox, QFrame, QGridLayout, QGroupBox,
+                               QLabel, QLineEdit, QProgressBar, QPushButton,
+                               QRadioButton, QScrollArea, QSpinBox,
+                               QVBoxLayout, QWidget)
 
 from axiplot import driver as axidriver
 from spiro.ui import theme
@@ -34,6 +35,7 @@ class PlotPanel(QWidget):
     """AxiDraw options, manual jogging, and the plot controls."""
 
     plotRequested = Signal(bool)          # dry_run
+    scopeChanged = Signal(str)            # "all" | "selection"
     previewRequested = Signal()
     stopRequested = Signal()
     manualRequested = Signal(str)
@@ -43,6 +45,7 @@ class PlotPanel(QWidget):
     def __init__(self, settings=None, parent=None):
         super().__init__(parent)
         self.settings = settings or QSettings("spirograph-2", "plotter")
+        self.running = False
 
         scroll = QVBoxLayout(self)
         scroll.setContentsMargins(0, 0, 0, 0)
@@ -55,6 +58,7 @@ class PlotPanel(QWidget):
         layout.setSpacing(8)
         area.setWidget(host)
         scroll.addWidget(area)
+        self.area = area
 
         # -- connection --------------------------------------------------------- #
         layout.addWidget(theme.h2("Machine"))
@@ -133,19 +137,54 @@ class PlotPanel(QWidget):
         layout.addWidget(theme.hline())
         layout.addWidget(theme.h2("Plot"))
 
+        # What a press of Plot covers. Explicit, because the two differ in
+        # more than how much ink goes down: a whole sheet is one layer per pen
+        # and stops between them for the nib, while one pattern is one pen and
+        # runs start to finish.
+        box = QGroupBox("What to plot")
+        inner = QVBoxLayout(box)
+        inner.setContentsMargins(8, 4, 8, 4)
+        inner.setSpacing(2)
+        self.scope_all = QRadioButton("Everything on the paper")
+        self.scope_all.setToolTip(
+            "One layer per pen, in pen order, stopping between them so the "
+            "nib can be changed.")
+        self.scope_one = QRadioButton("Just the selected pattern")
+        self.scope_one.setToolTip(
+            "The pattern highlighted on the paper, with its own pen. "
+            "One layer, so the plot never stops.")
+        if self.settings.value("plot_scope", "all") == "selection":
+            self.scope_one.setChecked(True)
+        else:
+            self.scope_all.setChecked(True)
+        self.scope = QButtonGroup(self)
+        self.scope.addButton(self.scope_all)
+        self.scope.addButton(self.scope_one)
+        inner.addWidget(self.scope_all)
+        inner.addWidget(self.scope_one)
+        self.scope_note = theme.muted("", wrap=True)
+        inner.addWidget(self.scope_note)
+        for button in (self.scope_all, self.scope_one):
+            button.toggled.connect(lambda _on: self._scope_picked())
+        layout.addWidget(box)
+
         self.estimate = theme.muted("Estimate not run.", wrap=True)
         layout.addWidget(self.estimate)
 
         self.preview_button = QPushButton("Estimate (no machine)")
+        self.preview_button.setProperty(
+            "idle_tip", "Motion-plan every layer without opening the serial port.")
         self.preview_button.setToolTip(
-            "Motion-plan every layer without opening the serial port.")
+            self.preview_button.property("idle_tip"))
         self.preview_button.clicked.connect(self.previewRequested.emit)
         self.dry_button = QPushButton("Dry run")
-        self.dry_button.setToolTip("Rehearse the whole job, pen never moving.")
+        self.dry_button.setProperty(
+            "idle_tip", "Rehearse the whole job, pen never moving.")
+        self.dry_button.setToolTip(self.dry_button.property("idle_tip"))
         self.dry_button.clicked.connect(lambda: self.plotRequested.emit(True))
         layout.addWidget(row(self.preview_button, self.dry_button))
 
-        self.plot_button = QPushButton("Plot")
+        self.plot_button = QPushButton("Plot everything")
         self.plot_button.setObjectName("primary")
         self.plot_button.clicked.connect(lambda: self.plotRequested.emit(False))
         self.stop_button = QPushButton("Stop")
@@ -191,9 +230,33 @@ class PlotPanel(QWidget):
         self.reset_button.clicked.connect(self.resetLayersRequested.emit)
         layout.addWidget(self.reset_button)
 
+        self._scope_picked()
+
         layout.addStretch(1)
 
     # -- what the worker needs -------------------------------------------------------- #
+
+    def _scope_picked(self):
+        """Keep the button honest about what it is about to do.
+
+        The mode is the difference between plotting one pattern and plotting
+        the sheet, and a button that just says "Plot" either way is how you
+        press it expecting one and get the other.
+        """
+        scope = self.plot_scope()
+        self.plot_button.setText("Plot the selected pattern"
+                                 if scope == "selection" else "Plot everything")
+        # Remembered now rather than at the next plot: a mode that resets on
+        # every launch is one you press Plot in without noticing.
+        self.settings.setValue("plot_scope", scope)
+        self.scopeChanged.emit(scope)
+
+    def plot_scope(self):
+        """"all" -- the whole sheet; "selection" -- the highlighted pattern."""
+        return "selection" if self.scope_one.isChecked() else "all"
+
+    def set_scope_note(self, text):
+        self.scope_note.setText(text)
 
     def options(self, model):
         """The option dict axiplot's driver takes."""
@@ -209,6 +272,7 @@ class PlotPanel(QWidget):
         return opts
 
     def save_settings(self):
+        self.settings.setValue("plot_scope", self.plot_scope())
         for name, *_ in SETTINGS:
             self.settings.setValue(name, self.fields[name].value())
         self.settings.setValue("port", self.port.text().strip())
@@ -219,12 +283,26 @@ class PlotPanel(QWidget):
     # -- feedback ------------------------------------------------------------------------ #
 
     def set_running(self, running):
-        self.plot_button.setEnabled(not running)
-        self.dry_button.setEnabled(not running)
-        self.preview_button.setEnabled(not running)
+        """Show that a plot is in flight -- without going deaf to the buttons.
+
+        They used to be disabled for the duration. A plot that stops between
+        layers can sit for minutes waiting for a nib, and a disabled button is
+        indistinguishable from a broken one: pressing Plot did nothing and said
+        nothing. They stay live, and the window answers a press with why.
+        """
+        self.running = running
         self.stop_button.setEnabled(running)
+        for button in (self.plot_button, self.dry_button, self.preview_button):
+            button.setToolTip("A plot is running. Stop it first."
+                              if running else button.property("idle_tip") or "")
         if not running:
             self.pen_prompt.setVisible(False)
+
+    def show_pen_prompt(self):
+        """Bring the waiting pen-change prompt back into view."""
+        if self.pen_prompt.isVisible():
+            QTimer.singleShot(0, lambda: self.area.ensureWidgetVisible(
+                self.pen_prompt, 0, 20))
 
     def set_progress(self, fraction, text=""):
         self.progress.setValue(int(max(0.0, min(1.0, fraction)) * 1000))
@@ -233,6 +311,12 @@ class PlotPanel(QWidget):
     def ask_for_pen(self, text):
         self.pen_prompt_text.setText(text)
         self.pen_prompt.setVisible(True)
+        # The prompt sits near the bottom of a scrolling panel, and the plot
+        # thread is blocked until one of its buttons is pressed. A button
+        # below the fold is a stopped plot nobody can see the reason for, so
+        # scroll it into view -- after layout, which has not happened yet.
+        QTimer.singleShot(0, lambda: self.area.ensureWidgetVisible(
+            self.pen_prompt, 0, 20))
 
     def pen_prompt_done(self):
         self.pen_prompt.setVisible(False)

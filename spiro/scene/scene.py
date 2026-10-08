@@ -118,14 +118,12 @@ class Scene:
             item.y_mm *= fy
             item.set_width(item.w_mm * min(fx, fy))
 
-    def out_of_bounds(self):
+    def out_of_bounds(self, only=None):
         """Items that reach outside the drawable area — the pen would stall
         against the end of its travel."""
         x0, y0, w, h = self.paper.drawable
         out = []
-        for item in self.items:
-            if not item.visible:
-                continue
+        for item in self.plot_items(only):
             ix0, iy0, ix1, iy1 = item.bounds_mm()
             if ix0 < x0 - 1e-6 or iy0 < y0 - 1e-6 or ix1 > x0 + w + 1e-6 or iy1 > y0 + h + 1e-6:
                 out.append(item)
@@ -137,9 +135,18 @@ class Scene:
         index = min(max(item.pen, 0), len(self.pens) - 1) if self.pens else 0
         return self.pens[index] if self.pens else Pen()
 
-    def pens_in_use(self):
+    def plot_items(self, only=None):
+        """The visible items a plot covers.
+
+        ``only`` is a set of item ids -- the one selected pattern, when the
+        plot is scoped to a selection. ``None`` means the whole sheet.
+        """
+        return [i for i in self.items
+                if i.visible and (only is None or i.item_id in only)]
+
+    def pens_in_use(self, only=None):
         """The pens that actually have something to draw, in pen order."""
-        used = {i.pen for i in self.items if i.visible}
+        used = {i.pen for i in self.plot_items(only)}
         return [(index, pen) for index, pen in enumerate(self.pens)
                 if index in used and pen.include]
 
@@ -155,12 +162,13 @@ class Scene:
 
     # -- output ----------------------------------------------------------------- #
 
-    def to_svg(self, stroke_width_mm=0.3, background=None, pens=None):
+    def to_svg(self, stroke_width_mm=0.3, background=None, pens=None, only=None):
         """The whole sheet as one SVG, in millimetres.
 
         Paths are stroked with their pen's colour and closed with an explicit
         ``</path>``: both are what :mod:`axiplot.colorsplit` matches on.
-        Passing ``pens`` restricts the output to those pen indices.
+        Passing ``pens`` restricts the output to those pen indices, and
+        ``only`` to those item ids.
         """
         w, h = self.paper.width_mm, self.paper.height_mm
         out = ['<?xml version="1.0" encoding="UTF-8"?>',
@@ -169,8 +177,8 @@ class Scene:
         if background:
             out.append('<rect x="0" y="0" width="%g" height="%g" fill="%s"/>'
                        % (w, h, background))
-        for item in self.items:
-            if not item.visible or (pens is not None and item.pen not in pens):
+        for item in self.plot_items(only):
+            if pens is not None and item.pen not in pens:
                 continue
             color = self.pen_of(item).color
             for path in item.paths_mm():
@@ -183,38 +191,43 @@ class Scene:
         out.append('</svg>')
         return "\n".join(out) + "\n"
 
-    def job(self, opts=None, optimizer="auto", vpype=None):
+    def identity(self, only=None):
+        """The parts of :meth:`job` that say *which drawing this is* — every
+        field :func:`axiplot.run.job_stamp` reads, and no SVG.
+
+        Asking whether this sheet is already on the paper should not cost a
+        render of the whole thing.
+        """
+        in_use = self.pens_in_use(only)
+        return {
+            "mode": "color" if len(in_use) > 1 else "mono",
+            "pens": [{"color": pen.color, "label": pen.label, "include": True,
+                      "order": order} for order, (_, pen) in enumerate(in_use)],
+            "paperSize": {"width_mm": self.paper.width_mm,
+                          "height_mm": self.paper.height_mm},
+            "hash": self.stamp(only),
+        }
+
+    def job(self, opts=None, optimizer="auto", vpype=None, only=None):
         """The job dict :func:`axiplot.run.plot_job` takes.
 
         ``mode`` is "color" whenever more than one pen is in use — that is the
         mode that splits the SVG into one layer per pen and stops between them
         for the swap.
         """
-        in_use = self.pens_in_use()
-        svg = self.to_svg(pens={index for index, _ in in_use} or None)
-        return {
-            "svg": svg,
-            "mode": "color" if len(in_use) > 1 else "mono",
-            "pens": [{"color": pen.color, "label": pen.label, "include": True,
-                      "order": order} for order, (_, pen) in enumerate(in_use)],
-            "paperSize": {"width_mm": self.paper.width_mm,
-                          "height_mm": self.paper.height_mm},
-            "hash": self.stamp(),
-            "opts": opts or {},
-            "optimizer": optimizer,
-            "vpype": vpype or {},
-        }
+        in_use = self.pens_in_use(only)
+        svg = self.to_svg(pens={index for index, _ in in_use} or None, only=only)
+        return dict(self.identity(only), svg=svg, opts=opts or {},
+                    optimizer=optimizer, vpype=vpype or {})
 
-    def stamp(self):
+    def stamp(self, only=None):
         """What makes this sheet *this* sheet, for the purposes of "is layer 3
         already on the paper?". Any change to the geometry, the pens or the
         paper gives a different answer."""
         parts = ["%g x %g" % (self.paper.width_mm, self.paper.height_mm)]
         parts += ["pen %s %s %d" % (pen.color, pen.label, pen.include)
                   for pen in self.pens]
-        for item in self.items:
-            if not item.visible:
-                continue
+        for item in self.plot_items(only):
             parts.append("%s|%.4f,%.4f,%.4f,%.4f,%.3f,%d|%s" % (
                 item.name, item.x_mm, item.y_mm, item.w_mm, item.h_mm,
                 item.rotation_deg, item.pen,

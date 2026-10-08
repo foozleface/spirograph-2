@@ -202,6 +202,188 @@ second.move_to(430, 110)
 window._scene_changed()
 check("bringing it back clears the warning", window.status_right.text() == "")
 
+# -- plotting a sheet that is already drawn ------------------------------------------ #
+
+# The marks that let a stopped plot resume are keyed by what makes a sheet
+# *this* sheet: its geometry, its paper and its pens. A machine setting like
+# pen-down speed is not part of that, so changing one and pressing Plot skips
+# every layer. The window has to notice before it sends nothing to the machine,
+# and has to say so afterwards rather than reporting a plot that never ran.
+print("plotting a sheet that is already drawn:")
+from axiplot import run as axirun  # noqa: E402
+
+window.layer_state.clear()
+check("a sheet with no marks is not already plotted", not window._already_plotted())
+
+plotted = window.scene.job(opts=window.plot.options(window.sheet.current_model()))
+window.layer_state.sync(axirun.job_stamp(plotted), 2)
+window.layer_state.mark(0)
+check("one layer of two is not the whole sheet", not window._already_plotted())
+window.layer_state.mark(1)
+check("both layers down means the sheet is already plotted",
+      window._already_plotted())
+
+window.plot.fields["speedPenDown"].setValue(100)
+check("changing pen-down speed does not make it a different sheet",
+      window._already_plotted())
+
+second.move_to(425, 110)
+window._scene_changed()
+check("but moving a pattern does", not window._already_plotted())
+second.move_to(430, 110)
+window._scene_changed()
+check("and moving it back does not", window._already_plotted())
+
+window._plot_finished({"layers": [{}, {}], "results": [], "stopped": False,
+                       "seconds": 0.0, "state": window.layer_state,
+                       "complete": True})
+check("a run that drew nothing does not claim to have finished",
+      "already down" in window.status_left.text()
+      and "Finished" not in window.status_left.text(),
+      window.status_left.text())
+
+window._plot_finished({"layers": [{}, {}], "results": [{}], "stopped": False,
+                       "seconds": 12.0, "state": window.layer_state,
+                       "complete": False})
+check("and a resumed plot counts what it drew, not what the sheet holds",
+      "Finished \u2014 1 layer" in window.status_left.text(),
+      window.status_left.text())
+
+window.layer_state.clear()
+check("forgetting the marks puts the sheet back in play",
+      not window._already_plotted())
+window.plot.fields["speedPenDown"].setValue(25)
+
+# -- what a press of Plot covers ------------------------------------------------------ #
+
+# Two modes, said out loud rather than inferred: the whole sheet, which is one
+# layer per pen and stops between them for the nib, or the one highlighted
+# pattern, which is one pen and runs start to finish.
+print("plot everything, or just the selected pattern:")
+check("the default is everything on the paper", window.plot.plot_scope() == "all")
+check("and that is a two-pen job that has to stop",
+      len(window.scene.pens_in_use(None)) == 2)
+
+window.canvas.select(first.item_id)
+window.plot.scope_one.setChecked(True)
+pump(60)
+only, problem = window._plot_only()
+check("choosing the selection narrows the plot to one pattern",
+      window.plot.plot_scope() == "selection" and problem is None
+      and [i.item_id for i in window.scene.plot_items(only)] == [first.item_id])
+
+one = window.scene.job(opts={}, only=only)
+check("which is a one-pen job, so there is no nib to change",
+      one["mode"] == "mono" and len(one["pens"]) == 1
+      and len(window.scene.pens_in_use(only)) == 1, (one["mode"], one["pens"]))
+bounds = job_bounds(one["svg"], window.scene.pens[first.pen].color)
+check("the SVG holds that pattern, where it sits on the paper",
+      bounds is not None and close(bounds[0], first.x_mm - first.w_mm / 2)
+      and close(bounds[2], first.x_mm + first.w_mm / 2), bounds)
+check("and the other pattern is not in it at all",
+      job_bounds(one["svg"], window.scene.pens[second.pen].color) is None)
+check("a scoped plot is its own drawing, so its marks are its own",
+      axirun.job_stamp(window.scene.identity(only))
+      != axirun.job_stamp(window.scene.identity(None)))
+
+# What actually reaches the worker, without writing the user's settings or
+# letting the plot thread near it.
+window.plot.save_settings = lambda: None
+window.notify.save_settings = lambda: None
+window.plotRequested.disconnect(window.plotter.plot)
+sent = []
+window.plotRequested.connect(lambda *a: sent.append(a))
+try:
+    window._plot_with(None, True, only)
+    check("a per-selection plot tells the worker not to pause",
+          len(sent) == 1 and sent[-1][5] is False,
+          sent[-1][5] if sent else None)
+    sent.clear()
+    window._plot_with(None, True, None)
+    check("a whole-sheet plot across two pens tells it to pause",
+          len(sent) == 1 and sent[-1][5] is True,
+          sent[-1][5] if sent else None)
+
+    # Both panels hold a selection; clearing one leaves the other standing.
+    window.canvas.select(None)
+    window.sheet.select(None)
+    window._refresh_scope_note()
+    check("per-selection with nothing selected says which and why",
+          "No pattern is selected" in window.plot.scope_note.text(),
+          window.plot.scope_note.text())
+    sent.clear()
+    window.status_left.setText("")
+    window._start_plot(True)
+    check("and the press is refused, not quietly widened to the lot",
+          not sent and "No pattern is selected" in window.status_left.text(),
+          window.status_left.text())
+finally:
+    window.plotRequested.disconnect()
+    window.plotRequested.connect(window.plotter.plot)
+    window.plot.set_running(False)
+
+window.plot.scope_all.setChecked(True)
+window.canvas.select(first.item_id)
+pump(60)
+check("back on everything, the note counts the pens and warns of the stop",
+      "2 pens" in window.plot.scope_note.text()
+      and "stops" in window.plot.scope_note.text(),
+      window.plot.scope_note.text())
+window.plot.scope_one.setChecked(True)
+pump(60)
+check("and on one pattern it promises no stops",
+      "no stops" in window.plot.scope_note.text(), window.plot.scope_note.text())
+check("the button says which of the two it will do",
+      window.plot.plot_button.text() == "Plot the selected pattern",
+      window.plot.plot_button.text())
+window.plot.scope_all.setChecked(True)
+pump(60)
+check("and says the other when the other is chosen",
+      window.plot.plot_button.text() == "Plot everything",
+      window.plot.plot_button.text())
+check("the choice is remembered, so a restart does not silently widen it",
+      window.plot.settings.value("plot_scope") == "all",
+      window.plot.settings.value("plot_scope"))
+
+# -- pressing Plot while one is already running -------------------------------------- #
+
+# A multi-pen plot stops between layers and waits for the nib, sometimes for
+# minutes. The buttons used to be disabled for the whole run, so a press during
+# the wait did nothing and said nothing -- the same silence as a broken button.
+print("pressing Plot while a plot is in flight:")
+window.plot.set_running(True)
+check("the buttons stay live while a plot runs",
+      window.plot.plot_button.isEnabled() and window.plot.dry_button.isEnabled()
+      and window.plot.preview_button.isEnabled())
+check("and Stop becomes the one that is armed", window.plot.stop_button.isEnabled())
+
+window.plotter.busy = True
+try:
+    window.status_left.setText("")
+    window._start_plot(False)
+    check("a press during a plain run says a plot is already going",
+          "already running" in window.status_left.text(), window.status_left.text())
+
+    window.plot.ask_for_pen("Put in the <b>Red</b> pen.")
+    window.status_left.setText("")
+    window._start_plot(False)
+    pump(60)
+    check("a press during a pen change says what it is waiting for",
+          "waiting for the next pen" in window.status_left.text(),
+          window.status_left.text())
+    check("and it is the Plot tab that is showing",
+          window.right_tabs.currentWidget() is window.plot)
+    window.status_left.setText("")
+    window._start_preview()
+    check("an estimate press gets the same answer, not silence",
+          "waiting for the next pen" in window.status_left.text(),
+          window.status_left.text())
+finally:
+    window.plotter.busy = False
+    window.plot.set_running(False)
+check("ending the run puts the pen prompt away",
+      not window.plot.pen_prompt.isVisible())
+
 # -- files -------------------------------------------------------------------------- #
 
 print("files:")
@@ -769,6 +951,62 @@ check("an out-of-range file value is shown, not clamped",
       (lambda w: (w.editor.minimum() <= -180 and w.editor.value() == -180))(
           __import__("spiro.ui.widgets", fromlist=["ParamRow"]).ParamRow(
               "total_degrees", MODULE_DEFS["rotation"]["params"]["total_degrees"], -180)))
+
+# -- the manual commands ------------------------------------------------------------- #
+
+# Home is the one that cannot be a moveto. Interactive mode dead-reckons from
+# where it believes the carriage started, and a fresh connection believes that
+# is home -- so moveto(0, 0) plans a zero-length move, the machine sits still,
+# and the app reports "Sent: home". Only the board knows where the carriage
+# really is, and manual mode's walk_home is what asks it.
+print("the manual commands:")
+import types  # noqa: E402
+
+from spiro.ui import workers  # noqa: E402
+
+
+class FakeAxiDraw:
+    log = []
+
+    def __init__(self):
+        self.options = types.SimpleNamespace()
+
+    def __getattr__(self, name):
+        def record(*args):
+            FakeAxiDraw.log.append((name,) + args)
+            return True
+        return record
+
+    def plot_run(self, *args):
+        FakeAxiDraw.log.append(("plot_run", getattr(self.options, "mode", None),
+                                getattr(self.options, "manual_cmd", None)))
+
+
+fake = types.ModuleType("pyaxidraw")
+fake.axidraw = types.SimpleNamespace(AxiDraw=FakeAxiDraw)
+sys.modules["pyaxidraw"] = fake
+try:
+    FakeAxiDraw.log = []
+    workers.manual_command("home", {"port": "/dev/null"})
+    home = list(FakeAxiDraw.log)
+    FakeAxiDraw.log = []
+    workers.manual_command("pen_up", {"port": "/dev/null"})
+    up = list(FakeAxiDraw.log)
+finally:
+    del sys.modules["pyaxidraw"]
+
+check("Home asks the board to walk home",
+      ("plot_run", "manual", "walk_home") in home, home)
+check("and does not dead-reckon a move to the origin",
+      not any(step[0] in ("moveto", "goto", "interactive") for step in home), home)
+check("pen up still goes through the interactive port",
+      [step[0] for step in up] == ["interactive", "connect", "penup", "disconnect"], up)
+try:
+    workers.manual_command("fly")
+    refused = False
+except ValueError:
+    refused = True
+check("an unknown command raises rather than guessing", refused)
 
 window.design.clear_machine()
 check("clear empties the machine", window.document.steps == [] and not window.design.strip.steps)
