@@ -22,6 +22,7 @@ from pathlib import Path
 from PySide6.QtCore import QSettings, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (QApplication, QFileDialog, QLabel, QMainWindow,
+                               QPushButton,
                                QMessageBox, QSplitter, QStatusBar, QTabWidget,
                                QVBoxLayout, QWidget)
 
@@ -150,6 +151,13 @@ class MainWindow(QMainWindow):
         self.centre.addTab(self.paper_host, "Paper")
         self.centre.setDocumentMode(True)
         self.centre.currentChanged.connect(self._centre_tab_changed)
+        # Text belongs to the paper, so it is offered where the paper is —
+        # the Sheet tab's button is out of sight whenever Plot is showing.
+        self.text_button = QPushButton("＋ Add text")
+        self.text_button.setToolTip("Put words on the paper — any font, size and "
+                                    "angle (Ctrl+T)")
+        self.text_button.clicked.connect(self._add_text)
+        self.centre.setCornerWidget(self.text_button, Qt.TopRightCorner)
 
         self.splitter = QSplitter(Qt.Horizontal)
         for widget in (left, self.centre, right):

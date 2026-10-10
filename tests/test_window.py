@@ -1292,6 +1292,10 @@ def scripted_dialog(**fields):
     return Scripted
 
 
+window.right_tabs.setCurrentWidget(window.plot)
+check("Add text is in sight whichever side tab is showing",
+      window.text_button.isVisibleTo(window)
+      and window.centre.cornerWidget(Qt.TopRightCorner) is window.text_button)
 window.scene.items.clear()
 window._new_document()
 main_module.TextDialog = scripted_dialog(words="Hello", size=12.0, rotation=30.0)
