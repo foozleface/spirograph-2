@@ -412,6 +412,8 @@ class DesignPanel(QWidget):
 
     def explain(self, name):
         """Show what one parameter of the selected step does."""
+        if self.selected_step is None:
+            return
         spec = self._step_spec["params"].get(name) or COMMON_PARAMS.get(name)
         if spec is None:
             return

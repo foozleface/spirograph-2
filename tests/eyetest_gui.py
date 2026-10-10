@@ -82,6 +82,8 @@ pump(200)
 
 print("the window as it opens:")
 snap(window, "fresh-window")
+window._new_document()                   # it opens blank; the rest needs a gear
+rendered(window)
 wait_for(lambda: not window.design.explainer.pending, timeout=60)
 pump(100)
 snap(window.design, "build-panel")
