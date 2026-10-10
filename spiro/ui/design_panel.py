@@ -12,8 +12,9 @@ Everything here edits one :class:`spiro.pipeline.document.Document`;
 nothing here knows about paper, pens or the plotter.
 """
 
-from PySide6.QtCore import QTimer, Qt, Signal
-from PySide6.QtWidgets import (QComboBox, QFrame, QLabel, QPushButton,
+from PySide6.QtCore import QSettings, QTimer, Qt, Signal
+from PySide6.QtGui import QKeySequence, QShortcut
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QFrame, QLabel, QPushButton,
                                QScrollArea, QVBoxLayout, QWidget)
 
 from spiro.pipeline.registry import COMMON_PARAMS, MODULE_DEFS, OSC_PREFIX
@@ -62,11 +63,14 @@ class DesignPanel(QWidget):
     randomRequested = Signal()          # invent a pipeline
     renderWanted = Signal(object)       # small renders for the explainer
 
-    def __init__(self, document, parent=None):
+    def __init__(self, document, settings=None, parent=None):
         super().__init__(parent)
         self.document = document
+        self.settings = settings or QSettings("spirograph-2", "app")
         self.selected_step = None
         self._show_more = False
+        self.pending = 0                # edits made since the last redraw
+        self.redrawing = False
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(10, 10, 10, 10)
@@ -165,6 +169,27 @@ class DesignPanel(QWidget):
         host_layout.addStretch(1)
         self.params_area.setWidget(host)
         outer.addWidget(self.params_area, 1)
+
+        # A number takes effect when it is applied, not on every keystroke:
+        # typing 92 would otherwise draw 9 first, and the picture changing
+        # half a second after the last key says nothing about which edit it
+        # shows. The button says whether the picture is behind the numbers.
+        self.apply_button = QPushButton()
+        self.apply_button.setToolTip("Redraw the pattern with the numbers above "
+                                     "(Enter)")
+        self.apply_button.clicked.connect(self.apply)
+        self.live = QCheckBox("Redraw as I edit")
+        self.live.setToolTip("Redraw a moment after every change, without "
+                             "pressing Apply")
+        self.live.setChecked(str(self.settings.value("redraw_live", "false"))
+                             == "true")
+        self.live.toggled.connect(self._live_toggled)
+        outer.addWidget(row(self.live, 1, self.apply_button, spacing=6))
+        for key in (Qt.Key_Return, Qt.Key_Enter):
+            shortcut = QShortcut(QKeySequence(key), self)
+            shortcut.setContext(Qt.WidgetWithChildrenShortcut)
+            shortcut.activated.connect(self.apply)
+        self._show_apply()
 
         outer.addWidget(theme.hline())
         quality_label = QLabel("Preview quality")
@@ -421,7 +446,7 @@ class DesignPanel(QWidget):
         self.strip.update()              # the summary line and the brackets
         if self.explainer.params is params:
             self._explain_timer.start()  # the pictures follow the new value
-        self.documentChanged.emit()
+        self._edited()
 
     def show_recipe(self, name):
         """Say which recipe made what is on screen — it is worth knowing which
@@ -452,7 +477,53 @@ class DesignPanel(QWidget):
 
     def _finishing_changed(self):
         self._label_finishing()
-        self.documentChanged.emit()
+        self._edited()
+
+    # -- applying ------------------------------------------------------------------ #
+
+    def _edited(self):
+        """A number changed: redraw now if live, else say it is waiting."""
+        if self.live.isChecked():
+            self.documentChanged.emit()
+            return
+        self.pending += 1
+        self._show_apply()
+
+    def apply(self):
+        """Redraw with whatever the numbers say now."""
+        if self.pending:
+            self.documentChanged.emit()
+
+    def redraw_started(self):
+        """The window has sent the document off: everything edited is in it."""
+        self.pending = 0
+        self.redrawing = True
+        self._show_apply()
+
+    def redraw_done(self):
+        self.redrawing = False
+        self._show_apply()
+
+    def _live_toggled(self, on):
+        self.settings.setValue("redraw_live", "true" if on else "false")
+        if on:
+            self.apply()
+        self._show_apply()
+
+    def _show_apply(self):
+        if self.pending:
+            self.apply_button.setText("Apply %d change%s"
+                                      % (self.pending, "" if self.pending == 1 else "s"))
+            self.apply_button.setObjectName("primary")
+            self.apply_button.setEnabled(True)
+        else:
+            self.apply_button.setText("Redrawing…" if self.redrawing else "Up to date ✓")
+            self.apply_button.setObjectName("")
+            self.apply_button.setEnabled(False)
+        self.apply_button.setVisible(not self.live.isChecked() or self.redrawing)
+        # The object name picks the style; Qt re-reads it only when told.
+        self.apply_button.style().unpolish(self.apply_button)
+        self.apply_button.style().polish(self.apply_button)
 
     # -- sampling ---------------------------------------------------------------- #
 

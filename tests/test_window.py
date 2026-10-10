@@ -1008,6 +1008,50 @@ except ValueError:
     refused = True
 check("an unknown command raises rather than guessing", refused)
 
+# -- an edit waits for Apply -------------------------------------------------- #
+
+print("an edit waits for Apply:")
+design = window.design
+design.live.blockSignals(True)           # not the user's remembered choice
+design.live.setChecked(False)
+design.live.blockSignals(False)
+design.refresh(select=0)
+window._render_now()
+wait_for(lambda: not design.redrawing)
+check("a fresh redraw leaves nothing to apply",
+      design.pending == 0 and not design.apply_button.isEnabled(),
+      design.apply_button.text())
+row = next(w for w in design.step_box.findChildren(
+    __import__("spiro.ui.widgets", fromlist=["ParamRow"]).ParamRow)
+    if w.spec.get("type") in ("int", "float"))
+token = window.render_token
+row.editor.setValue(row.editor.value() + 1)
+row.editor.setValue(row.editor.value() + 1)
+pump(400)                                # past the render timer's coalescing
+check("typing does not redraw", window.render_token == token)
+check("the button counts the waiting edits",
+      design.pending == 2 and design.apply_button.isEnabled()
+      and "2 changes" in design.apply_button.text(), design.apply_button.text())
+design.apply()
+pump(400)
+check("Apply redraws", window.render_token == token + 1)
+check("and the button says it is working, then up to date",
+      design.pending == 0 and wait_for(lambda: not design.redrawing)
+      and "Up to date" in design.apply_button.text(), design.apply_button.text())
+saved_live = window.settings.value("redraw_live")
+design.live.setChecked(True)
+token = window.render_token
+row.editor.setValue(row.editor.value() + 1)
+pump(400)
+check("Redraw as I edit redraws without Apply",
+      window.render_token == token + 1 and design.pending == 0)
+design.live.setChecked(False)
+if saved_live is None:
+    window.settings.remove("redraw_live")
+else:
+    window.settings.setValue("redraw_live", saved_live)
+wait_for(lambda: not design.redrawing)
+
 window.design.clear_machine()
 check("clear empties the machine", window.document.steps == [] and not window.design.strip.steps)
 check("and disables itself", not window.design.clear.isEnabled())
