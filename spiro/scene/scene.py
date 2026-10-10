@@ -119,12 +119,13 @@ class Scene:
             item.set_width(item.w_mm * min(fx, fy))
 
     def out_of_bounds(self, only=None):
-        """Items that reach outside the drawable area — the pen would stall
-        against the end of its travel."""
+        """Items whose pen lines reach outside the drawable area — the pen
+        would stall against the end of its travel. The lines, not the box
+        round them: a turned item's box overhangs where no ink goes."""
         x0, y0, w, h = self.paper.drawable
         out = []
         for item in self.plot_items(only):
-            ix0, iy0, ix1, iy1 = item.bounds_mm()
+            ix0, iy0, ix1, iy1 = item.ink_bounds_mm()
             if ix0 < x0 - 1e-6 or iy0 < y0 - 1e-6 or ix1 > x0 + w + 1e-6 or iy1 > y0 + h + 1e-6:
                 out.append(item)
         return out

@@ -1265,6 +1265,81 @@ window.render.set_show_machine(True)
 check("and with the machine shown, it is", has_colour(window.render.grab().toImage(), arm))
 window.render.highlight = None
 
+# -- text on the paper -------------------------------------------------------------- #
+
+print("text on the paper:")
+import spiro.ui.main_window as main_module  # noqa: E402
+from spiro.text import is_text_ini, parse as text_parse  # noqa: E402
+RealTextDialog = main_module.TextDialog
+
+
+def scripted_dialog(**fields):
+    """The text dialog, filled in and accepted without a person."""
+    class Scripted(RealTextDialog):
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k)
+            if "words" in fields:
+                self.words.setPlainText(fields["words"])
+            if "font" in fields:
+                self.font.setCurrentIndex(self.font.findData(fields["font"]))
+            for name in ("size", "rotation"):
+                if name in fields:
+                    getattr(self, name).setValue(fields[name])
+            self._redraw()
+
+        def exec(self):
+            return True
+    return Scripted
+
+
+window.scene.items.clear()
+window._new_document()
+main_module.TextDialog = scripted_dialog(words="Hello", size=12.0, rotation=30.0)
+try:
+    window._add_text()
+finally:
+    main_module.TextDialog = RealTextDialog
+words_item = window.scene.items[-1] if window.scene.items else None
+cap = words_item.drawing.style["cap_height"] if words_item else 1
+check("Add text puts the words on the paper",
+      words_item is not None and is_text_ini(words_item.drawing.ini_text)
+      and text_parse(words_item.drawing.ini_text)["text"] == "Hello")
+check("a capital letter as tall as asked, turned as asked, on pen 1",
+      words_item is not None
+      and close(words_item.h_mm * cap / words_item.drawing.height, 12.0)
+      and close(words_item.rotation_deg, 30.0) and words_item.pen == 0)
+steps_before = [step["params"]["type"] for step in window.document.steps]
+window._edit_item(words_item.item_id)
+check("picking text on the paper leaves Build alone",
+      [step["params"]["type"] for step in window.document.steps] == steps_before)
+window.sheet.refresh(select=words_item.item_id)
+check("and the sheet offers Edit text…", window.sheet.edit_text.isVisibleTo(window.sheet))
+words_item.set_height(words_item.h_mm * 2)          # scaled with the handle
+main_module.TextDialog = scripted_dialog(words="Hello\nthere")
+try:
+    window._edit_text(words_item.item_id)           # double-click does the same
+finally:
+    main_module.TextDialog = RealTextDialog
+check("editing changes the words and keeps the size it was scaled to",
+      text_parse(words_item.drawing.ini_text)["text"] == "Hello\nthere"
+      and close(words_item.h_mm * words_item.drawing.style["cap_height"]
+                / words_item.drawing.height, 24.0)
+      and close(words_item.rotation_deg, 30.0))
+check("text needs no re-generating before a plot",
+      words_item not in window._needs_plot_quality())
+job = window.scene.job(opts={})
+check("and it is in what the plotter is sent", "path" in job["svg"]
+      and job_bounds(job["svg"], window.scene.pens[0].color) is not None)
+window._save_session()
+again = MainWindow()
+check("a restart brings the text back",
+      wait_for(lambda: len(again.scene.items) == 1, timeout=60)
+      and text_parse(again.scene.items[0].drawing.ini_text)["text"] == "Hello\nthere")
+again.plotter.stop()
+again.close()
+pump(100)
+window.scene.items.clear()
+
 # -- quitting and coming back ------------------------------------------------ #
 
 print("picking up where it was left:")
@@ -1291,7 +1366,11 @@ back = again.scene.items[0] if again.scene.items else None
 check("where it was, as big, at the same angle, on the same pen",
       back is not None and close(back.x_mm, 200.0) and close(back.y_mm, 90.0)
       and close(back.rotation_deg, 25.0) and back.pen == placed.pen
-      and close(back.w_mm, placed.w_mm))
+      # the height: the stored size. The width follows the drawing, and this
+      # one is linked to Build, whose edit (cycles = 7) may redraw it first.
+      and close(back.h_mm, placed.h_mm),
+      back and (back.x_mm, back.y_mm, back.rotation_deg, back.pen, back.h_mm,
+                placed.pen, placed.h_mm))
 check("still linked to Build, so an edit redraws it",
       back is not None and back.source == again.document.token)
 again.plotter.stop()

@@ -28,8 +28,10 @@ from PySide6.QtWidgets import (QApplication, QFileDialog, QLabel, QMainWindow,
 from axiplot import awake
 from axiplot import run as axirun
 from spiro.pipeline import PLOT_SAMPLING, recipes
-from spiro.pipeline.document import Document, flatten_steps
+from spiro.pipeline.document import Document, at_sampling, flatten_steps
 from spiro.scene import SHEET_SUFFIX, Paper, Scene, item_inis
+from spiro.text import is_text_ini
+from spiro.text import parse as text_spec
 from spiro.ui import theme
 from spiro.ui.canvas_view import PaperCanvas
 from spiro.ui import glyphs
@@ -39,6 +41,7 @@ from spiro.ui.ideas_panel import IdeasPanel
 from spiro.ui.library_panel import LibraryPanel
 from spiro.ui.notify_panel import NotifyPanel
 from spiro.ui.open_dialog import OpenDialog
+from spiro.ui.text_dialog import TextDialog
 from spiro.ui.paper_window import PaperWindow
 from spiro.ui.plot_panel import PlotPanel
 from spiro.ui.render_view import RenderPanel
@@ -243,6 +246,10 @@ class MainWindow(QMainWindow):
         random_action.setShortcut("Ctrl+R")
         random_action.triggered.connect(self._randomize)
         pattern_menu.addAction(random_action)
+        text_action = QAction("Add &text to the paper…", self)
+        text_action.setShortcut("Ctrl+T")
+        text_action.triggered.connect(self._add_text)
+        pattern_menu.addAction(text_action)
         add_action = QAction("&Add a step…", self)
         add_action.setShortcut("Ctrl+Shift+A")
         add_action.triggered.connect(self.design._add_step)
@@ -335,6 +342,9 @@ class MainWindow(QMainWindow):
         self.sheet.cleared.connect(
             lambda: self.status_left.setText("The paper is clear."))
         self.sheet.saveSheetRequested.connect(self._save_sheet_as)
+        self.sheet.addTextRequested.connect(self._add_text)
+        self.sheet.editTextRequested.connect(self._edit_text)
+        self.canvas.itemDoubleClicked.connect(self._edit_text)
         self.sheet.openSheetRequested.connect(self._open_sheet_dialog)
 
         self.plot.plotRequested.connect(self._start_plot)
@@ -631,8 +641,7 @@ class MainWindow(QMainWindow):
             return
         quality = self.design.quality_sampling()
         try:
-            inis = [Document.from_ini(text).to_ini(quality)
-                    for text in item_inis(data)]
+            inis = [at_sampling(text, quality) for text in item_inis(data)]
         except Exception as exc:
             QMessageBox.warning(self, "Could not open the sheet",
                                 "A pattern in it does not read: %s" % exc)
@@ -683,6 +692,11 @@ class MainWindow(QMainWindow):
         if item.source is not None and item.source == self.document.token:
             return                       # already the pattern being built
         text = getattr(item.drawing, "ini_text", "")
+        if is_text_ini(text):
+            # Words are edited where they are, not in Build.
+            self.status_left.setText(
+                "Text — double-click it, or press Edit text…, to change it.")
+            return
         if not text:
             self.status_left.setText("%s has no pipeline to edit." % item.name)
             return
@@ -868,6 +882,53 @@ class MainWindow(QMainWindow):
                   % (item.name, item.w_mm, item.h_mm, item.x_mm, item.y_mm,
                      item.pen + 1))
 
+    # -- text on the paper ---------------------------------------------------------- #
+
+    def _add_text(self):
+        dialog = TextDialog(self)
+        if not dialog.exec() or dialog.drawing is None:
+            return
+        drawing = dialog.drawing
+        spec = dialog.spec()
+        # Words go on the first pen: the next free one, which suits a second
+        # pattern, would put every caption in a different ink.
+        item = self.scene.add(drawing, name=_text_name(spec["text"]), pen=0)
+        item.set_height(drawing.height / drawing.style["cap_height"]
+                        * dialog.size.value())
+        item.rotate_to(dialog.rotation.value() % 360)
+        self.scene.ensure_pens(item.pen + 1)
+        self.sheet.refresh(select=item.item_id)
+        self.canvas.select(item.item_id)
+        self.canvas.invalidate()
+        self.centre.setCurrentWidget(self.paper_host)
+        self.right_tabs.setCurrentWidget(self.sheet)
+        self._scene_changed()
+        self._say("Put %s on the paper — %.0f x %.0f mm, on pen %d. Drag it, "
+                  "turn it by its knob, or double-click to change the words."
+                  % (item.name, item.w_mm, item.h_mm, item.pen + 1))
+
+    def _edit_text(self, item_id):
+        item = self.scene.find(item_id) if item_id else None
+        if item is None or not is_text_ini(getattr(item.drawing, "ini_text", "")):
+            return
+        old = item.drawing
+        size = item.h_mm * old.style["cap_height"] / old.height
+        dialog = TextDialog(self, spec=text_spec(old.ini_text), size_mm=size,
+                            rotation_deg=item.rotation_deg, editing=True)
+        if not dialog.exec() or dialog.drawing is None:
+            return
+        drawing = dialog.drawing
+        item.drawing = drawing
+        item._unit = None
+        item.set_height(drawing.height / drawing.style["cap_height"]
+                        * dialog.size.value())
+        item.rotate_to(dialog.rotation.value() % 360)
+        item.name = _text_name(dialog.spec()["text"])
+        self.canvas.invalidate(item)
+        self.sheet.refresh(select=item.item_id)
+        self._scene_changed()
+        self._say("Changed the text.", hold=2.0)
+
     def _say(self, text, hold=4.0):
         """Say something the person did, and hold it.
 
@@ -1004,6 +1065,8 @@ class MainWindow(QMainWindow):
         stale = []
         for item in self.scene.plot_items(only):
             text = getattr(item.drawing, "ini_text", "")
+            if is_text_ini(text):
+                continue                 # letters are already exact
             match = re.search(r"^output_samples\s*=\s*(\d+)", text, re.M)
             if not match or int(match.group(1)) < want:
                 stale.append(item)
@@ -1020,8 +1083,7 @@ class MainWindow(QMainWindow):
         inis = []
         for item in self.scene.plot_items(only):
             text = getattr(item.drawing, "ini_text", "")
-            inis.append(Document.from_ini(text).to_ini(PLOT_SAMPLING)
-                        if text else text)
+            inis.append(at_sampling(text, PLOT_SAMPLING) if text else text)
         self.plot.set_running(True)
         self.plot.set_progress(0, "re-generating at plot quality…")
         self._pending_plot = self._run_batch(
@@ -1394,7 +1456,7 @@ class MainWindow(QMainWindow):
             data = Scene.read(path)
             session = data.get("session", {})
             quality = self.design.quality_sampling()
-            inis = [Document.from_ini(text).to_ini(quality) for text in item_inis(data)]
+            inis = [at_sampling(text, quality) for text in item_inis(data)]
         except Exception as exc:
             self.status_left.setText("Could not pick up the last session: %s" % exc)
             return
@@ -1460,6 +1522,12 @@ class MainWindow(QMainWindow):
         self.render_panel.play.setChecked(False)
         self._stop_threads()
         super().closeEvent(event)
+
+
+def _text_name(words):
+    """What a block of text is called in the list: its first line, short."""
+    first = (words.strip().splitlines() or [""])[0].strip()
+    return "“%s”" % (first[:24] + ("…" if len(first) > 24 else "")) if first else "text"
 
 
 def _hms(seconds):

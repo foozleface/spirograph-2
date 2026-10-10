@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (QComboBox, QDialog, QFileDialog, QLineEdit,
                                QListWidget, QListWidgetItem, QPushButton,
                                QVBoxLayout)
 
-from spiro.pipeline.document import Document
+from spiro.pipeline.document import Document, at_sampling
 from spiro.scene import SHEET_SUFFIX, Scene
 from spiro.scene.item import PlacedItem
 from spiro.ui import theme, thumbs
@@ -203,7 +203,7 @@ class OpenDialog(QDialog):
                     words = "sheet · %d pattern%s: %s" % (
                         len(names), "" if len(names) == 1 else "s", ", ".join(names))
                     if key not in _pictures and not self._asked(path, mtime):
-                        inis = [Document.from_ini(entry["ini"]).to_ini(SAMPLING)
+                        inis = [at_sampling(entry["ini"], SAMPLING)
                                 for entry in data.get("items", [])]
                         self.waiting[str(path)] = {"data": data, "mtime": mtime,
                                                    "drawings": [None] * len(inis),

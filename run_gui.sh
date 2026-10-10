@@ -4,7 +4,8 @@
 #   ./run_gui.sh              open an empty pattern
 #   ./run_gui.sh some.ini     open a pattern file
 #
-# First run builds .venv and installs PySide6, NumPy and the AxiDraw API.
+# First run builds .venv and installs PySide6, NumPy, the Hershey fonts and
+# the AxiDraw API.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -22,6 +23,11 @@ if need PySide6 || need numpy; then
     echo "Installing PySide6 and NumPy ..."
     "$VENV/bin/pip" install --quiet --upgrade pip
     "$VENV/bin/pip" install --quiet PySide6 numpy
+fi
+if need HersheyFonts; then
+    echo "Installing the Hershey fonts (single-line text for the plotter) ..."
+    "$VENV/bin/pip" install --quiet Hershey-Fonts \
+        || echo "  ... failed; text will offer outline fonts only."
 fi
 if need pyaxidraw; then
     echo "Installing the AxiDraw API (pen-plotter support) ..."

@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox,
 from spiro.scene import PAPER_PRESETS, Paper
 from spiro.scene.paper import AXIDRAW_MODELS
 from spiro.scene.scene import DEFAULT_PEN_COLORS, Pen
+from spiro.text import is_text_ini
 from spiro.ui import theme
 from spiro.ui.widgets import Swatch, row
 
@@ -31,6 +32,8 @@ class SheetPanel(QWidget):
     cleared = Signal()
     saveSheetRequested = Signal()
     openSheetRequested = Signal()
+    addTextRequested = Signal()
+    editTextRequested = Signal(object)    # item_id of a block of text
 
     def __init__(self, scene, parent=None):
         super().__init__(parent)
@@ -115,6 +118,17 @@ class SheetPanel(QWidget):
         self.clear.clicked.connect(self.clear_paper)
         layout.addWidget(row(self.centre, self.fit, self.duplicate, 1,
                              self.remove, self.clear, spacing=4))
+        self.add_text = QPushButton("Add text…")
+        self.add_text.setToolTip("Put words on the paper — any size, font and "
+                                 "angle (Ctrl+T)")
+        self.add_text.clicked.connect(self.addTextRequested.emit)
+        self.edit_text = QPushButton("Edit text…")
+        self.edit_text.setToolTip("Change the words, font or size (or "
+                                  "double-click the text on the paper)")
+        self.edit_text.clicked.connect(
+            lambda: self.editTextRequested.emit(self.selected_id()))
+        self.edit_text.setVisible(False)
+        layout.addWidget(row(self.add_text, self.edit_text, 1, spacing=4))
         layout.addWidget(theme.muted(
             "Selecting a pattern brings its parameters into Build.", wrap=True))
 
@@ -304,6 +318,8 @@ class SheetPanel(QWidget):
         self._syncing = True
         try:
             self.selected_box.setEnabled(item is not None)
+            self.edit_text.setVisible(
+                item is not None and is_text_ini(getattr(item.drawing, "ini_text", "")))
             if item is None:
                 return
             for box, value in ((self.sel_x, item.x_mm), (self.sel_y, item.y_mm),

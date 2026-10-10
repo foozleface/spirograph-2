@@ -128,6 +128,9 @@ def run(ini_text, reload_generators=False):
 
     config = configparser.ConfigParser()
     config.read_string(ini_text)
+    if config.has_section("text") and not config.has_section("pipeline"):
+        from spiro import text
+        return text.render(ini_text)        # words on the paper, not a pattern
     expand_moire_config(config)
 
     style = _style(config)

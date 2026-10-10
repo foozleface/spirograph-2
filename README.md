@@ -128,6 +128,14 @@ Build, linked, so a change there redraws it on the paper and in Render.
 *Clear* takes everything off the sheet and leaves the pattern, the pens and
 the paper as they are.
 
+**Add text…** (`Ctrl+T`, or the Sheet tab) puts words on the paper: the
+size is the height of a capital in millimetres, any angle, lines aligned
+left, centre or right. The single-line (Hershey) fonts are what a pen draws
+best — each stroke once; any installed font can be used too, drawn round its
+outline. Text drags, scales and turns like a pattern; double-click it to
+change the words. A pattern or text turns red on the paper only when its
+pen lines — not the box round them — reach past the drawable area.
+
 The paper and the pattern in Build are kept between launches: they are
 written a moment after each change and come back when the window opens, so
 quitting or a crash loses nothing. That is not a saved file — **Save sheet**

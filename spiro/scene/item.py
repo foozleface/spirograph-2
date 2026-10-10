@@ -143,6 +143,28 @@ class PlacedItem:
         return (self.x_mm - w / 2, self.y_mm - h / 2,
                 self.x_mm + w / 2, self.y_mm + h / 2)
 
+    def ink_bounds_mm(self):
+        """(min_x, min_y, max_x, max_y) of the pen lines themselves.
+
+        :meth:`bounds_mm` is the box round the turned rectangle, which for a
+        turned item reaches well past any line — a ring turned 45 degrees
+        has corners nowhere near ink. This is where the pen actually goes,
+        which is what decides whether it hits the end of its travel. Cached
+        against the placement, so a sheet repaints without refitting.
+        """
+        key = (self.affine(), id(self.unit_paths()))
+        if getattr(self, "_ink_key", None) != key:
+            paths = [p for p in self.paths_mm() if len(p)]
+            if paths:
+                xs = [(float(p.real.min()), float(p.real.max())) for p in paths]
+                ys = [(float(p.imag.min()), float(p.imag.max())) for p in paths]
+                self._ink = (min(a for a, _ in xs), min(a for a, _ in ys),
+                             max(b for _, b in xs), max(b for _, b in ys))
+            else:
+                self._ink = self.bounds_mm()
+            self._ink_key = key
+        return self._ink
+
     def contains(self, x_mm, y_mm):
         """Hit test, in the item's own frame so rotation is honoured."""
         rad = math.radians(-self.rotation_deg)

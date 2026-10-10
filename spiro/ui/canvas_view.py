@@ -42,6 +42,7 @@ class PaperCanvas(QWidget):
     selectionChanged = Signal(object)     # item_id or None
     itemChanged = Signal(object)          # item_id whose geometry moved
     deleteRequested = Signal(object)      # item_id to take off the paper
+    itemDoubleClicked = Signal(object)    # item_id
     statusMessage = Signal(str)
 
     def __init__(self, scene, parent=None):
@@ -327,6 +328,15 @@ class PaperCanvas(QWidget):
         painter.drawText(QPointF(x + length + 8, y + 4), "%g mm" % span)
 
     # -- interaction ---------------------------------------------------------------- #
+
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            mm = self.to_mm(event.position())
+            item = self.scene.item_at(mm.x(), mm.y())
+            if item is not None:
+                self.itemDoubleClicked.emit(item.item_id)
+                return
+        super().mouseDoubleClickEvent(event)
 
     def mousePressEvent(self, event):
         pos = event.position()

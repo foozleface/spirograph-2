@@ -316,3 +316,12 @@ def _flatten(config, section):
                 # nested branch, a subset of ours: keep it
             out.extend(inner)
     return out
+
+
+def at_sampling(ini_text, sampling):
+    """A placed item's INI at another sampling — a pattern re-sampled, a
+    block of text as it is (letters have no sampling to change)."""
+    from spiro.text import is_text_ini
+    if is_text_ini(ini_text):
+        return ini_text
+    return Document.from_ini(ini_text).to_ini(sampling)

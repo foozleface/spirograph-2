@@ -374,6 +374,57 @@ with tempfile.TemporaryDirectory() as folder:
 first.rotate_to(0)
 second.rotate_to(0)
 
+# -- what counts as off the paper ------------------------------------------------ #
+
+print("off the paper is where the ink goes:")
+from spiro.pipeline.engine import Drawing  # noqa: E402
+theta = np.linspace(0, 2 * np.pi, 721)
+ring = Drawing(paths=[np.exp(1j * theta)], min_x=-1, max_x=1, min_y=-1, max_y=1)
+paper = Paper(200, 200, 0, "test")
+edge = Scene(paper=paper)
+round_one = edge.add(ring, name="ring")
+round_one.set_height(100)
+round_one.rotate_to(45)
+# Its box, turned 45 degrees, is 141 mm across; the circle inside is 100.
+round_one.move_to(100 + 100 - 60, 100)   # ink reaches x = 190, the box 210
+check("a turned ring whose box overhangs but whose ink does not is not flagged",
+      round_one.bounds_mm()[2] > 200 and round_one.ink_bounds_mm()[2] < 200
+      and not edge.out_of_bounds(), round_one.ink_bounds_mm())
+round_one.move_to(100 + 100 - 45, 100)   # now the ink reaches x = 205
+check("one whose ink crosses the edge is",
+      [i.name for i in edge.out_of_bounds()] == ["ring"], round_one.ink_bounds_mm())
+
+# -- words ----------------------------------------------------------------------------- #
+
+print("text:")
+from spiro import text  # noqa: E402
+words = text.build_text_ini("Hello\nworld", "hershey:futural", "center", 1.7)
+check("text is an INI the engine draws", text.is_text_ini(words)
+      and run(words).paths and run(words).style["cap_height"] > 0)
+drawn = run(words)
+check("two lines stack downward, the second below the first",
+      len(drawn.paths) > 4 and drawn.height > drawn.style["cap_height"] * 1.7)
+check("a pattern INI is not taken for text",
+      not text.is_text_ini(build_ini(steps=[{"kind": "single",
+                                             "params": {"type": "circle"}}])))
+check("and survives the round trip through parse",
+      text.parse(words) == {"text": "Hello\nworld", "font": "hershey:futural",
+                            "align": "center", "line_spacing": 1.7})
+check("letters a single-line font cannot draw are named",
+      text.missing_letters("a—b", "hershey:futural") == ["—"])
+try:
+    run(text.build_text_ini("   ", "hershey:futural"))
+    refused = False
+except ValueError:
+    refused = True
+check("blank text is refused rather than drawn as nothing", refused)
+sheet = Scene(paper=paper)
+label = sheet.add(drawn, name="label", pen=0)
+saved = sheet.to_dict()
+again = Scene.from_dict(saved, [run(entry["ini"]) for entry in saved["items"]])
+check("a sheet with text on it comes back with the same words",
+      text.parse(again.items[0].drawing.ini_text)["text"] == "Hello\nworld")
+
 print()
 print("scene: %d passed, %d failed" % (len(PASS), len(FAIL)))
 if FAIL:
