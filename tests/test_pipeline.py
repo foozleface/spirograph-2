@@ -506,6 +506,18 @@ check("the switch is offered on the curved paths only",
       and "follow" not in MODULE_DEFS["rail_slide"]["params"]
       and "follow" not in MODULE_DEFS["translation"]["params"])
 
+# -- the klein surface ------------------------------------------------------------ #
+
+print("klein surface:")
+from surface import SurfaceModule  # noqa: E402
+klein = module(SurfaceModule, "surface = klein\nmajor_radius = 180\nminor_radius = 60")
+u = np.linspace(0, 2 * np.pi, 400, endpoint=False)
+v = np.full_like(u, 1.0)
+first = np.array(klein._surface_point(u, v))
+later = np.array(klein._surface_point(u + 2 * np.pi * 7, v))
+check("every lap is the same shape, the first included",
+      np.allclose(first, later, atol=1e-9), np.max(np.abs(first - later)))
+
 print()
 print("pipeline: %d passed, %d failed" % (len(PASS), len(FAIL)))
 if FAIL:

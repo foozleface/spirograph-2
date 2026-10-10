@@ -142,12 +142,16 @@ class SurfaceModule(TransformModule):
             z = r * cos(v)
             
         elif self.surface_type == 'klein':
-            # Klein bottle (figure-8 immersion): the x term flips sign on the
-            # second half of u.
+            # The 'klein' surface: a torus-like loop whose cross-section is
+            # sheared along x as it goes round. It once flipped that shear on
+            # "the second half of u", tested on u itself -- but u runs round
+            # v_lines times, so only the first half of the first lap was ever
+            # flipped, and that one stray loop was the odd line every klein
+            # pattern began with. The other laps are the shape these patterns
+            # were made from, so that is the shape, on every lap.
             r = self.minor_radius
             R = self.major_radius
-            sign = np.where(u < pi, -1.0, 1.0)
-            x = (R + r * cos(u)) * cos(u) + sign * r * sin(u) * cos(v)
+            x = (R + r * cos(u)) * cos(u) + r * sin(u) * cos(v)
             y = (R + r * cos(u)) * sin(u)
             z = r * sin(v)
                 
