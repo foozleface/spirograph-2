@@ -1076,6 +1076,66 @@ check("clicking a picture sets that value and redraws",
       and window.render_token == token + 1,
       (design.document.steps[0]["params"][row.name], ex.jobs[other][0]))
 
+# -- dragging a step to a new place ---------------------------------------- #
+
+print("dragging a step:")
+from PySide6.QtCore import QEvent, QPointF  # noqa: E402
+from PySide6.QtGui import QMouseEvent  # noqa: E402
+from spiro.ui.step_strip import ROW  # noqa: E402
+for module in ("rose", "rotation"):
+    window.document.add_module(module)
+design.refresh(select=0)
+before = [step["params"]["type"] for step in window.document.steps]
+strip = design.strip
+
+
+def strip_mouse(kind, y, buttons):
+    QApplication.sendEvent(strip, QMouseEvent(
+        kind, QPointF(120, y), QPointF(120, y), Qt.LeftButton, buttons, Qt.NoModifier))
+
+
+strip_mouse(QEvent.MouseButtonPress, ROW * 0.5, Qt.LeftButton)
+for y in range(int(ROW * 0.5), int(ROW * 2.9), 8):
+    strip_mouse(QEvent.MouseMove, y, Qt.LeftButton)
+check("the strip shows where it would land", strip.dragging == 0 and strip.drop_slot == 3,
+      (strip.dragging, strip.drop_slot))
+strip_mouse(QEvent.MouseButtonRelease, ROW * 2.9, Qt.NoButton)
+after = [step["params"]["type"] for step in window.document.steps]
+check("dropping the first step below the third moves it there",
+      after == before[1:3] + before[:1] + before[3:], (before, after))
+check("and it stays selected", design.selected_step == 2, design.selected_step)
+strip_mouse(QEvent.MouseButtonPress, ROW * 0.5, Qt.LeftButton)
+strip_mouse(QEvent.MouseMove, ROW * 0.5 + 2, Qt.LeftButton)
+strip_mouse(QEvent.MouseButtonRelease, ROW * 0.5 + 2, Qt.NoButton)
+check("a click that hardly moves is a click, not a drag",
+      [step["params"]["type"] for step in window.document.steps] == after)
+
+# -- the machine hidden: only the ink ---------------------------------------------- #
+
+print("the machine hidden:")
+window._render_now()
+wait_for(lambda: window.render.machine_ready())
+window.render.highlight = 0
+window.render.set_show_machine(False)
+image = window.render.grab().toImage()
+arm = __import__("spiro.ui.glyphs", fromlist=["KIND_COLORS"]).KIND_COLORS["generator"]
+
+
+def has_colour(img, color, step=3):
+    for y in range(0, img.height(), step):
+        for x in range(0, img.width(), step):
+            c = img.pixelColor(x, y)
+            if (abs(c.red() - color.red()) < 12 and abs(c.green() - color.green()) < 12
+                    and abs(c.blue() - color.blue()) < 12):
+                return True
+    return False
+
+
+check("no arm's own curve is drawn over the ink", not has_colour(image, arm))
+window.render.set_show_machine(True)
+check("and with the machine shown, it is", has_colour(window.render.grab().toImage(), arm))
+window.render.highlight = None
+
 window.design.clear_machine()
 check("clear empties the machine", window.document.steps == [] and not window.design.strip.steps)
 check("and disables itself", not window.design.clear.isEnabled())

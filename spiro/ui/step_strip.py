@@ -26,6 +26,7 @@ GUTTER = 18          # where the brackets live
 BAR = 4              # the kind-coloured bar
 THUMB = 40
 PAD = 6
+DRAG_START = 6       # pixels a press must travel to become a drag
 
 
 def summarise(params, limit=3):
@@ -64,6 +65,7 @@ class StepStrip(QWidget):
     selected = Signal(object)       # index or None
     hovered = Signal(object)        # index or None
     moveRequested = Signal(int, int)
+    dropRequested = Signal(int, int)    # (step, the index it should end up at)
     removeRequested = Signal(int)
 
     def __init__(self, parent=None):
@@ -72,6 +74,9 @@ class StepStrip(QWidget):
         self.stage_paths = []       # per step, a list of complex arrays, or None
         self.selection = None
         self.hover = None
+        self._press = None          # (index, y) of a press that may become a drag
+        self.dragging = None        # the index being dragged
+        self.drop_slot = None       # the gap it would land in: 0 .. len(steps)
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.StrongFocus)
         self._relayout()
@@ -222,6 +227,19 @@ class StepStrip(QWidget):
             painter.drawLine(QPointF(x, y0), QPointF(x, y1))
             painter.drawLine(QPointF(x, y0), QPointF(x + 5, y0))
             painter.drawLine(QPointF(x, y1), QPointF(x + 5, y1))
+
+        if self.dragging is not None:
+            # the card in hand, faded; the gap it would land in, drawn
+            painter.fillRect(QRectF(GUTTER, self.dragging * ROW + 2,
+                                    width - GUTTER - 2, ROW - 4),
+                             QColor(0, 0, 0, 120))
+            if self.drop_slot is not None and self._drop_moves():
+                y = self.drop_slot * ROW
+                y = min(max(y, 2), len(self.steps) * ROW - 2)
+                painter.setPen(QPen(QColor(theme.ACCENT), 3))
+                painter.drawLine(QPointF(GUTTER, y), QPointF(width - 4, y))
+                painter.setBrush(QColor(theme.ACCENT))
+                painter.drawEllipse(QPointF(GUTTER, y), 4, 4)
         painter.end()
 
     # -- interaction ------------------------------------------------------------------ #
@@ -230,11 +248,28 @@ class StepStrip(QWidget):
         if event.button() == Qt.LeftButton:
             index = self.row_at(event.position().y())
             self.selection = index
+            self._press = (index, event.position().y()) if index is not None else None
             self.update()
             self.selected.emit(index)
 
+    def _drop_moves(self):
+        """Would dropping here change the order?"""
+        return self.drop_slot not in (self.dragging, self.dragging + 1)
+
     def mouseMoveEvent(self, event):
-        index = self.row_at(event.position().y())
+        y = event.position().y()
+        if self._press is not None and event.buttons() & Qt.LeftButton:
+            if self.dragging is None and abs(y - self._press[1]) >= DRAG_START:
+                self.dragging = self._press[0]
+                self.setCursor(Qt.ClosedHandCursor)
+            if self.dragging is not None:
+                slot = int(round(y / ROW))
+                slot = min(max(slot, 0), len(self.steps))
+                if slot != self.drop_slot:
+                    self.drop_slot = slot
+                    self.update()
+                return
+        index = self.row_at(y)
         if index != self.hover:
             self.hover = index
             self.update()
@@ -243,9 +278,24 @@ class StepStrip(QWidget):
                 params = self.steps[index]["params"]
                 kind = self._kind(index)
                 word, what = glyphs.KIND_WORDS[kind]
-                self.setToolTip("%s — %s\n%s" % (word, what, glyphs.plain(params["type"])))
+                self.setToolTip("%s — %s\n%s\nDrag to reorder"
+                                % (word, what, glyphs.plain(params["type"])))
             else:
                 self.setToolTip("")
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton and self.dragging is not None:
+            source, slot = self.dragging, self.drop_slot
+            moves = slot is not None and self._drop_moves()
+            self.dragging = self.drop_slot = None
+            self.unsetCursor()
+            self.update()
+            if moves:
+                # the gap is counted with the card still in place; once it is
+                # lifted out, every gap below it is one fewer
+                self.dropRequested.emit(source, slot - 1 if slot > source else slot)
+        self._press = None
+        super().mouseReleaseEvent(event)
 
     def leaveEvent(self, event):
         self.hover = None

@@ -189,6 +189,14 @@ class Document:
             return target
         return index
 
+    def move_step_to(self, index, target):
+        """Lift step ``index`` out and put it back at ``target``."""
+        if not (0 <= index < len(self.steps)):
+            return index
+        target = min(max(target, 0), len(self.steps) - 1)
+        self.steps.insert(target, self.steps.pop(index))
+        return target
+
     def make_group(self, index):
         """Turn a single step into a group of one branch, so a second arm can
         be added beside it."""

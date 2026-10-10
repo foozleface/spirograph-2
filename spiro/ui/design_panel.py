@@ -98,6 +98,7 @@ class DesignPanel(QWidget):
         outer.addWidget(self.strip_area)
         self.strip.selected.connect(self._select_step)
         self.strip.moveRequested.connect(self._move)
+        self.strip.dropRequested.connect(self._drop)
         self.strip.removeRequested.connect(lambda _i: self._remove())
 
         self.add = QPushButton("+ Add a step…")
@@ -285,6 +286,13 @@ class DesignPanel(QWidget):
         if index is None:
             return
         moved = self.document.move_step(index, delta)
+        self.refresh(select=moved)
+        self.structureChanged.emit()
+        self.documentChanged.emit()
+
+    def _drop(self, index, target):
+        """A step dragged to a new place in the strip."""
+        moved = self.document.move_step_to(index, target)
         self.refresh(select=moved)
         self.structureChanged.emit()
         self.documentChanged.emit()

@@ -339,8 +339,10 @@ class RenderView(QWidget):
         machine = self.show_machine and self.machine_ready() and not quick
         i = self.current_index()
         scrubbing = machine and i is not None and i < self.sample_count() - 1
-        showing = (self.highlight is not None and self.machine_ready()
-                   and 0 <= self.highlight < len(self.kinds))
+        # With the machine hidden this is what the plotter draws: the ink and
+        # nothing else — no step's own contribution, no ghost of the paper.
+        showing = (self.show_machine and self.highlight is not None
+                   and self.machine_ready() and 0 <= self.highlight < len(self.kinds))
         kind_shown = self.kinds[self.highlight] if showing else None
 
         painter.save()
