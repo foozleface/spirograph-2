@@ -12,6 +12,7 @@ exactly one queue.
 """
 
 import atexit
+import json
 import os
 import re
 import time
@@ -45,6 +46,9 @@ from spiro.ui.sheet_panel import SheetPanel
 from spiro.ui.workers import PlotWorker, RenderWorker, manual_command
 
 ROOT = Path(__file__).resolve().parents[2]
+SESSION_NAME = "session" + SHEET_SUFFIX
+SESSION_DELAY_MS = 1500          # after a change, before the session is written
+SESSION_BACKSTOP_MS = 15000      # and at least this often
 
 
 class MainWindow(QMainWindow):
@@ -86,6 +90,18 @@ class MainWindow(QMainWindow):
         self._start_workers()
         self._connect()
         self._new_document(blank=True)      # a blank page until asked otherwise
+        self._session_written = None
+        self._session_timer = QTimer(self)
+        self._session_timer.setSingleShot(True)
+        self._session_timer.setInterval(SESSION_DELAY_MS)
+        self._session_timer.timeout.connect(self._save_session)
+        # A backstop: a drag on the paper, a pen renamed — anything not
+        # routed through _touch_session is still kept within a few seconds.
+        self._session_backstop = QTimer(self)
+        self._session_backstop.setInterval(SESSION_BACKSTOP_MS)
+        self._session_backstop.timeout.connect(self._save_session)
+        self._session_backstop.start()
+        self._restore_session()
 
     # -- construction ---------------------------------------------------------- #
 
@@ -567,7 +583,10 @@ class MainWindow(QMainWindow):
 
     def _save_sheet_as(self):
         if not self.scene.items:
-            self.status_left.setText("Nothing on the paper to save.")
+            message = ("Nothing on the paper to save — a sheet keeps what is "
+                       "placed on the paper. Place a pattern first.")
+            self.status_left.setText(message)
+            QMessageBox.information(self, "Nothing was saved", message)
             return
         suggested = self.sheet_path or (ROOT / ("sheet" + SHEET_SUFFIX))
         path, _ = QFileDialog.getSaveFileName(
@@ -732,6 +751,7 @@ class MainWindow(QMainWindow):
     def _render_now(self):
         if self.history.record():
             self._update_undo()
+        self._touch_session()
         if self.document.is_empty():
             self.drawing = None
             self.render_panel.set_drawing(None)
@@ -901,6 +921,7 @@ class MainWindow(QMainWindow):
             self._say("This pattern is not on the paper.")
 
     def _scene_changed(self):
+        self._touch_session()
         self.canvas.update()
         self.sheet.refresh(select=self.sheet.selected_id())
         self._update_placement()
@@ -1320,6 +1341,103 @@ class MainWindow(QMainWindow):
 
     # -- shutdown ------------------------------------------------------------------------- #
 
+    # -- picking up where it was left -------------------------------------------- #
+
+    # The paper and the pattern in Build are written to a session file a
+    # moment after each change and read back at launch, so quitting, a
+    # crash, or a restart to pick up new code costs nothing. It is a sheet
+    # file with one more key, so it reads with the same code a saved sheet
+    # does; it lives beside the settings, not in the project.
+
+    def _session_path(self):
+        return Path(self.settings.fileName()).parent / SESSION_NAME
+
+    def _touch_session(self):
+        if getattr(self, "_session_timer", None) is not None:
+            self._session_timer.start()
+
+    def _session_text(self):
+        linked = self._linked_items()
+        try:
+            build = "" if self.document.is_empty() else self.document.to_ini()
+        except Exception:
+            build = ""
+        extra = {"paper_setup": self.sheet.paper_setup(),
+                 "session": {
+                     "build": build,
+                     "name": self.document.name,
+                     "path": str(self.document.path) if self.document.path else None,
+                     "linked": (self.scene.items.index(linked[-1])
+                                if linked else None),
+                     "sheet_path": str(self.sheet_path) if self.sheet_path else None}}
+        return json.dumps(self.scene.to_dict(extra), indent=1) + "\n"
+
+    def _save_session(self):
+        try:
+            text = self._session_text()
+            if text == self._session_written:
+                return
+            path = self._session_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            spare = path.with_name(path.name + ".writing")
+            spare.write_text(text)
+            os.replace(spare, path)          # never half a file
+            self._session_written = text
+        except Exception:
+            traceback.print_exc()            # losing a session is not worth a crash
+
+    def _restore_session(self):
+        path = self._session_path()
+        if not path.exists():
+            return
+        try:
+            data = Scene.read(path)
+            session = data.get("session", {})
+            quality = self.design.quality_sampling()
+            inis = [Document.from_ini(text).to_ini(quality) for text in item_inis(data)]
+        except Exception as exc:
+            self.status_left.setText("Could not pick up the last session: %s" % exc)
+            return
+        if session.get("build"):
+            try:
+                loaded = Document.from_ini(session["build"], name=session.get("name"))
+            except Exception:
+                loaded = None
+            if loaded is not None:
+                self.document.__dict__.update(loaded.__dict__)
+                self.document.path = Path(session["path"]) if session.get("path") else None
+                self.document.renew()
+                self.document.sampling.update(quality)
+                self._new_history()
+                self.design.refresh(select=0 if self.document.steps else None)
+                self._update_title()
+                self._schedule_render()
+        if not inis:
+            self._session_written = self._session_text()
+            return
+        self._run_batch(inis, lambda drawings: self._session_ready(data, drawings),
+                        "picking up where you left off — %d pattern%s on the paper"
+                        % (len(inis), "" if len(inis) == 1 else "s"))
+
+    def _session_ready(self, data, drawings):
+        session = data.get("session", {})
+        self.scene.apply_dict(data, drawings)
+        if data.get("paper_setup"):
+            self.sheet.restore_paper_setup(data["paper_setup"])
+        linked = session.get("linked")
+        if linked is not None and 0 <= linked < len(self.scene.items) \
+                and not self.document.is_empty():
+            self.scene.items[linked].source = self.document.token
+        sheet_path = session.get("sheet_path")
+        self.sheet_path = Path(sheet_path) if sheet_path else None
+        self.canvas.invalidate()
+        self.sheet.refresh()
+        self.canvas.fit()
+        self._scene_changed()
+        self._update_title()
+        self._say("Picked up where you left off — %d pattern%s on the paper."
+                  % (len(self.scene.items), "" if len(self.scene.items) == 1 else "s"))
+
     def closeEvent(self, event):
         if self.plotter.busy:
             answer = QMessageBox.question(
@@ -1337,6 +1455,7 @@ class MainWindow(QMainWindow):
             self.paper_window = None
         self.plot.save_settings()
         self.notify.save_settings()
+        self._save_session()
         self.inhibitor.stop()
         self.render_panel.play.setChecked(False)
         self._stop_threads()

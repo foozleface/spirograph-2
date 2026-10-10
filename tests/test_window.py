@@ -1265,6 +1265,50 @@ window.render.set_show_machine(True)
 check("and with the machine shown, it is", has_colour(window.render.grab().toImage(), arm))
 window.render.highlight = None
 
+# -- quitting and coming back ------------------------------------------------ #
+
+print("picking up where it was left:")
+window.scene.items.clear()
+window._open_path(str(ROOT_DIR / "spin.ini"))
+window._render_now()
+wait_for(lambda: window.drawing is not None)
+window._place()
+placed = window.scene.items[-1]
+placed.move_to(200.0, 90.0)
+placed.rotate_to(25.0)
+window.document.steps[0]["params"]["cycles"] = 7
+window._save_session()
+check("the session is written beside the settings, not in the project",
+      window._session_path().exists()
+      and ROOT_DIR not in window._session_path().parents)
+again = MainWindow()
+check("a new window reads the pattern in Build back at once",
+      again.document.steps and again.document.steps[0]["params"].get("cycles") == 7
+      and again.document.name == window.document.name)
+check("and the paper once its curves are drawn",
+      wait_for(lambda: len(again.scene.items) == 1, timeout=120))
+back = again.scene.items[0] if again.scene.items else None
+check("where it was, as big, at the same angle, on the same pen",
+      back is not None and close(back.x_mm, 200.0) and close(back.y_mm, 90.0)
+      and close(back.rotation_deg, 25.0) and back.pen == placed.pen
+      and close(back.w_mm, placed.w_mm))
+check("still linked to Build, so an edit redraws it",
+      back is not None and back.source == again.document.token)
+again.plotter.stop()
+again.close()
+pump(100)
+
+told = []
+shown = QMessageBox.information
+QMessageBox.information = staticmethod(lambda *a, **k: told.append(a[2]))
+try:
+    window.scene.items.clear()
+    window._save_sheet_as()
+finally:
+    QMessageBox.information = shown
+check("Save sheet with nothing on the paper says so in a box",
+      told and "Nothing on the paper" in told[0], told)
+
 window.design.clear_machine()
 check("clear empties the machine", window.document.steps == [] and not window.design.strip.steps)
 check("and disables itself", not window.design.clear.isEnabled())

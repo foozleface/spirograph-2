@@ -128,6 +128,11 @@ Build, linked, so a change there redraws it on the paper and in Render.
 *Clear* takes everything off the sheet and leaves the pattern, the pens and
 the paper as they are.
 
+The paper and the pattern in Build are kept between launches: they are
+written a moment after each change and come back when the window opens, so
+quitting or a crash loses nothing. That is not a saved file — **Save sheet**
+is what keeps an arrangement under a name.
+
 **Save sheet** (`Ctrl+Alt+S`) writes the whole arrangement — the paper, the
 pens, and every pattern with its pipeline, position, size, angle and pen — to
 a `.sheet.json`. Opening it (**File → Open…**, or one click in Library) brings
