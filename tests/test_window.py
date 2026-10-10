@@ -1128,6 +1128,52 @@ window._open_path(str(ROOT_DIR / "spin.ini"))
 pump(400)
 check("opening another pattern starts its own history", not window.undo_action.isEnabled())
 
+# -- File -> Open as pictures ------------------------------------------------- #
+
+print("open as pictures:")
+import tempfile  # noqa: E402
+from spiro.ui import open_dialog  # noqa: E402
+scratch = Path(tempfile.mkdtemp(prefix="spiro-open-"))
+(scratch / "older.ini").write_text((ROOT_DIR / "spin.ini").read_text())
+os.utime(scratch / "older.ini", (time.time() - 86400 * 3,) * 2)
+(scratch / "newer.ini").write_text((ROOT_DIR / "spin.ini").read_text())
+window._open_path(str(scratch / "newer.ini"))
+window._render_now()
+wait_for(lambda: window.drawing is not None)
+window._place()
+window._write_sheet(scratch / "layout.sheet.json")
+browser = open_dialog.OpenDialog(scratch, window)
+browser.thumbnailsWanted.connect(window._render_thumbnails)
+window._open_dialog = browser
+names = [browser.grid.item(i).data(Qt.UserRole) for i in range(browser.grid.count())]
+check("every pattern and sheet is there, newest first",
+      [Path(n).name for n in names] == ["layout.sheet.json", "newer.ini", "older.ini"],
+      [Path(n).name for n in names])
+check("each says when it was saved",
+      "today" in browser.items[str(scratch / "newer.ini")].text()
+      and "today" not in browser.items[str(scratch / "older.ini")].text())
+browser.request_thumbnails()
+check("and every one gets a picture", wait_for(lambda: not browser.waiting, timeout=120),
+      list(browser.waiting))
+sheet_icon = browser.items[str(scratch / "layout.sheet.json")].icon().pixmap(40, 40).toImage()
+check("a sheet is drawn as its paper",
+      any(sheet_icon.pixelColor(x, 20).lightness() > 200 for x in range(40)))
+browser.filter.setText("sheet")
+check("the filter narrows by name or part",
+      [browser.grid.item(i).isHidden() for i in range(browser.grid.count())] == [False, True, True])
+browser.filter.setText("")
+browser.order.setCurrentIndex(1)
+by_name = [browser.grid.item(i).data(Qt.UserRole + 3) for i in range(browser.grid.count())]
+check("and By name sorts by name", by_name == sorted(by_name) and len(by_name) == 3, by_name)
+kept = len(open_dialog._pictures)
+browser.refresh()
+check("opening it again redraws nothing already drawn",
+      not browser._wanted and len(open_dialog._pictures) == kept)
+window._open_dialog = None
+browser.deleteLater()
+window.scene.items.clear()
+__import__("shutil").rmtree(scratch, ignore_errors=True)
+
 # -- dragging a step to a new place ---------------------------------------- #
 
 print("dragging a step:")

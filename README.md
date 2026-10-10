@@ -112,8 +112,10 @@ does not repeat itself until it has been through most of them.
 
 **Library** — every `.ini` in the project with its pipeline beside it, and every
 `.sheet.json` with what is on it, filtered as you type, one click to load.
-Anything outside the project opens from **File → Open…**, which takes a
-pattern or a sheet.
+**File → Open…** (`Ctrl+O`) shows every pattern and sheet as a picture,
+newest first, with when each was saved — a sheet drawn as its paper with
+each pattern in its pen's ink. Filter by name or part; **Other location…**
+reaches a file outside the project.
 
 ![the file list](docs/files.png)
 

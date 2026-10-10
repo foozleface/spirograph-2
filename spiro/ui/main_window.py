@@ -37,6 +37,7 @@ from spiro.ui.history import History
 from spiro.ui.ideas_panel import IdeasPanel
 from spiro.ui.library_panel import LibraryPanel
 from spiro.ui.notify_panel import NotifyPanel
+from spiro.ui.open_dialog import OpenDialog
 from spiro.ui.paper_window import PaperWindow
 from spiro.ui.plot_panel import PlotPanel
 from spiro.ui.render_view import RenderPanel
@@ -79,6 +80,7 @@ class MainWindow(QMainWindow):
         self._plot_started = 0.0
         self._status_until = 0.0         # see _say
         self.history = History(self.document)
+        self._open_dialog = None         # File -> Open, made once, kept
 
         self._build_ui()
         self._start_workers()
@@ -368,14 +370,16 @@ class MainWindow(QMainWindow):
         self._schedule_render()
 
     def _open(self):
-        """One way in for both kinds of file: a pattern goes to Build, a
-        sheet to the paper."""
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Open a pattern or a sheet", str(ROOT),
-            "Patterns and sheets (*.ini *%s);;Pattern files (*.ini);;"
-            "Sheet files (*%s)" % (SHEET_SUFFIX, SHEET_SUFFIX))
-        if path:
-            self._open_path(path)
+        """Every pattern and sheet in the project as pictures; a pattern goes
+        to Build, a sheet to the paper."""
+        if self._open_dialog is None:
+            self._open_dialog = OpenDialog(ROOT, self)
+            self._open_dialog.thumbnailsWanted.connect(self._render_thumbnails)
+        else:
+            self._open_dialog.refresh()
+        self._open_dialog.request_thumbnails()
+        if self._open_dialog.exec() and self._open_dialog.chosen:
+            self._open_path(self._open_dialog.chosen)
 
     def _open_path(self, path):
         """Load a pattern file — from the Library tab, the dialog, or the
@@ -802,14 +806,20 @@ class MainWindow(QMainWindow):
 
     def _thumb_ready(self, _token, key, drawing):
         what, ref = key
-        if what == "ideas":
+        if what == "open":
+            if self._open_dialog is not None:
+                self._open_dialog.deliver(ref, drawing)
+        elif what == "ideas":
             self.ideas.set_thumbnail(ref, drawing)
         else:
             self.design.explained(ref, drawing)
 
     def _thumb_failed(self, _token, key, message):
         what, ref = key
-        if what == "ideas":
+        if what == "open":
+            if self._open_dialog is not None:
+                self._open_dialog.failed(ref, message)
+        elif what == "ideas":
             self.ideas.set_failure(ref, message)
         else:
             self.design.explain_failed(ref, message)
