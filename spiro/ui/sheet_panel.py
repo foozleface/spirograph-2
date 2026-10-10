@@ -155,7 +155,7 @@ class SheetPanel(QWidget):
         self.save_sheet = QPushButton("Save sheet…")
         self.save_sheet.setToolTip(
             "Write the paper, the pens and every pattern with its position, "
-            "size and angle to a file (Ctrl+Shift+S)")
+            "size and angle to a file (Ctrl+Alt+S)")
         self.save_sheet.clicked.connect(self.saveSheetRequested.emit)
         self.open_sheet = QPushButton("Open sheet…")
         self.open_sheet.setToolTip("Bring back a saved arrangement (Ctrl+Shift+O)")

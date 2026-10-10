@@ -1008,6 +1008,17 @@ except ValueError:
     refused = True
 check("an unknown command raises rather than guessing", refused)
 
+# -- every shortcut does one thing ---------------------------------------------- #
+
+print("shortcuts:")
+from PySide6.QtGui import QAction  # noqa: E402
+taken = {}
+for action in window.findChildren(QAction):
+    for key in action.shortcuts():
+        taken.setdefault(key.toString(), []).append(action.text())
+shared = {k: v for k, v in taken.items() if k and len(v) > 1}
+check("no two actions share a shortcut (Qt would run neither)", not shared, shared)
+
 # -- an edit waits for Apply -------------------------------------------------- #
 
 print("an edit waits for Apply:")

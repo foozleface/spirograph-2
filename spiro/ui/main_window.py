@@ -161,7 +161,7 @@ class MainWindow(QMainWindow):
         file_menu.addSeparator()
         for label, shortcut, fn in (
                 ("Open s&heet…", "Ctrl+Shift+O", self._open_sheet_dialog),
-                ("Save shee&t", "Ctrl+Shift+S", self._save_sheet),
+                ("Save shee&t", "Ctrl+Alt+S", self._save_sheet),
                 ("Save sheet as…", "", self._save_sheet_as),
                 ("Export sheet as &SVG…", "Ctrl+E", self._export_svg)):
             action = QAction(label, self)
