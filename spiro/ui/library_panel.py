@@ -15,7 +15,7 @@ import os
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (QAbstractItemView, QFileDialog, QHeaderView,
+from PySide6.QtWidgets import (QAbstractItemView, QHeaderView,
                                QLabel, QLineEdit, QMessageBox, QPushButton,
                                QTreeWidget, QTreeWidgetItem, QVBoxLayout,
                                QWidget)
@@ -81,12 +81,9 @@ class LibraryPanel(QWidget):
         self.open_button.setObjectName("primary")
         self.open_button.setEnabled(False)
         self.open_button.clicked.connect(self._open_selected)
-        self.reveal = QPushButton("Elsewhere…")
-        self.reveal.setToolTip("Open a pattern from outside the project")
-        self.reveal.clicked.connect(self._open_elsewhere)
         self.refresh_button = QPushButton("Refresh")
         self.refresh_button.clicked.connect(self.refresh)
-        layout.addWidget(row(self.open_button, self.reveal, 1,
+        layout.addWidget(row(self.open_button, 1,
                              self.refresh_button, spacing=4))
 
         self.count = theme.muted("")
@@ -223,14 +220,6 @@ class LibraryPanel(QWidget):
 
     def _open_selected(self):
         path = self._selected_path()
-        if path:
-            self.openRequested.emit(path)
-
-    def _open_elsewhere(self):
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Open a pattern or a sheet", str(self.root),
-            "Patterns and sheets (*.ini *%s);;Pattern files (*.ini);;"
-            "Sheet files (*%s)" % (SHEET_SUFFIX, SHEET_SUFFIX))
         if path:
             self.openRequested.emit(path)
 

@@ -107,8 +107,10 @@ whose common divisor leaves lobes instead of a smear — with a range around eac
 number wide enough to keep surprising you. It says which recipe it used, and it
 does not repeat itself until it has been through most of them.
 
-**Files** — every `.ini` in the project with its pipeline beside it, and every
+**Library** — every `.ini` in the project with its pipeline beside it, and every
 `.sheet.json` with what is on it, filtered as you type, one click to load.
+Anything outside the project opens from **File → Open…**, which takes a
+pattern or a sheet.
 
 ![the file list](docs/files.png)
 
@@ -121,9 +123,9 @@ Build, linked, so a change there redraws it on the paper and in Render.
 *Clear* takes everything off the sheet and leaves the pattern, the pens and
 the paper as they are.
 
-**Save sheet** (`Ctrl+Shift+S`) writes the whole arrangement — the paper, the
+**Save sheet** (`Ctrl+Alt+S`) writes the whole arrangement — the paper, the
 pens, and every pattern with its pipeline, position, size, angle and pen — to
-a `.sheet.json`. **Open sheet** (`Ctrl+Shift+O`, or one click in Files) brings
+a `.sheet.json`. Opening it (**File → Open…**, or one click in Library) brings
 it back exactly, regenerating the curves in the background. The file holds
 pipelines, not points, so it is a few kilobytes however much is on the paper.
 

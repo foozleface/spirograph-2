@@ -158,7 +158,7 @@ class SheetPanel(QWidget):
             "size and angle to a file (Ctrl+Alt+S)")
         self.save_sheet.clicked.connect(self.saveSheetRequested.emit)
         self.open_sheet = QPushButton("Open sheet…")
-        self.open_sheet.setToolTip("Bring back a saved arrangement (Ctrl+Shift+O)")
+        self.open_sheet.setToolTip("Bring back a saved arrangement")
         self.open_sheet.clicked.connect(self.openSheetRequested.emit)
         layout.addWidget(row(self.open_sheet, self.save_sheet, 1, spacing=4))
 

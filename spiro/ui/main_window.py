@@ -92,7 +92,7 @@ class MainWindow(QMainWindow):
         left = QTabWidget()
         left.addTab(self.design, "Build")
         left.addTab(self.ideas, "Ideas")
-        left.addTab(self.library, "Files")
+        left.addTab(self.library, "Library")
         left.currentChanged.connect(self._left_tab_changed)
         self.left_tabs = left
 
@@ -150,17 +150,16 @@ class MainWindow(QMainWindow):
     def _build_menu(self):
         file_menu = self.menuBar().addMenu("&File")
         for label, shortcut, fn in (
-                ("&New", QKeySequence.New, self._new_document),
+                ("&New pattern", QKeySequence.New, self._new_document),
                 ("&Open…", QKeySequence.Open, self._open),
-                ("&Save", QKeySequence.Save, self._save),
-                ("Save &as…", QKeySequence.SaveAs, self._save_as)):
+                ("&Save pattern", QKeySequence.Save, self._save),
+                ("Save pattern &as…", QKeySequence.SaveAs, self._save_as)):
             action = QAction(label, self)
             action.setShortcut(shortcut)
             action.triggered.connect(fn)
             file_menu.addAction(action)
         file_menu.addSeparator()
         for label, shortcut, fn in (
-                ("Open s&heet…", "Ctrl+Shift+O", self._open_sheet_dialog),
                 ("Save shee&t", "Ctrl+Alt+S", self._save_sheet),
                 ("Save sheet as…", "", self._save_sheet_as),
                 ("Export sheet as &SVG…", "Ctrl+E", self._export_svg)):
@@ -352,13 +351,17 @@ class MainWindow(QMainWindow):
         self._schedule_render()
 
     def _open(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Open a pattern", str(ROOT),
-                                              "Pattern files (*.ini)")
+        """One way in for both kinds of file: a pattern goes to Build, a
+        sheet to the paper."""
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Open a pattern or a sheet", str(ROOT),
+            "Patterns and sheets (*.ini *%s);;Pattern files (*.ini);;"
+            "Sheet files (*%s)" % (SHEET_SUFFIX, SHEET_SUFFIX))
         if path:
             self._open_path(path)
 
     def _open_path(self, path):
-        """Load a pattern file — from the Files tab, the dialog, or the
+        """Load a pattern file — from the Library tab, the dialog, or the
         command line. A sheet file goes to the paper instead."""
         if str(path).endswith(SHEET_SUFFIX):
             return self._open_sheet(path)

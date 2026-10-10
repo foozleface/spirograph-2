@@ -54,6 +54,7 @@ QPushButton:disabled { color: %(MUTED)s; border-color: %(LINE)s; background: %(P
 QPushButton#primary { background: %(ACCENT)s; border-color: %(ACCENT)s; color: white;
                       font-weight: 600; }
 QPushButton#primary:hover { background: #8f74ff; }
+QPushButton#primary:disabled { color: %(MUTED)s; border-color: %(LINE)s; background: %(PANEL)s; }
 QPushButton#danger { border-color: %(ERR)s; color: %(ERR)s; }
 QPushButton#danger:disabled { border-color: %(LINE)s; color: %(MUTED)s; background: %(PANEL)s; }
 QPushButton#flat { background: transparent; border: none; padding: 2px 6px; color: %(MUTED)s; }
