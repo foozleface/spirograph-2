@@ -71,8 +71,9 @@ def rendered(window):
 app = QApplication.instance() or QApplication([])
 # Settings go to a throwaway folder: the gate must neither read the user's
 # remembered choices (a plot mode, a pen speed) nor write over them.
-QSettings.setPath(QSettings.NativeFormat, QSettings.UserScope,
-                  tempfile.mkdtemp(prefix="spiro-settings-"))
+SETTINGS_DIR = tempfile.mkdtemp(prefix="spiro-settings-")
+QSettings.setPath(QSettings.NativeFormat, QSettings.UserScope, SETTINGS_DIR)
+__import__("atexit").register(__import__("shutil").rmtree, SETTINGS_DIR, True)
 app.setStyleSheet(theme.STYLESHEET)
 if OUT.exists():
     shutil.rmtree(OUT)

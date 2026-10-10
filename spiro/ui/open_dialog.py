@@ -314,7 +314,13 @@ class OpenDialog(QDialog):
             match = not needle or needle in words
             item.setHidden(not match)
             shown += match
-        self.count.setText("%d file%s" % (shown, "" if shown == 1 else "s"))
+        sheets = sum(1 for path in self.items if path.endswith(SHEET_SUFFIX))
+        text = "%d file%s" % (shown, "" if shown == 1 else "s")
+        if not sheets:
+            # A sheet is saved from the paper, not from Build — say where,
+            # since an empty row of sheets otherwise looks like a fault.
+            text += " · no sheets saved yet — File → Save sheet keeps the paper"
+        self.count.setText(text)
 
     # -- choosing ------------------------------------------------------------------ #
 

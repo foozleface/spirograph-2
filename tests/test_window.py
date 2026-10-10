@@ -52,8 +52,9 @@ def close(a, b, tol=0.05):
 app = QApplication.instance() or QApplication([])
 # Settings go to a throwaway folder: the gate must neither read the user's
 # remembered choices (a plot mode, a pen speed) nor write over them.
-QSettings.setPath(QSettings.NativeFormat, QSettings.UserScope,
-                  tempfile.mkdtemp(prefix="spiro-settings-"))
+SETTINGS_DIR = tempfile.mkdtemp(prefix="spiro-settings-")
+QSettings.setPath(QSettings.NativeFormat, QSettings.UserScope, SETTINGS_DIR)
+__import__("atexit").register(__import__("shutil").rmtree, SETTINGS_DIR, True)
 ROOT_DIR = Path(__file__).resolve().parents[1]
 
 
@@ -1193,6 +1194,12 @@ kept = len(open_dialog._pictures)
 browser.refresh()
 check("opening it again redraws nothing already drawn",
       not browser._wanted and len(open_dialog._pictures) == kept)
+check("with a sheet there, the count does not mention sheets",
+      "no sheets" not in browser.count.text(), browser.count.text())
+(scratch / "layout.sheet.json").unlink()
+browser.refresh()
+check("with none, it says where a sheet comes from",
+      "no sheets saved yet" in browser.count.text(), browser.count.text())
 window._open_dialog = None
 browser.deleteLater()
 window.scene.items.clear()
