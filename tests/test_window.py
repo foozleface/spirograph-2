@@ -20,6 +20,7 @@ Run:  .venv/bin/python tests/test_window.py
 import os
 import re
 import sys
+import tempfile
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -28,8 +29,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from pathlib import Path  # noqa: E402
 
 import numpy as np  # noqa: E402
-from PySide6.QtCore import QEventLoop, Qt, QTimer  # noqa: E402
-from PySide6.QtWidgets import QApplication  # noqa: E402
+from PySide6.QtCore import QEventLoop, QSettings, QTimer, Qt  # noqa: E402
+from PySide6.QtWidgets import QApplication, QMessageBox  # noqa: E402
 
 from axiplot import colorsplit  # noqa: E402
 from spiro.pipeline import PLOT_SAMPLING  # noqa: E402
@@ -49,6 +50,10 @@ def close(a, b, tol=0.05):
 
 
 app = QApplication.instance() or QApplication([])
+# Settings go to a throwaway folder: the gate must neither read the user's
+# remembered choices (a plot mode, a pen speed) nor write over them.
+QSettings.setPath(QSettings.NativeFormat, QSettings.UserScope,
+                  tempfile.mkdtemp(prefix="spiro-settings-"))
 ROOT_DIR = Path(__file__).resolve().parents[1]
 
 
@@ -310,16 +315,35 @@ try:
     # Both panels hold a selection; clearing one leaves the other standing.
     window.canvas.select(None)
     window.sheet.select(None)
+    linked = window._linked_items()
+    only, problem = window._plot_only()
+    check("with nothing picked on the paper, the selection is the pattern in Build",
+          problem is None and linked and only == {linked[-1].item_id}, (only, problem))
+    window._refresh_scope_note()
+    check("and the note names it",
+          linked and linked[-1].name in window.plot.scope_note.text(),
+          window.plot.scope_note.text())
+    token = window.document.token
+    window.document.renew()              # Build no longer linked to the paper
     window._refresh_scope_note()
     check("per-selection with nothing selected says which and why",
           "No pattern is selected" in window.plot.scope_note.text(),
           window.plot.scope_note.text())
     sent.clear()
-    window.status_left.setText("")
-    window._start_plot(True)
+    told = []
+    shown = QMessageBox.information
+    QMessageBox.information = staticmethod(lambda *a, **k: told.append(a[2]))
+    try:
+        window.status_left.setText("")
+        window._start_plot(True)
+    finally:
+        QMessageBox.information = shown
+        window.document.token = token
     check("and the press is refused, not quietly widened to the lot",
           not sent and "No pattern is selected" in window.status_left.text(),
           window.status_left.text())
+    check("in a box that has to be answered, not just the status line",
+          told and "No pattern is selected" in told[0], told)
 finally:
     window.plotRequested.disconnect()
     window.plotRequested.connect(window.plotter.plot)

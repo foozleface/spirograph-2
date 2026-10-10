@@ -872,6 +872,7 @@ class MainWindow(QMainWindow):
         """Tell Build whether it is looking at something on the paper."""
         linked = self._linked_items()
         self.design.set_placed(linked[-1] if linked else None)
+        self._refresh_scope_note()       # "the selected pattern" may mean this one
 
     def _take_off(self, items):
         """Take items off the paper and say so. Nothing is lost by it:
@@ -1084,11 +1085,22 @@ class MainWindow(QMainWindow):
         """
         if self.plot.plot_scope() != "selection":
             return None, None
-        item_id = self.canvas.selected_id or self.sheet.selected_id()
-        if not item_id or self.scene.find(item_id) is None:
+        item = self._plot_target()
+        if item is None:
             return None, ("No pattern is selected — click one on the paper, "
                           "or switch to plotting everything.")
-        return {item_id}, None
+        return {item.item_id}, None
+
+    def _plot_target(self):
+        """The one pattern "just the selected pattern" means: the one picked
+        on the paper, or failing that the one Build is editing — which is
+        what a person who has been working on it and presses Plot means."""
+        item_id = self.canvas.selected_id or self.sheet.selected_id()
+        item = self.scene.find(item_id) if item_id else None
+        if item is None:
+            linked = self._linked_items()
+            item = linked[-1] if linked else None
+        return item
 
     def _refresh_scope_note(self):
         """Say what the chosen mode will actually do, before it is pressed."""
@@ -1106,9 +1118,10 @@ class MainWindow(QMainWindow):
                 "the nib can be changed." % (len(items), len(pens)))
         else:
             nib = pens[0][1].label if pens else "no"
+            what = ("“%s”" % items[0].name if only and len(items) == 1
+                    else "%d pattern%s" % (len(items), "" if len(items) == 1 else "s"))
             self.plot.set_scope_note(
-                "%d pattern%s on the %s pen — one layer, no stops."
-                % (len(items), "" if len(items) == 1 else "s", nib))
+                "%s on the %s pen — one layer, no stops." % (what, nib))
 
     def _busy_answer(self):
         """What to say to a Plot press while a plot is already in flight.
@@ -1149,11 +1162,13 @@ class MainWindow(QMainWindow):
         if self._busy_answer():
             return
         only, problem = self._plot_only()
+        if not problem and not self.scene.plot_items(only):
+            problem = "Nothing on the paper to plot."
         if problem:
+            # A Plot press that moves no pen has to say so where it was
+            # pressed; a line in the status bar is overwritten in a moment.
             self.status_left.setText(problem)
-            return
-        if not self.scene.plot_items(only):
-            self.status_left.setText("Nothing on the paper to plot.")
+            QMessageBox.information(self, "Nothing was sent to the machine", problem)
             return
         if self._already_plotted(only):
             answer = QMessageBox.question(

@@ -15,6 +15,7 @@ they do on screen, into pixmaps, without touching anyone's desktop.
 import os
 import shutil
 import sys
+import tempfile
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -22,7 +23,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from pathlib import Path  # noqa: E402
 
-from PySide6.QtCore import QEvent, QEventLoop, Qt, QTimer  # noqa: E402
+from PySide6.QtCore import QEvent, QEventLoop, QSettings, QTimer, Qt  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from spiro.ui import theme  # noqa: E402
@@ -68,6 +69,10 @@ def rendered(window):
 
 
 app = QApplication.instance() or QApplication([])
+# Settings go to a throwaway folder: the gate must neither read the user's
+# remembered choices (a plot mode, a pen speed) nor write over them.
+QSettings.setPath(QSettings.NativeFormat, QSettings.UserScope,
+                  tempfile.mkdtemp(prefix="spiro-settings-"))
 app.setStyleSheet(theme.STYLESHEET)
 if OUT.exists():
     shutil.rmtree(OUT)
