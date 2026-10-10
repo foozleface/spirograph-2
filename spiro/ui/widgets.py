@@ -57,6 +57,8 @@ def slider_span(spec, value):
     except (TypeError, ValueError):
         return (low, high)
     return (min(low, value), max(high, value))
+EDITOR_WIDTH = 76          # a parameter's number box
+DRIFT_WIDTH = 22           # the drift switch at the end of a row
 LABEL_WIDTH = 118          # the name column; longer names elide, the tooltip has the rest
 
 
@@ -80,7 +82,7 @@ class ParamRow(QWidget):
     """
 
     valueChanged = Signal(str, object)
-    hovered = Signal(str)               # the parameter under the pointer
+    picked = Signal(str)                # the parameter being worked on
 
     def __init__(self, name, spec, value, drift_name=None, drift_spec=None,
                  drift_value=None, osc_value=None, parent=None):
@@ -100,33 +102,44 @@ class ParamRow(QWidget):
         row.addWidget(label, 0)
         self.editor = _editor(spec, value)
         _connect(self.editor, self._editor_changed)
+        self.editor.installEventFilter(self)
         self.span = slider_span(spec, value)
         self.slider = _slider_for(spec) if self.span else None
         if self.slider is not None:
             self.slider.setValue(_to_slider(self.span, _value_of(self.editor)))
             self.slider.valueChanged.connect(self._slider_moved)
+            self.slider.sliderPressed.connect(lambda: self.picked.emit(self.name))
             row.addWidget(self.slider, 2)
         row.addWidget(self.editor, 0)
         layout.addLayout(row)
 
         self.drift_editor = None
-        if drift_name:
+        # The drift switch sits at the end of the row — a whole row of its
+        # own for every drifting knob left room for four parameters on screen.
+        # Rows without one keep the gap, so the number boxes line up.
+        if not drift_name:
+            row.addSpacing(DRIFT_WIDTH + 6)     # no layout gap beside a spacer
+        else:
+            self.drift_toggle = QPushButton("⇢")
+            self.drift_toggle.setObjectName("drift")
+            self.drift_toggle.setFixedWidth(DRIFT_WIDTH)
+            row.addWidget(self.drift_toggle, 0)
             drift_row = QHBoxLayout()
+            drift_row.setContentsMargins(0, 0, 0, 0)
             drift_row.setSpacing(6)
-            self.drift_toggle = QPushButton("drift →")
-            self.drift_toggle.setObjectName("flat")
             self.drift_toggle.setCheckable(True)
             self.drift_toggle.setChecked(drift_value != value)
             self.drift_toggle.setToolTip(
-                "Interpolate this parameter from its value to the end value "
-                "over the course of the draw")
+                "Drift: slide from this value to an end value over the "
+                "course of the draw")
             drift_row.addStretch(1)
-            drift_row.addWidget(self.drift_toggle)
+            drift_row.addWidget(theme.muted("drifts to"))
             self.drift_editor = _editor(drift_spec, drift_value)
             _connect(self.drift_editor,
                      lambda v: self.valueChanged.emit(self.drift_name, v))
             self.drift_editor.installEventFilter(self)
             drift_row.addWidget(self.drift_editor)
+            drift_row.addSpacing(DRIFT_WIDTH + 6)
             # Once there is a drift, it can slide once or go there and back.
             self.osc_mode = QComboBox()
             self.osc_mode.addItem("once", None)
@@ -152,14 +165,18 @@ class ParamRow(QWidget):
             self.osc_wander.setValue(wander)
             self.osc_mode.setCurrentIndex(1 if osc_value else 0)
             osc_row = QHBoxLayout()
+            osc_row.setContentsMargins(0, 0, 0, 0)
             osc_row.setSpacing(6)
             osc_row.addStretch(1)
             osc_row.addWidget(self.osc_mode)
             osc_row.addWidget(self.osc_speed)
             osc_row.addWidget(self.osc_wander)
+            osc_row.addSpacing(DRIFT_WIDTH + 6)
             self.osc_host = QWidget()
             self.osc_host.setLayout(osc_row)
-            layout.addLayout(drift_row)
+            self.drift_host = QWidget()
+            self.drift_host.setLayout(drift_row)
+            layout.addWidget(self.drift_host)
             layout.addWidget(self.osc_host)
             for widget in (self.osc_speed, self.osc_wander):
                 widget.valueChanged.connect(self._osc_changed)
@@ -168,13 +185,14 @@ class ParamRow(QWidget):
             self._toggle_drift(self.drift_toggle.isChecked())
             self._osc_changed(emit=False)
 
-    def enterEvent(self, event):
-        self.hovered.emit(self.name)
-        super().enterEvent(event)
-
     def eventFilter(self, obj, event):
-        if obj is self.drift_editor and event.type() == QEvent.Enter:
-            self.hovered.emit(self.drift_name)
+        # The pictures follow the knob in hand, not the pointer passing over:
+        # following the pointer flipped them at every row it crossed.
+        if event.type() in (QEvent.FocusIn, QEvent.MouseButtonPress):
+            if obj is self.drift_editor:
+                self.picked.emit(self.drift_name)
+            elif obj is self.editor:
+                self.picked.emit(self.name)
         return super().eventFilter(obj, event)
 
     def _editor_changed(self, value):
@@ -197,7 +215,7 @@ class ParamRow(QWidget):
         self.valueChanged.emit(self.name, _value_of(self.editor))
 
     def _toggle_drift(self, on):
-        self.drift_editor.setVisible(on)
+        self.drift_host.setVisible(on)
         self.osc_host.setVisible(on)
         if not on:
             # Off means "no drift", which in the INI is the end value equalling
@@ -220,6 +238,11 @@ class ParamRow(QWidget):
     def set_value(self, value):
         _set_value(self.editor, value)
         self._sync_slider(value)
+
+    def set_drift_value(self, value):
+        if self.drift_editor is not None:
+            self.drift_toggle.setChecked(True)
+            _set_value(self.drift_editor, value)
 
 
 def _parse_osc(text):
@@ -339,7 +362,7 @@ def _editor(spec, value):
         combo.setCurrentText(str(value))
         return combo
     if kind in ("int", "float"):
-        return number_box(spec, value, kind)
+        return number_box(spec, value, kind, width=EDITOR_WIDTH)
     line = QLineEdit(str(value if value is not None else spec.get("default", "")))
     line.setFixedWidth(140)
     return line
@@ -389,6 +412,14 @@ def _set_value(editor, value):
         editor.blockSignals(False)
 
 
+class TidyDoubleSpinBox(QDoubleSpinBox):
+    """Shows 50, not 50.0000; still takes four decimals when typed."""
+
+    def textFromValue(self, value):
+        text = "%.*f" % (self.decimals(), value)
+        return text.rstrip("0").rstrip(".") if "." in text else text
+
+
 def number_box(spec, value, kind=None, width=90):
     """A spin box that takes what a person types.
 
@@ -404,7 +435,7 @@ def number_box(spec, value, kind=None, width=90):
         current = int(value if value is not None else spec.get("default", 0))
         box.setRange(int(min(floor, current)), int(max(ceiling, current)))
     else:
-        box = QDoubleSpinBox()
+        box = TidyDoubleSpinBox()
         current = float(value if value is not None else spec.get("default", 0))
         box.setRange(min(floor, current), max(ceiling, current))
         box.setDecimals(4 if float(spec.get("max", 1)) > 1 else 4)

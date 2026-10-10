@@ -12,9 +12,8 @@ Everything here edits one :class:`spiro.pipeline.document.Document`;
 nothing here knows about paper, pens or the plotter.
 """
 
-from PySide6.QtCore import QSettings, QTimer, Qt, Signal
-from PySide6.QtGui import QKeySequence, QShortcut
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QFrame, QLabel, QPushButton,
+from PySide6.QtCore import QTimer, Qt, Signal
+from PySide6.QtWidgets import (QComboBox, QFrame, QLabel, QPushButton,
                                QScrollArea, QVBoxLayout, QWidget)
 
 from spiro.pipeline.registry import COMMON_PARAMS, MODULE_DEFS, OSC_PREFIX
@@ -63,14 +62,11 @@ class DesignPanel(QWidget):
     randomRequested = Signal()          # invent a pipeline
     renderWanted = Signal(object)       # small renders for the explainer
 
-    def __init__(self, document, settings=None, parent=None):
+    def __init__(self, document, parent=None):
         super().__init__(parent)
         self.document = document
-        self.settings = settings or QSettings("spirograph-2", "app")
         self.selected_step = None
         self._show_more = False
-        self.pending = 0                # edits made since the last redraw
-        self.redrawing = False
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(10, 10, 10, 10)
@@ -81,7 +77,11 @@ class DesignPanel(QWidget):
             "Build a pipeline from one of the recipes that turned out worth "
             "drawing (Ctrl+R)")
         self.random_button.clicked.connect(self.randomRequested.emit)
-        outer.addWidget(self.random_button)
+        self.new_button = QPushButton("New pattern")
+        self.new_button.setToolTip(
+            "Start a fresh pattern. Anything already on the paper stays there.")
+        self.new_button.clicked.connect(self.newRequested.emit)
+        outer.addWidget(row(self.random_button, self.new_button, spacing=4))
         self.recipe_label = theme.muted("", wrap=True)
         self.recipe_label.setVisible(False)
         outer.addWidget(self.recipe_label)
@@ -148,6 +148,8 @@ class DesignPanel(QWidget):
         # cache; it is re-parented into the step box's layout on each build.
         self.explainer = ExplainerCard()
         self.explainer.renderWanted.connect(self.renderWanted.emit)
+        self.explainer.valuePicked.connect(self._pick_value)
+        self._rows = {}                  # parameter name -> its ParamRow
         self._explain_timer = QTimer(self)
         self._explain_timer.setSingleShot(True)
         self._explain_timer.setInterval(250)     # a slider drag, coalesced
@@ -170,37 +172,16 @@ class DesignPanel(QWidget):
         self.params_area.setWidget(host)
         outer.addWidget(self.params_area, 1)
 
-        # A number takes effect when it is applied, not on every keystroke:
-        # typing 92 would otherwise draw 9 first, and the picture changing
-        # half a second after the last key says nothing about which edit it
-        # shows. The button says whether the picture is behind the numbers.
-        self.apply_button = QPushButton()
-        self.apply_button.setToolTip("Redraw the pattern with the numbers above "
-                                     "(Enter)")
-        self.apply_button.clicked.connect(self.apply)
-        self.live = QCheckBox("Redraw as I edit")
-        self.live.setToolTip("Redraw a moment after every change, without "
-                             "pressing Apply")
-        self.live.setChecked(str(self.settings.value("redraw_live", "false"))
-                             == "true")
-        self.live.toggled.connect(self._live_toggled)
-        outer.addWidget(row(self.live, 1, self.apply_button, spacing=6))
-        for key in (Qt.Key_Return, Qt.Key_Enter):
-            shortcut = QShortcut(QKeySequence(key), self)
-            shortcut.setContext(Qt.WidgetWithChildrenShortcut)
-            shortcut.activated.connect(self.apply)
-        self._show_apply()
-
         outer.addWidget(theme.hline())
         quality_label = QLabel("Preview quality")
         self.quality = QComboBox()
         self.quality.addItems(list(QUALITY))
         self.quality.setCurrentText("Fine")
         self.quality.currentTextChanged.connect(self._quality_changed)
+        for widget in (quality_label, self.quality):
+            widget.setToolTip("How finely the preview is drawn. Plots always "
+                              "run at Ultra sampling, whatever this says.")
         outer.addWidget(row(quality_label, 1, self.quality))
-        outer.addWidget(theme.muted(
-            "Plots always run at Ultra sampling, whatever the preview shows.",
-            wrap=True))
 
         # What this pattern is to the paper, and the three things you can do
         # about it. One pattern is in Build at a time: a new one, or the one
@@ -213,18 +194,13 @@ class DesignPanel(QWidget):
         self.add_button.setObjectName("primary")
         self.add_button.setToolTip("Put this pattern on the sheet (Ctrl+Return)")
         self.add_button.clicked.connect(self.addRequested.emit)
-        outer.addWidget(self.add_button)
-        self.new_button = QPushButton("New pattern")
-        self.new_button.setToolTip(
-            "Start a fresh pattern. Anything already on the paper stays there.")
-        self.new_button.clicked.connect(self.newRequested.emit)
         self.off_button = QPushButton("Take off the paper")
         self.off_button.setObjectName("danger")
         self.off_button.setToolTip(
             "Take this pattern off the sheet. It stays here in Build, so you "
             "can place it again.")
         self.off_button.clicked.connect(self.offPaperRequested.emit)
-        outer.addWidget(row(self.new_button, 1, self.off_button, spacing=4))
+        outer.addWidget(row(self.add_button, self.off_button, spacing=4))
         self.set_placed(None)
 
         self._show_finishing(False)
@@ -325,6 +301,7 @@ class DesignPanel(QWidget):
     # -- the parameters -------------------------------------------------------- #
 
     def _clear_step_box(self):
+        self._rows = {}
         self.explainer.setParent(None)
         while self.step_layout.count():
             child = self.step_layout.takeAt(0)
@@ -416,14 +393,36 @@ class DesignPanel(QWidget):
             osc_value=params.get(OSC_PREFIX + name))
         widget.valueChanged.connect(
             lambda key, value, target=params: self._set_param(target, key, value))
-        widget.hovered.connect(self.explain)
+        widget.picked.connect(self.explain)
+        self._rows[name] = widget
+        if end_name:
+            self._rows[end_name] = widget
         return widget
+
+    def _pick_value(self, name, value):
+        """A picture in the explainer was clicked: the knob takes its value."""
+        widget = self._rows.get(name)
+        if widget is None:
+            return
+        if name == widget.name:
+            widget.set_value(value)
+        else:
+            widget.set_drift_value(value)
+        self._set_param(self._step_params, name, value)
 
     def explain(self, name):
         """Show what one parameter of the selected step does."""
         spec = self._step_spec["params"].get(name) or COMMON_PARAMS.get(name)
         if spec is None:
             return
+        # Under the row it belongs to, so it is plain which knob it shows.
+        widget = self._rows.get(name)
+        if widget is not None and widget.parentWidget() is not None:
+            layout = widget.parentWidget().layout()
+            if layout.indexOf(self.explainer) != layout.indexOf(widget) + 1:
+                if self.explainer.parentWidget() is not None:
+                    self.explainer.parentWidget().layout().removeWidget(self.explainer)
+                layout.insertWidget(layout.indexOf(widget) + 1, self.explainer)
         self.explainer.show_param(self._step_params, name, spec, self._step_kind)
 
     def explained(self, ini, drawing):
@@ -446,7 +445,7 @@ class DesignPanel(QWidget):
         self.strip.update()              # the summary line and the brackets
         if self.explainer.params is params:
             self._explain_timer.start()  # the pictures follow the new value
-        self._edited()
+        self.documentChanged.emit()
 
     def show_recipe(self, name):
         """Say which recipe made what is on screen — it is worth knowing which
@@ -477,53 +476,7 @@ class DesignPanel(QWidget):
 
     def _finishing_changed(self):
         self._label_finishing()
-        self._edited()
-
-    # -- applying ------------------------------------------------------------------ #
-
-    def _edited(self):
-        """A number changed: redraw now if live, else say it is waiting."""
-        if self.live.isChecked():
-            self.documentChanged.emit()
-            return
-        self.pending += 1
-        self._show_apply()
-
-    def apply(self):
-        """Redraw with whatever the numbers say now."""
-        if self.pending:
-            self.documentChanged.emit()
-
-    def redraw_started(self):
-        """The window has sent the document off: everything edited is in it."""
-        self.pending = 0
-        self.redrawing = True
-        self._show_apply()
-
-    def redraw_done(self):
-        self.redrawing = False
-        self._show_apply()
-
-    def _live_toggled(self, on):
-        self.settings.setValue("redraw_live", "true" if on else "false")
-        if on:
-            self.apply()
-        self._show_apply()
-
-    def _show_apply(self):
-        if self.pending:
-            self.apply_button.setText("Apply %d change%s"
-                                      % (self.pending, "" if self.pending == 1 else "s"))
-            self.apply_button.setObjectName("primary")
-            self.apply_button.setEnabled(True)
-        else:
-            self.apply_button.setText("Redrawing…" if self.redrawing else "Up to date ✓")
-            self.apply_button.setObjectName("")
-            self.apply_button.setEnabled(False)
-        self.apply_button.setVisible(not self.live.isChecked() or self.redrawing)
-        # The object name picks the style; Qt re-reads it only when told.
-        self.apply_button.style().unpolish(self.apply_button)
-        self.apply_button.style().polish(self.apply_button)
+        self.documentChanged.emit()
 
     # -- sampling ---------------------------------------------------------------- #
 

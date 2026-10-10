@@ -86,7 +86,7 @@ class MainWindow(QMainWindow):
     # -- construction ---------------------------------------------------------- #
 
     def _build_ui(self):
-        self.design = DesignPanel(self.document, self.settings)
+        self.design = DesignPanel(self.document)
         self.ideas = IdeasPanel(ROOT)
         self.library = LibraryPanel(ROOT)
         left = QTabWidget()
@@ -466,7 +466,6 @@ class MainWindow(QMainWindow):
             self.paper_window.show_position(text)
 
     def _save(self):
-        self.design.apply()              # the file and the picture agree
         if self.document.path is None:
             return self._save_as()
         self.document.save()
@@ -476,7 +475,6 @@ class MainWindow(QMainWindow):
         self._update_title()
 
     def _save_as(self):
-        self.design.apply()
         path, _ = QFileDialog.getSaveFileName(
             self, "Save the pattern", str(ROOT / (self.document.name + ".ini")),
             "Pattern files (*.ini)")
@@ -676,9 +674,7 @@ class MainWindow(QMainWindow):
         self._render_timer.start()
 
     def _render_now(self):
-        self.design.redraw_started()
         if self.document.is_empty():
-            self.design.redraw_done()
             self.drawing = None
             self.render_panel.set_drawing(None)
             self.design.set_stages(None)
@@ -703,7 +699,6 @@ class MainWindow(QMainWindow):
         try:
             ini = self.document.to_ini(self.design.quality_sampling())
         except Exception as exc:
-            self.design.redraw_done()
             self.status_left.setText("Bad pipeline: %s" % exc)
             return
         self.renderRequested.emit(self.render_token, ini)
@@ -711,7 +706,6 @@ class MainWindow(QMainWindow):
     def _render_finished(self, token, drawing):
         if token != self.render_token:
             return                       # superseded by a later edit
-        self.design.redraw_done()
         self.drawing = drawing
         caption = ("%s — %d paths, %s points, %.0f x %.0f units"
                    % (self.document.describe_step(0) if self.document.steps else "pattern",
@@ -746,7 +740,6 @@ class MainWindow(QMainWindow):
             self.status_left.setText("Could not re-generate (%s): %s" % (label, message))
             return
         if token == self.render_token:
-            self.design.redraw_done()
             self.status_left.setText("Generator error: %s" % message)
 
     def _render_thumbnails(self, jobs):
@@ -779,9 +772,6 @@ class MainWindow(QMainWindow):
         if self.drawing is None:
             self.status_left.setText("Nothing generated yet.")
             return
-        # Unapplied numbers are applied; the redraw lands on this copy, since
-        # it takes the document's token.
-        self.design.apply()
         item = self.scene.add(self.drawing, name=self.document.name,
                               source=self.document.renew())
         self.scene.ensure_pens(item.pen + 1)

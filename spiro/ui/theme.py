@@ -59,6 +59,10 @@ QPushButton#danger { border-color: %(ERR)s; color: %(ERR)s; }
 QPushButton#danger:disabled { border-color: %(LINE)s; color: %(MUTED)s; background: %(PANEL)s; }
 QPushButton#flat { background: transparent; border: none; padding: 2px 6px; color: %(MUTED)s; }
 QPushButton#flat:hover { color: %(TEXT)s; }
+QPushButton#drift { background: transparent; border: 1px solid transparent; padding: 0;
+    color: %(MUTED)s; }
+QPushButton#drift:hover { border-color: %(LINE)s; color: %(TEXT)s; }
+QPushButton#drift:checked { background: %(ACCENT_DIM)s; border-color: %(ACCENT)s; color: white; }
 QGroupBox { border: 1px solid %(LINE)s; border-radius: 5px; margin-top: 14px;
             padding: 8px 8px 6px 8px; }
 QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px;

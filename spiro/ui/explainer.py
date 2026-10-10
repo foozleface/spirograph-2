@@ -5,8 +5,8 @@ hand-drawn icon would be wrong the day the module changed. So the explainer
 asks the engine: the selected step, on its own (a circle carries a path,
 a table move or a clock, as in the gallery), rendered at a sweep of values
 of one parameter — lower, current, higher — in a row of small pictures with
-the value under each and the current one marked. Hover any row in the
-parameter list and the card shows that knob. A bool shows off and on; a
+the value under each and the current one marked. Click into a parameter and
+the card shows that knob; click a picture and the knob takes its value. A bool shows off and on; a
 choice shows every choice; a drift end shows the drift to each value.
 
 The renders run on the window's thumbnail thread and are cached by the INI
@@ -129,6 +129,7 @@ class ExplainerCard(QWidget):
     """One parameter, as a row of pictures."""
 
     renderWanted = Signal(object)        # [(key, ini)] for the thumbnail thread
+    valuePicked = Signal(str, object)    # (name, value): a picture was clicked
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -164,8 +165,8 @@ class ExplainerCard(QWidget):
         self.jobs = explain_jobs(params, name, spec)
         current = params.get(name, spec.get("default"))
         what = spec.get("desc") or name.replace("_", " ")
-        self.title.setText("%s — %s from low to high, now %s"
-                           % (glyphs.KIND_GLYPHS[kind], what, _label(current)))
+        self.title.setText("%s%s at other values — click one to use it"
+                           % (what[:1].upper(), what[1:]))
         self._lay_out(len(self.jobs))
         wanted = []
         for index, (value, ini) in enumerate(self.jobs):
@@ -207,9 +208,14 @@ class ExplainerCard(QWidget):
             if index < len(self.slots):
                 self.slots[index].set_failed(message)
 
+    def _slot_clicked(self, index):
+        if index < len(self.jobs) and self.name is not None:
+            self.valuePicked.emit(self.name, self.jobs[index][0])
+
     def _lay_out(self, count):
         while len(self.slots) < count:
             slot = Slot()
+            slot.clicked.connect(lambda i=len(self.slots): self._slot_clicked(i))
             self.slots.append(slot)
             self.row.addWidget(slot)
         for index, slot in enumerate(self.slots):
@@ -217,10 +223,13 @@ class ExplainerCard(QWidget):
 
 
 class Slot(QWidget):
-    """One picture and its value."""
+    """One picture and its value; a click asks for that value."""
+
+    clicked = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setCursor(Qt.PointingHandCursor)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(1)
@@ -254,7 +263,12 @@ class Slot(QWidget):
             painter.drawRect(1, 1, THUMB - 2, THUMB - 2)
             painter.end()
         self.picture.setPixmap(pix)
-        self.picture.setToolTip("")
+        self.setToolTip("" if self.current else "Use %s" % self.value.text())
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton and not self.current:
+            self.clicked.emit()
+        super().mouseReleaseEvent(event)
 
     def set_failed(self, message):
         pix = QPixmap(THUMB, THUMB)

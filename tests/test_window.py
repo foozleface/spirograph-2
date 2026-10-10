@@ -1022,49 +1022,59 @@ for action in window.findChildren(QAction):
 shared = {k: v for k, v in taken.items() if k and len(v) > 1}
 check("no two actions share a shortcut (Qt would run neither)", not shared, shared)
 
-# -- an edit waits for Apply -------------------------------------------------- #
+# -- a number takes effect when it is finished ------------------------------ #
 
-print("an edit waits for Apply:")
+print("a number takes effect when it is finished:")
+from PySide6.QtTest import QTest  # noqa: E402
 design = window.design
-design.live.blockSignals(True)           # not the user's remembered choice
-design.live.setChecked(False)
-design.live.blockSignals(False)
-design.refresh(select=0)
-window._render_now()
-wait_for(lambda: not design.redrawing)
-check("a fresh redraw leaves nothing to apply",
-      design.pending == 0 and not design.apply_button.isEnabled(),
-      design.apply_button.text())
+window._new_document()                   # a gear: it has whole-number knobs
+pump(400)                                # let its own scheduled redraw go
+window.activateWindow()
 row = next(w for w in design.step_box.findChildren(
     __import__("spiro.ui.widgets", fromlist=["ParamRow"]).ParamRow)
-    if w.spec.get("type") in ("int", "float"))
+    if w.spec.get("type") == "int")
+editor = row.editor
+editor.setFocus()
+pump(50)
+editor.selectAll()
 token = window.render_token
-row.editor.setValue(row.editor.value() + 1)
-row.editor.setValue(row.editor.value() + 1)
+QTest.keyClicks(editor, "52")
 pump(400)                                # past the render timer's coalescing
-check("typing does not redraw", window.render_token == token)
-check("the button counts the waiting edits",
-      design.pending == 2 and design.apply_button.isEnabled()
-      and "2 changes" in design.apply_button.text(), design.apply_button.text())
-design.apply()
+check("typing alone does not redraw", window.render_token == token)
+QTest.keyClick(editor, Qt.Key_Return)
 pump(400)
-check("Apply redraws", window.render_token == token + 1)
-check("and the button says it is working, then up to date",
-      design.pending == 0 and wait_for(lambda: not design.redrawing)
-      and "Up to date" in design.apply_button.text(), design.apply_button.text())
-saved_live = window.settings.value("redraw_live")
-design.live.setChecked(True)
+check("Enter redraws with the typed number",
+      window.render_token == token + 1 and design.document.steps[0]["params"][row.name] == 52,
+      (window.render_token - token, design.document.steps[0]["params"].get(row.name)))
+editor.setFocus()
+pump(50)
+editor.selectAll()
+QTest.keyClicks(editor, "48")
 token = window.render_token
-row.editor.setValue(row.editor.value() + 1)
+editor.clearFocus()
 pump(400)
-check("Redraw as I edit redraws without Apply",
-      window.render_token == token + 1 and design.pending == 0)
-design.live.setChecked(False)
-if saved_live is None:
-    window.settings.remove("redraw_live")
-else:
-    window.settings.setValue("redraw_live", saved_live)
-wait_for(lambda: not design.redrawing)
+check("leaving the box redraws with it",
+      window.render_token == token + 1 and design.document.steps[0]["params"][row.name] == 48,
+      (window.render_token - token, design.document.steps[0]["params"].get(row.name)))
+wait_for(lambda: window.drawing is not None)
+
+ex = design.explainer
+QTest.mouseClick(editor, Qt.LeftButton)
+pump(100)
+host = row.parentWidget().layout()
+check("the pictures follow the knob clicked into, and sit under it",
+      ex.name == row.name and host.indexOf(ex) == host.indexOf(row) + 1,
+      (ex.name, host.indexOf(ex), host.indexOf(row)))
+other = next(i for i, slot in enumerate(ex.slots)
+             if slot.isVisible() and not slot.current)
+token = window.render_token
+QTest.mouseClick(ex.slots[other], Qt.LeftButton)
+pump(400)
+check("clicking a picture sets that value and redraws",
+      design.document.steps[0]["params"][row.name] == ex.jobs[other][0]
+      and row.editor.value() == ex.jobs[other][0]
+      and window.render_token == token + 1,
+      (design.document.steps[0]["params"][row.name], ex.jobs[other][0]))
 
 window.design.clear_machine()
 check("clear empties the machine", window.document.steps == [] and not window.design.strip.steps)
