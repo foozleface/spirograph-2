@@ -1076,6 +1076,58 @@ check("clicking a picture sets that value and redraws",
       and window.render_token == token + 1,
       (design.document.steps[0]["params"][row.name], ex.jobs[other][0]))
 
+# -- undo ------------------------------------------------------------------ #
+
+print("undo:")
+window._new_document()
+pump(400)
+gear = window.document.steps[0]["params"]
+original = gear["fixed_teeth"]
+check("a fresh pattern has nothing to undo", not window.undo_action.isEnabled())
+for value in (original + 1, original + 2, original + 3):   # a drag: one redraw
+    design._set_param(gear, "fixed_teeth", value)
+pump(400)
+design._set_param(window.document.steps[0]["params"], "rolling_teeth", 33)
+pump(400)
+window.document.add_module("rose")
+design.refresh(select=1)
+design.structureChanged.emit()
+design.documentChanged.emit()
+pump(400)
+check("three edits, three steps to undo", len(window.history.past) == 4,
+      len(window.history.past))
+window._undo()
+check("undo takes the added step off",
+      [s["params"]["type"] for s in window.document.steps] == ["spirograph_gear"])
+window._undo()
+check("then the second number", window.document.steps[0]["params"]["rolling_teeth"] != 33)
+window._undo()
+check("then the whole drag at once",
+      window.document.steps[0]["params"]["fixed_teeth"] == original,
+      window.document.steps[0]["params"]["fixed_teeth"])
+check("and then there is nothing left to undo", not window.undo_action.isEnabled())
+pump(400)
+check("undoing does not itself become an edit", len(window.history.past) == 1)
+window._redo()
+window._redo()
+pump(50)                                 # the old rows are deleted later
+check("redo puts them back in order",
+      window.document.steps[0]["params"]["fixed_teeth"] == original + 3
+      and window.document.steps[0]["params"]["rolling_teeth"] == 33)
+check("the panel shows the restored numbers",
+      next(w for w in design.step_box.findChildren(
+          __import__("spiro.ui.widgets", fromlist=["ParamRow"]).ParamRow)
+          if w.name == "rolling_teeth").editor.value() == 33)
+design._set_param(window.document.steps[0]["params"], "rolling_teeth", 40)
+pump(400)
+check("a new edit after undo drops what could be redone", not window.redo_action.isEnabled())
+check("Ctrl+Z is undo", "Ctrl+Z" in [k.toString() for k in window.undo_action.shortcuts()])
+check("Ctrl+Shift+Z is redo",
+      "Ctrl+Shift+Z" in [k.toString() for k in window.redo_action.shortcuts()])
+window._open_path(str(ROOT_DIR / "spin.ini"))
+pump(400)
+check("opening another pattern starts its own history", not window.undo_action.isEnabled())
+
 # -- dragging a step to a new place ---------------------------------------- #
 
 print("dragging a step:")

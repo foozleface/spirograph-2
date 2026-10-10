@@ -33,6 +33,7 @@ from spiro.ui import theme
 from spiro.ui.canvas_view import PaperCanvas
 from spiro.ui import glyphs
 from spiro.ui.design_panel import DesignPanel
+from spiro.ui.history import History
 from spiro.ui.ideas_panel import IdeasPanel
 from spiro.ui.library_panel import LibraryPanel
 from spiro.ui.notify_panel import NotifyPanel
@@ -77,6 +78,7 @@ class MainWindow(QMainWindow):
         self.inhibitor = awake.SleepInhibitor("A plot is running", "Spirograph")
         self._plot_started = 0.0
         self._status_until = 0.0         # see _say
+        self.history = History(self.document)
 
         self._build_ui()
         self._start_workers()
@@ -173,6 +175,20 @@ class MainWindow(QMainWindow):
         quit_action.setShortcut(QKeySequence.Quit)
         quit_action.triggered.connect(self.close)
         file_menu.addAction(quit_action)
+
+        edit_menu = self.menuBar().addMenu("&Edit")
+        self.undo_action = QAction("&Undo", self)
+        self.undo_action.setShortcut(QKeySequence.Undo)
+        self.undo_action.triggered.connect(self._undo)
+        self.redo_action = QAction("&Redo", self)
+        redo_keys = QKeySequence.keyBindings(QKeySequence.Redo)
+        if QKeySequence("Ctrl+Shift+Z") not in redo_keys:
+            redo_keys.append(QKeySequence("Ctrl+Shift+Z"))
+        self.redo_action.setShortcuts(redo_keys)
+        self.redo_action.triggered.connect(self._redo)
+        edit_menu.addAction(self.undo_action)
+        edit_menu.addAction(self.redo_action)
+        self._update_undo()
 
         view_menu = self.menuBar().addMenu("&View")
         for label, shortcut, fn in (
@@ -345,6 +361,7 @@ class MainWindow(QMainWindow):
         if not blank:
             self.document.add_module("spirograph_gear")
         self.design.refresh(select=None if blank else 0)
+        self._new_history()
         self.design.show_recipe(None)
         self._update_placement()
         self._update_title()
@@ -372,6 +389,7 @@ class MainWindow(QMainWindow):
             return
         self.document.__dict__.update(loaded.__dict__)
         self.document.renew()
+        self._new_history()
         self.design.refresh(select=0 if self.document.steps else None)
         self.design.show_recipe(None)
         self._update_placement()
@@ -399,6 +417,7 @@ class MainWindow(QMainWindow):
 
         self.left_tabs.setCurrentWidget(self.design)
         self.centre.setCurrentWidget(self.render_panel)
+        self._new_history()
         self.design.refresh(select=0)
         self.design.show_recipe(made["name"])
         self._update_placement()
@@ -659,6 +678,7 @@ class MainWindow(QMainWindow):
         # Preview at the panel's quality, not whatever the item was last
         # generated at — a plotted item carries an Ultra INI.
         self.document.sampling.update(self.design.quality_sampling())
+        self._new_history()
         self.design.refresh(select=0 if self.document.steps else None)
         self.design.show_recipe(None)
         self.left_tabs.setCurrentWidget(self.design)
@@ -668,12 +688,46 @@ class MainWindow(QMainWindow):
         self.status_left.setText("Editing %s — changes redraw it on the paper."
                                  % item.name)
 
+    # -- undo ------------------------------------------------------------------------ #
+
+    def _new_history(self):
+        """Another pattern is in Build: undo starts again from here."""
+        self.history.reset()
+        self._update_undo()
+
+    def _undo(self):
+        if self.history.undo():
+            self._restored("Undone")
+        else:
+            self.status_left.setText("Nothing to undo.")
+
+    def _redo(self):
+        if self.history.redo():
+            self._restored("Redone")
+        else:
+            self.status_left.setText("Nothing to redo.")
+
+    def _restored(self, word):
+        selected = self.design.selected_step
+        count = len(self.document.steps)
+        self.design.refresh(select=None if not count else
+                            min(selected if selected is not None else 0, count - 1))
+        self._update_undo()
+        self._schedule_render()
+        self._say(word + ".", hold=1.5)
+
+    def _update_undo(self):
+        self.undo_action.setEnabled(self.history.can_undo())
+        self.redo_action.setEnabled(self.history.can_redo())
+
     # -- generating ------------------------------------------------------------------ #
 
     def _schedule_render(self):
         self._render_timer.start()
 
     def _render_now(self):
+        if self.history.record():
+            self._update_undo()
         if self.document.is_empty():
             self.drawing = None
             self.render_panel.set_drawing(None)
