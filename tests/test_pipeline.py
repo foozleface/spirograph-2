@@ -455,6 +455,57 @@ doc.make_group(1)
 check("and a group's modules are not offered at all",
       not any(label.startswith("2.") for _, label, _ in doc.single_step_params()))
 
+# -- a carriage that turns with its track ------------------------------------ #
+
+print("turning with the track:")
+import configparser  # noqa: E402
+from arc import ArcModule  # noqa: E402
+from translation import TranslationModule  # noqa: E402
+
+
+def module(cls, text):
+    config = configparser.ConfigParser()
+    config.read_string("[m]\n" + text)
+    return cls(config, "m")
+
+
+half = module(ArcModule, "sweep_angle = 180")
+turned = np.degrees(half.heading(np.array([0.0, 0.5, 1.0])))
+check("half an arc turns what it carries half a turn",
+      np.allclose(turned, [0, 90, 180], atol=0.05), turned)
+straight = module(TranslationModule, "end_x = 100\nend_y = 40")
+check("a straight track does not turn at all",
+      np.allclose(straight.heading(np.linspace(0, 1, 9)), 0, atol=1e-9))
+check("and a scalar t is answered like an array",
+      close(float(half.heading(0.5)), np.pi / 2, 1e-3))
+
+SMALL = {"initial_samples": 8000, "output_samples": 2000}
+
+
+def follow_run(follow, order):
+    arc = dict(defaults_for("arc"), follow=follow)
+    steps = {"arm": dict(defaults_for("lissajous")), "arc": arc,
+             "circle": dict(defaults_for("circle"))}
+    return run(build_ini(steps=[{"kind": "single", "params": steps[k]} for k in order],
+                         sampling=SMALL)).paths[0]
+
+
+plain_a = follow_run(False, ["arm", "arc", "circle"])
+plain_b = follow_run(False, ["arc", "arm", "circle"])
+turn_a = follow_run(True, ["arm", "arc", "circle"])
+turn_b = follow_run(True, ["arc", "arm", "circle"])
+check("a carriage that only slides commutes with the arms",
+      np.max(np.abs(plain_a - plain_b)) < 1e-6)
+check("turning with the track changes the drawing",
+      np.max(np.abs(turn_a - plain_a)) > 10)
+check("and makes the order matter: it turns the arms above it, not below",
+      np.max(np.abs(turn_a - turn_b)) > 10 and np.max(np.abs(turn_b - plain_b)) < 1e-6)
+check("the switch is offered on the curved paths only",
+      "follow" in MODULE_DEFS["arc"]["params"]
+      and "follow" in MODULE_DEFS["spiral_arc"]["params"]
+      and "follow" not in MODULE_DEFS["rail_slide"]["params"]
+      and "follow" not in MODULE_DEFS["translation"]["params"])
+
 print()
 print("pipeline: %d passed, %d failed" % (len(PASS), len(FAIL)))
 if FAIL:

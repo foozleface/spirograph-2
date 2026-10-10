@@ -144,6 +144,12 @@ _ORIGIN = {
     "origin_x": {"type": "float", "default": 0.0, "min": -300, "max": 300, "desc": "Centre X", "advanced": True},
     "origin_y": {"type": "float", "default": 0.0, "min": -300, "max": 300, "desc": "Centre Y", "advanced": True},
 }
+# A curved carriage path can carry the drawing the way a car carries a
+# passenger: turned to face along the track, not only moved along it. The
+# straight ones (rail, translation) never turn, so they do not offer it.
+_FOLLOW = {
+    "follow": {"type": "bool", "default": False, "desc": "Turn with the track"},
+}
 _CENTER = {
     "center_x": {"type": "float", "default": 0.0, "min": -300, "max": 300, "desc": "Centre X", "advanced": True},
     "center_y": {"type": "float", "default": 0.0, "min": -300, "max": 300, "desc": "Centre Y", "advanced": True},
@@ -424,6 +430,7 @@ MODULE_DEFS = {
             "cycles":      {"type": "float", "default": 1.0,   "min": 1,  "max": 10, "step": 1, "desc": "Cycles"},
             **_CENTER,
             "normalize":   {"type": "bool",  "default": True,  "desc": "Normalize timing"},
+            **_FOLLOW,
         },
     },
     "spiral_arc": {
@@ -437,6 +444,7 @@ MODULE_DEFS = {
             "sweep_angle":  {"type": "float", "default": 720.0, "min": 10, "max": 2880, "desc": "Sweep°"},
             "cycles":       {"type": "float", "default": 1.0,   "min": 1,  "max": 10, "step": 1, "desc": "Cycles"},
             **_CENTER,
+            **_FOLLOW,
             "normalize":    {"type": "bool",  "default": True,   "desc": "Normalize timing"},
         },
     },

@@ -46,7 +46,10 @@ The pattern is a **machine**, and the window says so in four colours:
 * ⟲ **arm** (amber) — adds a moving arm; the pen rides the last one. Circle,
   gear, harmonograph, pintograph, the wire surfaces…
 * ⤳ **carriage path** (teal) — carries the whole mechanism along a line, an
-  arc, a spiral, a rail.
+  arc, a spiral, a rail. Sliding along commutes with the arms, so where it
+  sits in the order makes no difference — unless an arc or spiral is set to
+  **turn with the track**, when it also turns the arms above it to face
+  along the track, like a car carrying them round a bend.
 * ⟳ **table move** (violet) — turns, grows, bends or wobbles the paper under
   what is drawn so far. Every table move says what it *acts on*: everything,
   or only the last arm (or last few) — the bracket beside the steps shows it.

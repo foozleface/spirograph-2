@@ -140,9 +140,31 @@ def table_trail(drawing, kinds, scopes, k, i, count=5):
     return out
 
 
+def follows(drawing, k):
+    """Is step ``k`` a carriage that turns what it carries with its track?"""
+    return bool(getattr(drawing.modules[k], "follow", False)) \
+        if k < len(drawing.modules) else False
+
+
+def all_retimed(drawing, k):
+    """The t module ``k`` saw at every sample."""
+    t = np.asarray(drawing.t_values, dtype=float)
+    for module in drawing.modules[:k]:
+        if getattr(module, "is_clock", False):
+            t = module.retime(t)
+    return t
+
+
 def contribution(drawing, k):
     """What step ``k`` adds on its own, over the whole draw: the vector an
     arm or a carriage path contributes at every sample."""
+    if follows(drawing, k):
+        # the difference of stages would include the turn; the track is
+        # the carriage's own position
+        module = drawing.modules[k]
+        t = all_retimed(drawing, k)
+        return np.asarray(module.transform(np.zeros(t.shape, dtype=complex), t),
+                          dtype=complex)
     stage = drawing.stages[k]
     previous = drawing.stages[k - 1] if k else np.zeros_like(stage)
     return stage - previous
@@ -159,9 +181,25 @@ def machine_links(drawing, kinds, i, start=0j):
     n = len(stages)
     while k < n:
         kind = kinds[k]
+        if kind == "path" and follows(drawing, k):
+            # A carriage that turns with its track carries the whole machine
+            # so far, turned: draw it at the carriage, everything else hung
+            # from it and turned with it.
+            module = drawing.modules[k]
+            t = retimed(drawing, k, i)
+            turn = complex(np.exp(1j * module.heading(t))[0])
+            offset = complex(np.asarray(module.transform(np.zeros(1, dtype=complex), t))[0])
+            carriage = complex(start) + offset
+            links = [("path", k, complex(start), carriage)] + [
+                (kd, j, (a - start) * turn + carriage, (b - start) * turn + carriage)
+                for kd, j, a, b in links]
+            current = complex(stages[k][i])
+            k += 1
+            continue
         if kind in ARM_KINDS:
             run = []
-            while k < n and kinds[k] in ARM_KINDS:
+            while k < n and kinds[k] in ARM_KINDS and not (
+                    kinds[k] == "path" and follows(drawing, k)):
                 run.append(k)
                 k += 1
             ordered = [j for j in run if kinds[j] == "path"] + \

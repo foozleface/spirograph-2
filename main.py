@@ -84,6 +84,9 @@ class TransformModule(ABC):
         # What a transform acts on: 'all' (everything drawn so far) or an
         # integer k, the last k arms. See run_pipeline.
         self.scope = parse_scope(self._get('scope', 'all'))
+        # A carriage path may turn what it carries to face along its track.
+        # See heading() and run_pipeline.
+        self.follow = self._getboolean('follow', False)
     
     def set_pipeline_period(self, period: Fraction):
         """Set the combined pipeline period (called by main after computing period)."""
@@ -196,6 +199,40 @@ class TransformModule(ABC):
         """
         pass
     
+    def heading(self, t):
+        """How far the track has turned since the start, in radians, at each
+        of ``t`` — for a path that carries the drawing turned to face along
+        it.
+
+        Read from the track itself: its direction of travel, sampled finely
+        from the start of the draw, unwrapped so a full lap is 2 pi rather
+        than a jump back to zero. The direction is taken as a line, not an
+        arrow — a rail that runs out and back is a car reversing, not a car
+        spinning round at each end — and where the carriage stops for an
+        instant the last direction is held.
+        """
+        t = np.asarray(t, dtype=float)
+        flat = np.atleast_1d(t)
+        low, high = min(0.0, float(flat.min())), max(0.0, float(flat.max()))
+        if high <= low:
+            return np.zeros_like(t)
+        grid = np.linspace(low, high, HEADING_SAMPLES)
+        track = np.asarray(self.transform(np.zeros(grid.shape, dtype=complex), grid),
+                           dtype=complex)
+        velocity = np.gradient(track, grid)
+        speed = np.abs(velocity)
+        moving = speed > 1e-9 * max(float(speed.max()), 1e-300)
+        if not moving.any():
+            return np.zeros_like(t)
+        # hold the last direction across a stop
+        index = np.where(moving, np.arange(len(grid)), 0)
+        np.maximum.accumulate(index, out=index)
+        index[:np.argmax(moving)] = np.argmax(moving)
+        doubled = np.unwrap(2.0 * np.angle(velocity[index]))
+        angle = doubled / 2.0
+        angle -= np.interp(0.0, grid, angle)       # no turn at the start
+        return np.interp(t, grid, angle)
+
     @property
     def is_generator(self) -> bool:
         """
@@ -208,6 +245,9 @@ class TransformModule(ABC):
             True if this is a generator module
         """
         return False
+
+
+HEADING_SAMPLES = 20001       # how finely heading() reads a track
 
 
 def parse_scope(text):
@@ -302,6 +342,13 @@ def run_pipeline(modules: List[TransformModule], t, start=0j, stages=None):
             # stays where it is.
             t = module.retime(t)
         elif module.is_generator:
+            if getattr(module, 'follow', False):
+                # A carriage that turns with its track turns everything it
+                # carries — what is drawn so far, about the origin the arms
+                # hang from — before carrying it along.
+                turn = np.exp(1j * module.heading(t))
+                z = z * turn
+                bases = [b * turn for b in bases]
             bases.append(z)
             z = module.transform(z, t)
         elif scope == 'all':
