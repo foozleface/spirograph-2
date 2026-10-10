@@ -90,8 +90,11 @@ pump(200)
 # -- generate and place ----------------------------------------------------- #
 
 print("generate and place:")
+check("the window opens on a blank page",
+      window.document.steps == [] and window.drawing is None)
+window._new_document()
 window._render_now()
-check("a fresh window generates something", wait_for(lambda: window.drawing))
+check("New pattern generates something", wait_for(lambda: window.drawing))
 check("at the preview quality, not the plot's",
       window.drawing.point_count == window.design.quality_sampling()["output_samples"])
 

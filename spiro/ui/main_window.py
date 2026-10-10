@@ -81,7 +81,7 @@ class MainWindow(QMainWindow):
         self._build_ui()
         self._start_workers()
         self._connect()
-        self._new_document()
+        self._new_document(blank=True)      # a blank page until asked otherwise
 
     # -- construction ---------------------------------------------------------- #
 
@@ -333,7 +333,8 @@ class MainWindow(QMainWindow):
 
     # -- the document ------------------------------------------------------------ #
 
-    def _new_document(self):
+    def _new_document(self, blank=False):
+        """Start a pattern: one gear to edit, or (at launch) nothing at all."""
         self.document.steps = []
         self.document.output = {}
         self.document.sampling = dict(self.design.quality_sampling())
@@ -342,8 +343,9 @@ class MainWindow(QMainWindow):
         self.document.path = None
         self.document.name = "untitled"
         self.document.renew()
-        self.document.add_module("spirograph_gear")
-        self.design.refresh(select=0)
+        if not blank:
+            self.document.add_module("spirograph_gear")
+        self.design.refresh(select=None if blank else 0)
         self.design.show_recipe(None)
         self._update_placement()
         self._update_title()
