@@ -8,6 +8,7 @@ stops to ask.
 """
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox,
                                QHeaderView, QLabel, QLineEdit, QMessageBox,
                                QPushButton, QTableWidget, QTableWidgetItem,
@@ -33,6 +34,7 @@ class SheetPanel(QWidget):
     saveSheetRequested = Signal()
     openSheetRequested = Signal()
     addTextRequested = Signal()
+    removeRequested = Signal(object)      # item_id: Remove, or Delete in the list
     editTextRequested = Signal(object)    # item_id of a block of text
 
     def __init__(self, scene, parent=None):
@@ -82,6 +84,11 @@ class SheetPanel(QWidget):
         self.items.setSelectionBehavior(QTableWidget.SelectRows)
         self.items.setSelectionMode(QTableWidget.SingleSelection)
         self.items.setEditTriggers(QTableWidget.NoEditTriggers)
+        # Delete takes the highlighted one off, as it does on the paper.
+        for key in (Qt.Key_Delete, Qt.Key_Backspace):
+            shortcut = QShortcut(QKeySequence(key), self.items)
+            shortcut.setContext(Qt.WidgetWithChildrenShortcut)
+            shortcut.activated.connect(self._remove_selected)
         self.items.setStyleSheet(
             "QTableWidget { background: %s; border: 1px solid %s; border-radius: 4px; }"
             "QHeaderView::section { background: %s; border: none; color: %s;"
@@ -118,7 +125,8 @@ class SheetPanel(QWidget):
         self.clear.clicked.connect(self.clear_paper)
         layout.addWidget(row(self.centre, self.fit, self.duplicate, 1,
                              self.remove, self.clear, spacing=4))
-        self.add_text = QPushButton("Add text…")
+        self.add_text = QPushButton("＋ Add text…")
+        self.add_text.setObjectName("primary")
         self.add_text.setToolTip("Put words on the paper — any size, font and "
                                  "angle (Ctrl+T)")
         self.add_text.clicked.connect(self.addTextRequested.emit)
@@ -384,11 +392,11 @@ class SheetPanel(QWidget):
         return self.scene.find(item_id) if item_id else None
 
     def _remove_selected(self):
+        """Remove, or Delete in the list. The window takes it off, so it is
+        one step that Ctrl+Z puts back, said the same way as on the paper."""
         item = self._selected_item()
-        if item and self.scene.remove(item.item_id):
-            self.refresh()
-            self.selectionChanged.emit(None)
-            self.sceneChanged.emit()
+        if item is not None:
+            self.removeRequested.emit(item.item_id)
 
     def _duplicate_selected(self):
         import copy
@@ -426,8 +434,8 @@ class SheetPanel(QWidget):
     def clear_paper(self, confirm=True):
         """Empty the sheet.
 
-        Asks first, because there is no undo and re-placing a pattern that was
-        nudged into position is a nuisance. Nothing else is touched: the
+        Asks first: it takes everything at once. Edit -> Undo brings it all
+        back. Nothing else is touched: the
         pattern being built, the pens and the paper all stay as they are.
         """
         if not self.scene.items:

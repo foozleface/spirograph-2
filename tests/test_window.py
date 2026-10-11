@@ -770,7 +770,7 @@ pump(60)
 check("pressing it takes the pattern off the paper", window.scene.items == [])
 check("but leaves it in Build, so it can go back",
       len(window.document.steps) == steps_before)
-check("and says so", "still here in Build" in window.status_left.text())
+check("and says so, and how to put it back", "Ctrl+Z" in window.status_left.text())
 check("Build is free again",
       "Not on the paper" in window.design.placed_label.text())
 
@@ -1108,7 +1108,7 @@ window._new_document()
 pump(400)
 gear = window.document.steps[0]["params"]
 original = gear["fixed_teeth"]
-check("a fresh pattern has nothing to undo", not window.undo_action.isEnabled())
+check("a fresh pattern has nothing to undo", not window.history.can_undo())
 for value in (original + 1, original + 2, original + 3):   # a drag: one redraw
     design._set_param(gear, "fixed_teeth", value)
 pump(400)
@@ -1130,7 +1130,7 @@ window._undo()
 check("then the whole drag at once",
       window.document.steps[0]["params"]["fixed_teeth"] == original,
       window.document.steps[0]["params"]["fixed_teeth"])
-check("and then there is nothing left to undo", not window.undo_action.isEnabled())
+check("and then there is nothing left to undo", not window.history.can_undo())
 pump(400)
 check("undoing does not itself become an edit", len(window.history.past) == 1)
 window._redo()
@@ -1151,7 +1151,7 @@ check("Ctrl+Shift+Z is redo",
       "Ctrl+Shift+Z" in [k.toString() for k in window.redo_action.shortcuts()])
 window._open_path(str(ROOT_DIR / "spin.ini"))
 pump(400)
-check("opening another pattern starts its own history", not window.undo_action.isEnabled())
+check("opening another pattern starts its own history", not window.history.can_undo())
 
 # -- File -> Open as pictures ------------------------------------------------- #
 
@@ -1204,6 +1204,74 @@ window._open_dialog = None
 browser.deleteLater()
 window.scene.items.clear()
 __import__("shutil").rmtree(scratch, ignore_errors=True)
+
+# -- undoing what happens on the paper ------------------------------------------ #
+
+print("undo on the paper:")
+from PySide6.QtCore import QEvent as _QEvent  # noqa: E402
+from PySide6.QtGui import QKeyEvent as _QKeyEvent  # noqa: E402
+window.scene.items.clear()
+window._new_paper_history()
+window._open_path(str(ROOT_DIR / "spin.ini"))
+window._render_now()
+wait_for(lambda: window.drawing is not None)
+window._place()
+pump(500)
+keep = window.scene.items[-1]
+window._new_document()
+window._render_now()
+wait_for(lambda: window.drawing is not None)
+window._place()
+pump(500)
+doomed = window.scene.items[-1]
+spot = (doomed.x_mm, doomed.y_mm, doomed.h_mm, doomed.rotation_deg, doomed.pen)
+window.sheet.refresh(select=doomed.item_id)
+window.sheet.items.setFocus()
+QApplication.sendEvent(window.sheet.items,
+                       _QKeyEvent(_QEvent.ShortcutOverride, Qt.Key_Delete, Qt.NoModifier))
+window.sheet._remove_selected()               # what the Delete shortcut runs
+pump(500)
+check("Delete in the sheet's list takes the highlighted pattern off",
+      doomed not in window.scene.items and keep in window.scene.items)
+window._undo()
+check("and Ctrl+Z puts it back — the same pattern, where it was",
+      doomed in window.scene.items and (doomed.x_mm, doomed.y_mm, doomed.h_mm,
+                                        doomed.rotation_deg, doomed.pen) == spot,
+      (spot, (doomed.x_mm, doomed.y_mm, doomed.h_mm, doomed.rotation_deg, doomed.pen),
+       window._undo_order[-4:], [len(window.paper_history.past)]))
+window._redo()
+check("redo takes it off again", doomed not in window.scene.items)
+window._undo()
+window.canvas.select(doomed.item_id)
+window.canvas.setFocus()
+QApplication.sendEvent(window.canvas,
+                       _QKeyEvent(_QEvent.KeyPress, Qt.Key_Delete, Qt.NoModifier))
+pump(500)
+check("Delete on the paper takes it off", doomed not in window.scene.items)
+window._undo()
+check("and that undoes too", doomed in window.scene.items,
+      (window._undo_order[-4:], window._redo_order, window.status_left.text()))
+before_move = (keep.x_mm, keep.y_mm)
+keep.move_to(keep.x_mm + 40, keep.y_mm + 5)
+window._item_moved(keep.item_id)
+pump(500)
+design._set_param(window.document.steps[0]["params"], "rolling_teeth", 41)
+pump(500)
+window._undo()
+check("one Ctrl+Z undoes the last change, here the one in Build",
+      window.document.steps[0]["params"].get("rolling_teeth") != 41
+      and (keep.x_mm, keep.y_mm) != before_move)
+window._undo()
+check("and the next one the move on the paper before it",
+      (keep.x_mm, keep.y_mm) == before_move)
+count = len(window.scene.items)
+window.sheet.clear_paper(confirm=False)
+pump(500)
+window._undo()
+check("Clear the paper can be undone", len(window.scene.items) == count)
+window.scene.items.clear()
+window._scene_changed()
+pump(500)
 
 # -- dragging a step to a new place ---------------------------------------- #
 

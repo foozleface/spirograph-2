@@ -37,7 +37,7 @@ from spiro.ui import theme
 from spiro.ui.canvas_view import PaperCanvas
 from spiro.ui import glyphs
 from spiro.ui.design_panel import DesignPanel
-from spiro.ui.history import History
+from spiro.ui.history import History, SceneHistory
 from spiro.ui.ideas_panel import IdeasPanel
 from spiro.ui.library_panel import LibraryPanel
 from spiro.ui.notify_panel import NotifyPanel
@@ -54,6 +54,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SESSION_NAME = "session" + SHEET_SUFFIX
 SESSION_DELAY_MS = 1500          # after a change, before the session is written
 SESSION_BACKSTOP_MS = 15000      # and at least this often
+PAPER_HISTORY_MS = 300           # a paper change is noted this long after it settles
 
 
 class MainWindow(QMainWindow):
@@ -89,12 +90,22 @@ class MainWindow(QMainWindow):
         self._plot_started = 0.0
         self._status_until = 0.0         # see _say
         self.history = History(self.document)
+        self.paper_history = SceneHistory(self.scene, lambda: self.document.token)
+        # Which of the two each step back belongs to, oldest first: one
+        # Ctrl+Z undoes the last change, whether it was in Build or on paper.
+        self._undo_order = []
+        self._redo_order = []
         self._open_dialog = None         # File -> Open, made once, kept
 
         self._build_ui()
         self._start_workers()
         self._connect()
         self._new_document(blank=True)      # a blank page until asked otherwise
+        self._paper_timer = QTimer(self)
+        self._paper_timer.setSingleShot(True)
+        self._paper_timer.setInterval(PAPER_HISTORY_MS)
+        self._paper_timer.timeout.connect(self._record_paper)
+        self._new_paper_history()
         self._session_written = None
         self._session_timer = QTimer(self)
         self._session_timer.setSingleShot(True)
@@ -155,6 +166,7 @@ class MainWindow(QMainWindow):
         # Text belongs to the paper, so it is offered where the paper is —
         # the Sheet tab's button is out of sight whenever Plot is showing.
         self.text_button = QPushButton("＋ Add text")
+        self.text_button.setObjectName("primary")
         self.text_button.setToolTip("Put words on the paper — any font, size and "
                                     "angle (Ctrl+T)")
         self.text_button.clicked.connect(self._add_text)
@@ -368,6 +380,7 @@ class MainWindow(QMainWindow):
             lambda: self.status_left.setText("The paper is clear."))
         self.sheet.saveSheetRequested.connect(self._save_sheet_as)
         self.sheet.addTextRequested.connect(self._add_text)
+        self.sheet.removeRequested.connect(self._remove_item)
         self.sheet.editTextRequested.connect(self._edit_text)
         self.canvas.itemDoubleClicked.connect(self._edit_text)
         self.sheet.openSheetRequested.connect(self._open_sheet_dialog)
@@ -690,6 +703,7 @@ class MainWindow(QMainWindow):
         self.sheet.refresh()
         self.canvas.fit()
         self._scene_changed()
+        self._new_paper_history()
         self.library.select(path)
         self._update_title()
         self.status_left.setText(
@@ -753,34 +767,109 @@ class MainWindow(QMainWindow):
     # -- undo ------------------------------------------------------------------------ #
 
     def _new_history(self):
-        """Another pattern is in Build: undo starts again from here."""
+        """Another pattern is in Build: undo starts again from here for
+        Build. The paper keeps its own steps."""
         self.history.reset()
+        self._forget("doc")
+
+    def _new_paper_history(self):
+        """Another sheet is on the paper: its undo starts from here."""
+        self.paper_history.reset()
+        self._forget("paper")
+
+    def _forget(self, kind):
+        self._undo_order = [k for k in self._undo_order if k != kind]
+        self._redo_order = [k for k in self._redo_order if k != kind]
         self._update_undo()
+
+    def _stack(self, kind):
+        return self.history if kind == "doc" else self.paper_history
+
+    def _record(self, kind):
+        """Note a change to Build ("doc") or the paper ("paper")."""
+        if self._stack(kind).record():
+            self._undo_order.append(kind)
+            self._redo_order = []
+            self.history.future = []
+            self.paper_history.future = []
+            self._update_undo()
+
+    def _touch_paper_history(self):
+        """Note the paper a moment after it first changes — not during a
+        drag, which is one step however far it goes. Timed from the first
+        change, not the last: redraws arriving keep calling this, and a
+        timer restarted by each of them never fires."""
+        timer = getattr(self, "_paper_timer", None)
+        if timer is not None and not timer.isActive():
+            timer.start()
+
+    def _paper_step(self, change):
+        """Make one discrete change to the paper as one step of its own:
+        whatever was pending is noted first, then the change, then the
+        result — so a busy screen cannot fold it into something else."""
+        self._paper_timer.stop()
+        self._record("paper")
+        result = change()
+        self._record("paper")
+        return result
+
+    def _record_paper(self):
+        if QApplication.mouseButtons() != Qt.NoButton:
+            self._paper_timer.start()        # still dragging: wait for the drop
+            return
+        self._record("paper")
+
+    def _flush_history(self):
+        """Anything changed but not yet noted is noted before stepping."""
+        if self._paper_timer.isActive():
+            self._paper_timer.stop()
+        self._record("paper")
+        self._record("doc")
 
     def _undo(self):
-        if self.history.undo():
-            self._restored("Undone")
-        else:
-            self.status_left.setText("Nothing to undo.")
+        self._flush_history()
+        while self._undo_order:
+            kind = self._undo_order.pop()
+            if self._stack(kind).undo():
+                self._redo_order.append(kind)
+                self._restored(kind, "Undone")
+                return
+        self._update_undo()
+        self.status_left.setText("Nothing to undo.")
 
     def _redo(self):
-        if self.history.redo():
-            self._restored("Redone")
-        else:
-            self.status_left.setText("Nothing to redo.")
-
-    def _restored(self, word):
-        selected = self.design.selected_step
-        count = len(self.document.steps)
-        self.design.refresh(select=None if not count else
-                            min(selected if selected is not None else 0, count - 1))
+        while self._redo_order:
+            kind = self._redo_order.pop()
+            if self._stack(kind).redo():
+                self._undo_order.append(kind)
+                self._restored(kind, "Redone")
+                return
         self._update_undo()
-        self._schedule_render()
-        self._say(word + ".", hold=1.5)
+        self.status_left.setText("Nothing to redo.")
+
+    def _restored(self, kind, word):
+        if kind == "doc":
+            selected = self.design.selected_step
+            count = len(self.document.steps)
+            self.design.refresh(select=None if not count else
+                                min(selected if selected is not None else 0, count - 1))
+            self._schedule_render()
+        else:
+            if self.scene.find(self.canvas.selected_id) is None:
+                self.canvas.select(None)
+            self.canvas.invalidate()
+            self.sheet.refresh(select=self.canvas.selected_id)
+            self._scene_changed()
+            self._paper_timer.stop()         # restoring is not a new edit
+        self._update_undo()
+        self._say("%s — %s." % (word, "the pattern in Build" if kind == "doc"
+                                else "the paper"), hold=1.5)
 
     def _update_undo(self):
-        self.undo_action.setEnabled(self.history.can_undo())
-        self.redo_action.setEnabled(self.history.can_redo())
+        if not hasattr(self, "undo_action"):
+            return
+        self.undo_action.setEnabled(bool(self._undo_order))
+        self.redo_action.setEnabled(bool(self._redo_order))
 
     # -- generating ------------------------------------------------------------------ #
 
@@ -788,8 +877,7 @@ class MainWindow(QMainWindow):
         self._render_timer.start()
 
     def _render_now(self):
-        if self.history.record():
-            self._update_undo()
+        self._record("doc")
         self._touch_session()
         if self.document.is_empty():
             self.drawing = None
@@ -895,14 +983,15 @@ class MainWindow(QMainWindow):
         if self.drawing is None:
             self.status_left.setText("Nothing generated yet.")
             return
-        item = self.scene.add(self.drawing, name=self.document.name,
-                              source=self.document.renew())
+        item = self._paper_step(lambda: self.scene.add(
+            self.drawing, name=self.document.name, source=self.document.renew()))
         self.scene.ensure_pens(item.pen + 1)
         self.sheet.refresh(select=item.item_id)
         self.canvas.select(item.item_id)
         self.canvas.invalidate()
         self.centre.setCurrentWidget(self.paper_host)
         self._update_placement()
+        self._touch_session()
         self._say("Placed %s — %.0f x %.0f mm at %.0f, %.0f on pen %d"
                   % (item.name, item.w_mm, item.h_mm, item.x_mm, item.y_mm,
                      item.pen + 1))
@@ -917,10 +1006,13 @@ class MainWindow(QMainWindow):
         spec = dialog.spec()
         # Words go on the first pen: the next free one, which suits a second
         # pattern, would put every caption in a different ink.
-        item = self.scene.add(drawing, name=_text_name(spec["text"]), pen=0)
-        item.set_height(drawing.height / drawing.style["cap_height"]
-                        * dialog.size.value())
-        item.rotate_to(dialog.rotation.value() % 360)
+        def put():
+            added = self.scene.add(drawing, name=_text_name(spec["text"]), pen=0)
+            added.set_height(drawing.height / drawing.style["cap_height"]
+                             * dialog.size.value())
+            added.rotate_to(dialog.rotation.value() % 360)
+            return added
+        item = self._paper_step(put)
         self.scene.ensure_pens(item.pen + 1)
         self.sheet.refresh(select=item.item_id)
         self.canvas.select(item.item_id)
@@ -943,12 +1035,15 @@ class MainWindow(QMainWindow):
         if not dialog.exec() or dialog.drawing is None:
             return
         drawing = dialog.drawing
-        item.drawing = drawing
-        item._unit = None
-        item.set_height(drawing.height / drawing.style["cap_height"]
-                        * dialog.size.value())
-        item.rotate_to(dialog.rotation.value() % 360)
-        item.name = _text_name(dialog.spec()["text"])
+
+        def change():
+            item.drawing = drawing
+            item._unit = None
+            item.set_height(drawing.height / drawing.style["cap_height"]
+                            * dialog.size.value())
+            item.rotate_to(dialog.rotation.value() % 360)
+            item.name = _text_name(dialog.spec()["text"])
+        self._paper_step(change)
         self.canvas.invalidate(item)
         self.sheet.refresh(select=item.item_id)
         self._scene_changed()
@@ -986,12 +1081,11 @@ class MainWindow(QMainWindow):
         placed again — which is why nothing here asks first."""
         if not items:
             return False
-        for item in items:
-            self.scene.remove(item.item_id)
+        self._paper_step(lambda: [self.scene.remove(item.item_id) for item in items])
         self.canvas.select(None)
         self.sheet.refresh()
         self._scene_changed()
-        self._say("Took %s off the paper — it is still here in Build."
+        self._say("Took %s off the paper — Ctrl+Z puts it back."
                   % items[-1].name)
         return True
 
@@ -1008,6 +1102,7 @@ class MainWindow(QMainWindow):
 
     def _scene_changed(self):
         self._touch_session()
+        self._touch_paper_history()
         self.canvas.update()
         self.sheet.refresh(select=self.sheet.selected_id())
         self._update_placement()
@@ -1040,6 +1135,8 @@ class MainWindow(QMainWindow):
             self._edit_item(item_id)
 
     def _item_moved(self, item_id):
+        self._touch_paper_history()
+        self._touch_session()
         item = self.scene.find(item_id)
         if item is not None:
             self.sheet.refresh(select=item_id)
@@ -1521,6 +1618,7 @@ class MainWindow(QMainWindow):
         self.sheet.refresh()
         self.canvas.fit()
         self._scene_changed()
+        self._new_paper_history()
         self._update_title()
         self._say("Picked up where you left off — %d pattern%s on the paper."
                   % (len(self.scene.items), "" if len(self.scene.items) == 1 else "s"))
