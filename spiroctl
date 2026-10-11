@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Drive the running Spirograph window. See spiro/ui/control.py for commands.
+#
+#   ./spiroctl state
+#   ./spiroctl add type=ellipse
+#   ./spiroctl set step=0 key=cycles value=468.25
+#   ./spiroctl wait                       # until the drawing is up to date
+#   ./spiroctl '{"cmd": "open", "path": "gandy-9175.ini"}'
+#
+# key=value arguments are JSON where they parse as JSON, text otherwise.
+cd "$(dirname "$0")"
+exec .venv/bin/python -m spiro.ui.spiroctl "$@"

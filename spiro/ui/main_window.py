@@ -75,6 +75,7 @@ class MainWindow(QMainWindow):
         self.scene = Scene(paper=Paper.from_axidraw(3))
         self.drawing = None               # the current preview, not yet placed
         self.render_token = 0
+        self._rendered_token = 0          # the last token whose drawing arrived
         self.layer_state = axirun.LayerState()
         self.plot_token = 0
         # The last few recipes, so pressing the button repeatedly explores
@@ -917,6 +918,7 @@ class MainWindow(QMainWindow):
     def _render_finished(self, token, drawing):
         if token != self.render_token:
             return                       # superseded by a later edit
+        self._rendered_token = token
         self.drawing = drawing
         caption = ("%s — %d paths, %s points, %.0f x %.0f units"
                    % (self.document.describe_step(0) if self.document.steps else "pattern",

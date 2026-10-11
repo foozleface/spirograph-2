@@ -1338,6 +1338,74 @@ window.scene.items.clear()
 window._scene_changed()
 pump(500)
 
+# -- driving the window from outside ----------------------------------------------- #
+
+print("the control API:")
+import subprocess  # noqa: E402
+from spiro.ui.control import ControlServer  # noqa: E402
+control_path = os.path.join(SETTINGS_DIR, "control.sock")
+control = ControlServer(window, path=control_path)
+check("the window listens on a socket of its own", control.listening, control_path)
+
+
+def ctl(*args):
+    """Run spiroctl in another process against this window, pumping events
+    so the window can answer it."""
+    env = dict(os.environ, XDG_RUNTIME_DIR=SETTINGS_DIR)
+    proc = subprocess.Popen([str(ROOT_DIR / "spiroctl")] + list(args), env=env,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    deadline = time.time() + 120
+    while proc.poll() is None and time.time() < deadline:
+        pump(30)
+    out = proc.stdout.read()
+    try:
+        return json.loads(out)
+    except ValueError:
+        return {"ok": False, "raw": out + proc.stderr.read()}
+
+
+import json  # noqa: E402
+control.close()
+control = ControlServer(window, path=os.path.join(SETTINGS_DIR, "spirograph-2.sock"))
+window.scene.items.clear()
+check("ping answers", ctl("ping").get("ok"))
+check("a blank pattern", ctl("new", "blank=true").get("ok") and not window.document.steps)
+reply = ctl("add", "type=ellipse")
+check("add puts a step in Build", reply.get("ok") and reply.get("step") == 0
+      and window.document.steps[0]["params"]["type"] == "ellipse", reply)
+gandy = Document.load(str(ROOT_DIR / "gandy-9175.ini"))
+for key, value in gandy.steps[0]["params"].items():
+    if key != "type":
+        assert ctl("set", "step=0", "key=%s" % key, "value=%s" % json.dumps(value)).get("ok"), key
+ctl("add", "type=rotation")
+for key, value in gandy.steps[1]["params"].items():
+    if key != "type":
+        ctl("set", "step=1", "key=%s" % key, "value=%s" % json.dumps(value))
+from spiro.pipeline import run as _run  # noqa: E402
+_small = {"initial_samples": 20000, "output_samples": 4000}
+built = _run(window.document.to_ini(_small)).paths[0]
+saved = _run(gandy.to_ini(_small)).paths[0]
+check("set builds the Gandy pattern step by step: the same drawing as the file",
+      len(built) == len(saved) and np.max(np.abs(built - saved)) < 1e-6,
+      np.max(np.abs(built - saved)) if len(built) == len(saved) else (len(built), len(saved)))
+check("a bad command is answered, not crashed on",
+      ctl("frobnicate").get("ok") is False and "unknown command" in ctl("frobnicate")["error"])
+check("so is a step that is not there", "no step" in ctl("set", "step=9", "key=x", "value=1")["error"])
+waited = ctl("wait")
+check("wait returns once the drawing is up to date", waited.get("ok"), waited)
+state = ctl("state")
+check("state says what is in Build and that it is drawn",
+      state.get("drawn") and len(state["document"]["steps"]) == 2, state.get("drawn"))
+placed = ctl("place")
+check("place puts it on the paper", placed.get("ok") and len(window.scene.items) == 1, placed)
+shot = os.path.join(SETTINGS_DIR, "shot.png")
+check("screenshot writes a picture", ctl("screenshot", "path=" + shot, "what=paper").get("ok")
+      and os.path.getsize(shot) > 1000)
+check("and what was built through it is undoable", ctl("undo").get("ok")
+      and len(window.scene.items) == 0)
+control.close()
+window.scene.items.clear()
+
 # -- dragging a step to a new place ---------------------------------------- #
 
 print("dragging a step:")

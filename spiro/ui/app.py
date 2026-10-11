@@ -32,6 +32,11 @@ def main(argv=None):
     window = MainWindow()
     window.show()
     window.canvas.fit()
+    # The control API (spiro.ui.control, spiroctl): only for the real app,
+    # never for the windows the tests make, which would take its socket.
+    from spiro.ui.control import ControlServer
+    window.control = ControlServer(window)
+    app.aboutToQuit.connect(window.control.close)
     for arg in argv[1:]:
         if (arg.endswith(".ini") or arg.endswith(SHEET_SUFFIX)) and Path(arg).exists():
             window._open_path(arg)
