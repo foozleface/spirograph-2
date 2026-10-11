@@ -54,6 +54,7 @@ PLAIN_WORDS = {
     "lissajous":       "two pendulums crossed — the oscilloscope figure",
     "harmonograph":    "swinging pendulums, dying away",
     "spirograph_gear": "a wheel rolling inside (or around) a ring — the toy",
+    "crank_rod":       "a crank pushing a rod along a track — eggs and teardrops",
     "spirograph_rail": "a wheel rolling along a straight rack",
     "rack":            "a wheel rolling around a stadium track",
     "geneva":          "stop, snap, stop — the Maltese-cross mechanism",

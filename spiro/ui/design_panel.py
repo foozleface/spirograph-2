@@ -16,7 +16,8 @@ from PySide6.QtCore import QTimer, Qt, Signal
 from PySide6.QtWidgets import (QComboBox, QFrame, QLabel, QPushButton,
                                QScrollArea, QVBoxLayout, QWidget)
 
-from spiro.pipeline.registry import COMMON_PARAMS, MODULE_DEFS, OSC_PREFIX
+from spiro.pipeline.registry import (COMMON_PARAMS, JITTER_PREFIX, MODULE_DEFS,
+                                     OSC_PREFIX)
 from spiro.ui import glyphs, theme
 from spiro.ui.explainer import ExplainerCard
 from spiro.ui.finishing_panel import FinishingPanel
@@ -398,7 +399,8 @@ class DesignPanel(QWidget):
             drift_name=end_name,
             drift_spec=spec["params"].get(end_name),
             drift_value=params.get(end_name, params.get(name, param_spec["default"])),
-            osc_value=params.get(OSC_PREFIX + name))
+            osc_value=params.get(OSC_PREFIX + name),
+            jitter_value=params.get(JITTER_PREFIX + name))
         widget.valueChanged.connect(
             lambda key, value, target=params: self._set_param(target, key, value))
         widget.picked.connect(self.explain)

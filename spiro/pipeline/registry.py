@@ -135,6 +135,9 @@ FINISHING_DEFS = {
 # it goes there and back over the draw; irregularity (0-1) mixes in two
 # incommensurate cosines so it wanders rather than ticks.
 OSC_PREFIX = "osc_"
+# ``jitter_<name> = percent, wanders`` beside any drifting parameter: a slow
+# random slip of up to that percent -- see TransformModule._jittered.
+JITTER_PREFIX = "jitter_"
 
 def _adv(**kw):
     kw["advanced"] = True
@@ -258,6 +261,11 @@ MODULE_DEFS = {
             "lobe":       {"type": "float", "default": 0.0,  "min": -100, "max": 100, "step": 1, "desc": "Lobe \u00b1"},
             "lobe_n":     {"type": "float", "default": 1.0,  "min": 0.5, "max": 20, "step": 0.5, "desc": "Lobes per rev"},
             "cycles":     {"type": "float", "default": 1.0,  "min": 1,  "max": 500, "step": 1, "desc": "Repetitions"},
+            "anchor":     {"type": "choice", "choices": ["centre", "end"], "default": "centre",
+                           "desc": "Pinned at its",
+                           "help": "centre: grows and turns about its middle. end: about the "
+                                   "end of its x axis, which stays put — a pen arm on a pivot."},
+            **_CENTER,
         },
     },
     "polygon": {
@@ -379,6 +387,18 @@ MODULE_DEFS = {
         "desc": "Spin pattern around center as it draws",
         "params": {
             "total_degrees": {"type": "float", "default": 360.0, "min": -3600, "max": 3600, "desc": "Total rotation°"},
+            "loops_per_turn": {"type": "float", "default": 0.0, "min": 0, "max": 100, "step": 0.001,
+                               "desc": "Loops per turn",
+                               "help": "Turn the table once every this many loops of arm 1, "
+                                       "instead of by Total rotation (which this replaces "
+                                       "when it is not 0). Just over a whole number — 13.007 — "
+                                       "bunches the loops into that many petal fans."},
+            "slip":          {"type": "float", "default": 0.0,   "min": 0, "max": 45, "step": 0.5,
+                              "desc": "Slip ±°",
+                              "help": "An uneven table: the turn wanders up to this many degrees "
+                                      "ahead of and behind where it should be, slowly and at random."},
+            "slip_wanders":  {"type": "float", "default": 4.0,   "min": 0.5, "max": 100, "step": 0.5,
+                              "desc": "Slips over the draw", "advanced": True},
             "origin_x":      {"type": "float", "default": 0.0,   "min": -200, "max": 200, "desc": "Origin X"},
             "origin_y":      {"type": "float", "default": 0.0,   "min": -200, "max": 200, "desc": "Origin Y"},
             "normalize":     {"type": "bool",  "default": True,   "desc": "Normalize timing"},
@@ -631,6 +651,26 @@ MODULE_DEFS = {
             "end_y":       {"type": "float", "default": 0.0,   "min": -300, "max": 300, "desc": "End Y", "advanced": True},
         },
     },
+    "crank_rod": {
+        "category": "generator",
+        "label": "Crank & rod",
+        "desc": "A crank driving a rod whose far end slides on a track; the pen on the rod draws eggs and teardrops",
+        "params": {
+            "crank_radius":     {"type": "float", "default": 40.0,  "min": 1,  "max": 200, "desc": "Crank radius"},
+            "end_crank_radius": {"type": "float", "default": 40.0,  "min": 1,  "max": 200, "desc": "End value", "drift_for": "crank_radius"},
+            "rod_length":       {"type": "float", "default": 55.0, "min": 5,  "max": 400, "desc": "Rod length"},
+            "end_rod_length":   {"type": "float", "default": 55.0, "min": 5,  "max": 400, "desc": "End value", "drift_for": "rod_length"},
+            "pen_along":        {"type": "float", "default": 0.3,  "min": -0.5, "max": 1.5, "step": 0.05, "desc": "Pen along the rod",
+                                 "help": "0 is the crank pin, 1 the slider; past 1 overhangs the slider"},
+            "end_pen_along":    {"type": "float", "default": 0.3,  "min": -0.5, "max": 1.5, "step": 0.05, "desc": "End value", "drift_for": "pen_along"},
+            "pen_aside":        {"type": "float", "default": 30.0,  "min": -200, "max": 200, "desc": "Pen off the rod",
+                                 "help": "How far to one side of the rod's line the pen is fixed"},
+            "end_pen_aside":    {"type": "float", "default": 30.0,  "min": -200, "max": 200, "desc": "End value", "drift_for": "pen_aside"},
+            "track_angle":      {"type": "float", "default": 0.0,   "min": 0,  "max": 360, "desc": "Track angle°"},
+            "cycles":           {"type": "float", "default": 1.0,   "min": 1,  "max": 500, "step": 1, "desc": "Turns of the crank"},
+            **_CENTER,
+        },
+    },
     "ellipse": {
         "category": "generator",
         "label": "Ellipse",
@@ -646,6 +686,11 @@ MODULE_DEFS = {
             "lobe_n":       {"type": "float", "default": 1.0,  "min": 0.5, "max": 20, "step": 0.5, "desc": "Lobes per rev"},
             "decay":        {"type": "float", "default": 0.0,  "min": 0,  "max": 2, "step": 0.05, "desc": "Shrink per cycle"},
             "cycles":       {"type": "float", "default": 1.0,  "min": 1,  "max": 500, "step": 1, "desc": "Cycles"},
+            "anchor":     {"type": "choice", "choices": ["centre", "end"], "default": "centre",
+                           "desc": "Pinned at its",
+                           "help": "centre: grows and turns about its middle. end: about the "
+                                   "end of its x axis, which stays put — a pen arm on a pivot."},
+            **_CENTER,
         },
     },
     "rack": {
@@ -796,6 +841,7 @@ def valid_keys(module_type):
         return None
     keys = {"type"} | set(spec["params"]) | set(COMMON_PARAMS)
     keys |= {OSC_PREFIX + base for base in drift_bases(module_type)}
+    keys |= {JITTER_PREFIX + base for base in drift_bases(module_type)}
     if spec["category"] == "transform":
         keys |= set(TRANSFORM_PARAMS)
     return keys

@@ -85,7 +85,7 @@ class ParamRow(QWidget):
     picked = Signal(str)                # the parameter being worked on
 
     def __init__(self, name, spec, value, drift_name=None, drift_spec=None,
-                 drift_value=None, osc_value=None, parent=None):
+                 drift_value=None, osc_value=None, jitter_value=None, parent=None):
         super().__init__(parent)
         self.name = name
         self.drift_name = drift_name
@@ -98,7 +98,7 @@ class ParamRow(QWidget):
         row = QHBoxLayout()
         row.setSpacing(6)
         label = name_label(spec.get("desc") or name.replace("_", " "),
-                           "%s — %s" % (name, spec.get("desc", "")))
+                           spec.get("help") or "%s — %s" % (name, spec.get("desc", "")))
         row.addWidget(label, 0)
         self.editor = _editor(spec, value)
         _connect(self.editor, self._editor_changed)
@@ -128,10 +128,28 @@ class ParamRow(QWidget):
             drift_row.setContentsMargins(0, 0, 0, 0)
             drift_row.setSpacing(6)
             self.drift_toggle.setCheckable(True)
-            self.drift_toggle.setChecked(drift_value != value)
+            jitter_pct, jitter_wanders = _parse_jitter(jitter_value)
+            self.drift_toggle.setChecked(drift_value != value or jitter_pct > 0)
             self.drift_toggle.setToolTip(
                 "Drift: slide from this value to an end value over the "
                 "course of the draw")
+            # Slip: a slow random wander, the unevenness of a real machine.
+            self.jitter = QDoubleSpinBox()
+            self.jitter.setRange(0.0, 50.0)
+            self.jitter.setDecimals(1)
+            self.jitter.setSingleStep(0.5)
+            self.jitter.setSuffix("%")
+            self.jitter.setFixedWidth(64)
+            self.jitter.setKeyboardTracking(False)
+            self.jitter.setValue(jitter_pct)
+            self.jitter.setToolTip(
+                "Slip: the value wanders at random by up to this much of "
+                "itself, slowly — a belt slipping, a linkage with play. "
+                "It keeps a drawing from being perfectly regular.")
+            self._jitter_wanders = jitter_wanders
+            self.jitter.valueChanged.connect(self._jitter_changed)
+            drift_row.addWidget(theme.muted("slip ±"))
+            drift_row.addWidget(self.jitter)
             drift_row.addStretch(1)
             drift_row.addWidget(theme.muted("drifts to"))
             self.drift_editor = _editor(drift_spec, drift_value)
@@ -214,8 +232,15 @@ class ParamRow(QWidget):
         _set_value(self.editor, value)
         self.valueChanged.emit(self.name, _value_of(self.editor))
 
+    def _jitter_changed(self, *_args):
+        pct = self.jitter.value()
+        self.valueChanged.emit("jitter_" + self.name,
+                               "%g,%g" % (pct, self._jitter_wanders) if pct > 0 else None)
+
     def _toggle_drift(self, on):
         self.drift_host.setVisible(on)
+        if not on and self.jitter.value() > 0:
+            self.jitter.setValue(0.0)            # off means none of it
         self.osc_host.setVisible(on)
         if not on:
             # Off means "no drift", which in the INI is the end value equalling
@@ -243,6 +268,19 @@ class ParamRow(QWidget):
         if self.drift_editor is not None:
             self.drift_toggle.setChecked(True)
             _set_value(self.drift_editor, value)
+
+
+def _parse_jitter(text):
+    """'percent,wanders' -> (percent, wanders); none is (0, 3)."""
+    if not text:
+        return 0.0, 3.0
+    parts = [p.strip() for p in str(text).split(",")]
+    try:
+        percent = float(parts[0]) if parts and parts[0] else 0.0
+        wanders = float(parts[1]) if len(parts) > 1 and parts[1] else 3.0
+    except ValueError:
+        return 0.0, 3.0
+    return percent, wanders
 
 
 def _parse_osc(text):

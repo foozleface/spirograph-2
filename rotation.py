@@ -40,6 +40,13 @@ class RotationModule(TransformModule):
         self.origin_x = self._getfloat('origin_x', 0.0)
         self.origin_y = self._getfloat('origin_y', 0.0)
         self.normalize = self._getboolean('normalize', True)
+        # Turn once every N loops of the first arm instead of a set total;
+        # see main.resolve_locked_turns. 0 is off.
+        self.loops_per_turn = self._getfloat('loops_per_turn', 0.0)
+        # The table's own unevenness: the angle wanders up to this many
+        # degrees ahead of and behind where it should be, slowly.
+        self.slip = self._getfloat('slip', 0.0)
+        self.slip_wanders = self._getfloat('slip_wanders', 4.0)
         
         # Convert to radians
         self.total_radians = self.total_degrees * pi / 180
@@ -50,6 +57,14 @@ class RotationModule(TransformModule):
         # Determine the period based on rotation amount
         self._compute_period()
     
+    def lock_to_loops(self, turns):
+        """Set the total from a number of turns (the first arm's loops over
+        loops_per_turn), keeping the direction the total had."""
+        sign = -1.0 if self.total_degrees < 0 else 1.0
+        self.total_degrees = sign * 360.0 * turns
+        self.total_radians = self.total_degrees * pi / 180
+        self._compute_period()
+
     def _compute_period(self):
         """Compute the natural period based on rotation."""
         # Express total rotation as a fraction of full circles
@@ -75,6 +90,10 @@ class RotationModule(TransformModule):
 
         # Current rotation angle
         theta = t_use * self.total_radians
+        if self.slip:
+            from main import smooth_noise
+            theta = theta + self.slip * pi / 180 * smooth_noise(
+                np.clip(t_use, 0, 1), self.slip_wanders, self.section + "/slip")
         
         # Rotation factor
         rotation = np.exp(1j * theta)
@@ -124,7 +143,7 @@ class OscillatingRotationModule(TransformModule):
         self.center_x = self._getfloat('center_x', 0.0)
         self.center_y = self._getfloat('center_y', 0.0)
         self.normalize = self._getboolean('normalize', True)
-        
+
         # Convert to radians
         self.amplitude_radians = self.amplitude_degrees * pi / 180
         

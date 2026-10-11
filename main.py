@@ -136,7 +136,28 @@ class TransformModule(ABC):
         """
         if not param_name:
             return start + (end - start) * t_norm
+        value = self._drifted(start, end, t_norm, param_name)
+        return self._jittered(value, t_norm, param_name)
 
+    def _jittered(self, value, t_norm, param_name):
+        """``jitter_<name> = percent, wanders`` in the INI: the value slips by
+        up to ``percent`` of itself, smoothly and at random, ``wanders``
+        times over the draw -- what a belt slipping or a linkage with play
+        does to a real drawing machine, and the thing that keeps it from
+        being perfectly symmetric. Seeded from the step and the parameter,
+        so a file draws the same every time."""
+        raw = self._get(f'jitter_{param_name}', '')
+        if not raw:
+            return value
+        parts = [float(x.strip()) for x in str(raw).split(',') if x.strip()]
+        percent = parts[0] if parts else 0.0
+        wanders = parts[1] if len(parts) > 1 else 3.0
+        if not percent:
+            return value
+        noise = smooth_noise(t_norm, wanders, "%s/%s" % (self.section, param_name))
+        return value * (1.0 + percent / 100.0 * noise)
+
+    def _drifted(self, start, end, t_norm, param_name):
         osc_key = f'osc_{param_name}'
         osc_val = self._get(osc_key, '')
         if not osc_val:
@@ -248,6 +269,42 @@ class TransformModule(ABC):
 
 
 HEADING_SAMPLES = 20001       # how finely heading() reads a track
+
+
+def smooth_noise(t, wanders, key):
+    """A smooth random curve in [-1, 1] over t in [0, 1]: ``wanders`` slow
+    swings, at random heights, joined by eased steps. The same ``key``
+    always gives the same curve. Array-safe."""
+    import zlib
+    wanders = max(float(wanders), 0.25)
+    knots = int(np.ceil(wanders)) + 2
+    rng = np.random.default_rng(zlib.crc32(str(key).encode()))
+    heights = rng.uniform(-1.0, 1.0, knots + 1)
+    x = np.clip(np.asarray(t, dtype=float), 0.0, 1.0) * wanders
+    i = np.floor(x).astype(int)
+    i = np.clip(i, 0, knots - 1)
+    f = x - i
+    ease = f * f * (3 - 2 * f)                  # smoothstep: no corners
+    out = heights[i] * (1 - ease) + heights[i + 1] * ease
+    return out if np.ndim(t) else float(out)
+
+
+def resolve_locked_turns(modules):
+    """A table move that turns once every N loops of the first arm.
+
+    The number that makes petal bands is loops per turn -- 13.007 makes
+    thirteen fans -- but a rotation could only be told its total degrees,
+    so the turns had to be worked out from the arm's loop count by hand
+    and redone whenever either changed. A module with ``loops_per_turn``
+    gets its total set here, from the first arm's ``cycles``, before the
+    pipeline's period is computed.
+    """
+    arms = [m for m in modules if getattr(m, 'is_generator', False)
+            and getattr(m, 'cycles', None)]
+    for module in modules:
+        per = float(getattr(module, 'loops_per_turn', 0) or 0)
+        if per > 0 and arms and hasattr(module, 'lock_to_loops'):
+            module.lock_to_loops(float(arms[0].cycles) / per)
 
 
 def parse_scope(text):
@@ -783,6 +840,7 @@ def run_single_pipeline(config: configparser.ConfigParser,
 
     # Load modules
     modules = [load_module(name, config) for name in module_names]
+    resolve_locked_turns(modules)
 
     # Compute overall period
     period = compute_pipeline_period(modules)

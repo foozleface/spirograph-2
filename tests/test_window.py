@@ -947,6 +947,23 @@ print("what a number box will take:")
 from spiro.ui.widgets import ParamRow, number_box, slider_span, typed_range  # noqa: E402
 
 gear = MODULE_DEFS["spirograph_gear"]["params"]
+from spiro.pipeline.registry import MODULE_DEFS as _DEFS  # noqa: E402
+_rx = _DEFS["ellipse"]["params"]
+slipping = ParamRow("radius_x", _rx["radius_x"], 50.0, drift_name="end_radius_x",
+                    drift_spec=_rx["end_radius_x"], drift_value=50.0)
+said = []
+slipping.valueChanged.connect(lambda key, value: said.append((key, value)))
+slipping.drift_toggle.setChecked(True)
+slipping.jitter.setValue(6.0)
+check("the slip box writes jitter_<name> as percent and wanders",
+      ("jitter_radius_x", "6,3") in said, said)
+slipping.drift_toggle.setChecked(False)
+check("and switching the drift off takes the slip off with it",
+      said[-1] == ("jitter_radius_x", None) or ("jitter_radius_x", None) in said, said)
+again_row = ParamRow("radius_x", _rx["radius_x"], 50.0, drift_name="end_radius_x",
+                     drift_spec=_rx["end_radius_x"], drift_value=50.0, jitter_value="4,9")
+check("a file's slip shows when it is opened, with the drift row open",
+      again_row.jitter.value() == 4.0 and again_row.drift_toggle.isChecked())
 reps = ParamRow("cycles", gear["cycles"], 1.0)
 check("the registry's range does not cap what can be typed",
       reps.editor.maximum() >= 1000, reps.editor.maximum())

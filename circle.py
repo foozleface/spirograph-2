@@ -34,6 +34,10 @@ class CircleModule(TransformModule):
         self.lobe = self._getfloat('lobe', 0.0)        # per-revolution: radius varies ±lobe within each revolution
         self.lobe_n = self._getfloat('lobe_n', 1.0)    # how many times per revolution
         self.cycles = self._getfloat('cycles', 1.0)
+        # Where it sits, and whether that is its middle or (anchor = end) a
+        # point on its rim -- the rim stays put as the radius drifts.
+        self.center = self._getfloat('center_x', 0.0) + 1j * self._getfloat('center_y', 0.0)
+        self.anchor = (self._get('anchor', 'centre') or 'centre').strip().lower()
 
     def transform(self, z: complex, t: float) -> complex:
         """
@@ -64,8 +68,10 @@ class CircleModule(TransformModule):
 
         # Point on circle
         point = current_radius * np.exp(1j * angle)
+        if self.anchor == 'end':
+            point = point + current_radius
 
-        return z + point
+        return z + self.center + point
     
     @property
     def natural_period(self) -> Fraction:

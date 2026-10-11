@@ -42,6 +42,12 @@ class EllipseModule(TransformModule):
         self.rotation_deg = self._getfloat('rotation', 0.0)
         self.end_rotation_deg = self._getfloat('end_rotation', self.rotation_deg)
 
+        # Where the ellipse sits, and what of it sits there: its middle, or
+        # (anchor = end) the end of its x axis -- a pen arm on a fixed pivot,
+        # whose tip stays put while the ellipse grows, shrinks and tilts.
+        self.center = self._getfloat('center_x', 0.0) + 1j * self._getfloat('center_y', 0.0)
+        self.anchor = (self._get('anchor', 'centre') or 'centre').strip().lower()
+
         self.rotation_rad = self.rotation_deg * pi / 180
         self.end_rotation_rad = self.end_rotation_deg * pi / 180
 
@@ -85,12 +91,14 @@ class EllipseModule(TransformModule):
         x = rx * np.cos(angle)
         y = ry * np.sin(angle)
         point = x + 1j * y
+        if self.anchor == 'end':
+            point = point + rx          # the left end of the x axis at the anchor
 
-        # Apply rotation (interpolated for drift)
+        # Apply rotation (interpolated for drift), about the anchor
         rot = self._interpolate(self.rotation_rad, self.end_rotation_rad, t_norm, 'rotation')
         point *= np.exp(1j * rot)
 
-        return z + point
+        return z + self.center + point
     
     @property
     def natural_period(self) -> Fraction:

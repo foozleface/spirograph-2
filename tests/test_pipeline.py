@@ -13,7 +13,7 @@ import numpy as np  # noqa: E402
 from spiro.pipeline import build_ini, defaults_for, module_names, run  # noqa: E402
 from spiro.pipeline.document import Document  # noqa: E402
 from spiro.pipeline.engine import normalize  # noqa: E402
-from spiro.pipeline.registry import MODULE_DEFS  # noqa: E402
+from spiro.pipeline.registry import MODULE_DEFS, valid_keys  # noqa: E402
 
 PASS, FAIL = [], []
 
@@ -517,6 +517,77 @@ first = np.array(klein._surface_point(u, v))
 later = np.array(klein._surface_point(u + 2 * np.pi * 7, v))
 check("every lap is the same shape, the first included",
       np.allclose(first, later, atol=1e-9), np.max(np.abs(first - later)))
+
+# -- what a real drawing machine does ------------------------------------------------ #
+
+print("drawing-machine features:")
+from ellipse import EllipseModule  # noqa: E402
+from crank_rod import CrankRodModule  # noqa: E402
+from main import smooth_noise  # noqa: E402
+
+T = np.linspace(0, 1, 2001)
+pinned = module(EllipseModule, "radius_x = 60\nend_radius_x = 120\nradius_y = 30\n"
+                               "anchor = end\ncenter_x = 10\ncenter_y = 5\nrotation = 30")
+pinned.set_pipeline_period(__import__("fractions").Fraction(1))
+pts = pinned.transform(np.zeros_like(T, dtype=complex), T)
+tip = 10 + 5j
+check("an ellipse pinned at its end keeps that end at its centre point as it grows",
+      np.min(np.abs(pts - tip)) < 0.5 and np.max(np.abs(pts - tip)) > 200,
+      (np.min(np.abs(pts - tip)), np.max(np.abs(pts - tip))))
+middle = module(EllipseModule, "radius_x = 60\nradius_y = 30\ncenter_x = 10\ncenter_y = 5")
+middle.set_pipeline_period(__import__("fractions").Fraction(1))
+check("and one pinned at its centre is centred there",
+      abs(np.mean(middle.transform(np.zeros_like(T, dtype=complex), T)) - tip) < 0.5)
+
+locked = run(build_ini(steps=[
+    {"kind": "single", "params": dict(defaults_for("ellipse"), cycles=130.07)},
+    {"kind": "single", "params": dict(defaults_for("rotation"), loops_per_turn=13.007)}],
+    sampling=SMALL))
+turns = [m.total_degrees for m in locked.modules if getattr(m, "loops_per_turn", 0)]
+check("loops per turn sets the table from the first arm: 130.07 loops at 13.007 a turn",
+      turns and close(turns[0], 3600.0, 1e-6), turns)
+
+curve = smooth_noise(T, 5, "a")
+check("slip noise is smooth, within ±1, and the same every time",
+      np.all(np.abs(curve) <= 1) and np.max(np.abs(np.diff(curve))) < 0.05
+      and np.array_equal(curve, smooth_noise(T, 5, "a"))
+      and not np.array_equal(curve, smooth_noise(T, 5, "b")))
+steady = run(build_ini(steps=[{"kind": "single", "params": dict(defaults_for("circle"))}],
+                       sampling=SMALL)).paths[0]
+slipped_params = dict(defaults_for("circle"), jitter_radius="10,4")
+slipped = run(build_ini(steps=[{"kind": "single", "params": slipped_params}],
+                        sampling=SMALL)).paths[0]
+radii = np.abs(slipped)
+check("a jittered radius wanders within its percent",
+      np.ptp(np.abs(steady)) < 0.01 and 0.5 < np.ptp(radii) and radii.max() <= 55.01
+      and radii.min() >= 44.99, (np.ptp(radii), radii.min(), radii.max()))
+check("jitter is a key the INI writer accepts", "jitter_radius" in valid_keys("circle"))
+uneven = run(build_ini(steps=[
+    {"kind": "single", "params": dict(defaults_for("ellipse"), cycles=20)},
+    {"kind": "single", "params": dict(defaults_for("rotation"), slip=10)}], sampling=SMALL)).paths[0]
+even = run(build_ini(steps=[
+    {"kind": "single", "params": dict(defaults_for("ellipse"), cycles=20)},
+    {"kind": "single", "params": dict(defaults_for("rotation"))}], sampling=SMALL)).paths[0]
+check("a slipping table moves the drawing, and only a little",
+      0.1 < np.max(np.abs(uneven - even)) < 25, np.max(np.abs(uneven - even)))
+
+crank = module(CrankRodModule, "crank_radius = 40\nrod_length = 55\npen_along = 0\npen_aside = 0")
+crank.set_pipeline_period(__import__("fractions").Fraction(1))
+check("with the pen at the pin, a crank and rod draws the crank's circle",
+      np.allclose(np.abs(crank.transform(np.zeros_like(T, dtype=complex), T)), 40, atol=1e-6))
+slider = module(CrankRodModule, "crank_radius = 40\nrod_length = 55\npen_along = 1\npen_aside = 0")
+slider.set_pipeline_period(__import__("fractions").Fraction(1))
+on_track = slider.transform(np.zeros_like(T, dtype=complex), T)
+check("with it at the slider, it runs back and forth on the track",
+      np.allclose(on_track.imag, 0, atol=1e-9)
+      and close(on_track.real.max() - on_track.real.min(), 80, 0.05))
+egg = run(build_ini(steps=[{"kind": "single", "params": defaults_for("crank_rod")}],
+                    sampling=SMALL)).paths[0]
+centre = egg.mean()
+spread = np.abs(egg - centre)
+check("and in between it draws an egg, not an ellipse: lopsided about its middle",
+      abs(np.mean((egg - centre).real ** 3)) > 1.0, np.mean((egg - centre).real ** 3))
+check("the crank and rod is in the gallery", MODULE_DEFS["crank_rod"]["category"] == "generator")
 
 print()
 print("pipeline: %d passed, %d failed" % (len(PASS), len(FAIL)))
