@@ -204,10 +204,10 @@ from spiro.ui.notify_panel import NotifyPanel  # noqa: E402
 settings = QSettings("spirograph-2-test", "notify-gate")
 settings.clear()
 panel = NotifyPanel(settings)
-check("with alerts off there is no notifier at all", panel.notifier() is None)
+check("the finishing sound is offered and on by default", panel.sound_enabled.isChecked())
+panel.sound_enabled.setChecked(False)
+check("with alerts and the sound off there is no notifier at all", panel.notifier() is None)
 
-check("this computer is offered and on by default", panel.desktop_enabled.isChecked())
-panel.desktop_enabled.setChecked(False)
 panel.enabled.setChecked(True)
 check("switched on but with no transport, still none", panel.notifier() is None)
 
@@ -265,23 +265,31 @@ check("a notify service is not, because it rejects unknown keys",
 print()
 print("what happened to each alert is written down:")
 lines = []
-panel.desktop_enabled.setChecked(True)
-desk = [n for n in fan_out(panel.notifier(log=lines.append)).notifiers
-        if isinstance(n, notify.Logged) and isinstance(n.inner, notify.DesktopNotifier)]
-check("the desktop goes in the fan-out, logged", len(desk) == 1)
-sent_cmds = []
+panel.sound_enabled.setChecked(True)
+both = panel.notifier(log=lines.append)
+sounds = [n for n in getattr(both, "notifiers", []) if isinstance(n, notify.CompleteSound)]
+check("the sound goes beside the phone alerts", len(sounds) == 1)
+played = []
 import subprocess as _subprocess  # noqa: E402
-real_run = _subprocess.run
-_subprocess.run = lambda cmd, **kw: sent_cmds.append(cmd)
+real_popen = _subprocess.Popen
+_subprocess.Popen = lambda cmd, **kw: played.append(cmd)
 try:
-    ok = desk[0].send("Plot finished", "1 layer in 4m 10s")
+    both.layer_done(LAYERS[0], 0, 2, seconds=500, next_layer=LAYERS[1])
+    check("a pen change makes no sound", not played, played)
+    both.plot_done(LAYERS, 12)
 finally:
-    _subprocess.run = real_run
-check("a desktop alert goes through notify-send with the title and message",
-      ok and sent_cmds and sent_cmds[0][0] == "notify-send"
-      and "Plot finished" in sent_cmds[0] and "1 layer in 4m 10s" in sent_cmds[0],
-      sent_cmds)
-check("and the log says it was sent", any("this computer: sent" in l for l in lines), lines)
+    _subprocess.Popen = real_popen
+check("the end of a plot plays the complete sound, however short the plot",
+      played and ("complete" in " ".join(played[0])), played)
+check("and the log says it played", any("sound: played" in l for l in lines), lines)
+check("nothing is put on the screen: no notify-send anywhere",
+      not any("notify-send" in " ".join(c) for c in played)
+      and not hasattr(notify, "DesktopNotifier"))
+panel.enabled.setChecked(False)
+alone = panel.notifier()
+check("with phone alerts off, the sound still plays",
+      alone is not None and [type(n) for n in alone.notifiers] == [notify.CompleteSound])
+panel.enabled.setChecked(True)
 lines.clear()
 dead = notify.Logged(notify.MqttNotifier("127.0.0.1", topic="t", port=1, timeout=1),
                      "MQTT", lines.append)

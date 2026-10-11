@@ -307,7 +307,7 @@ try:
     window._plot_with(None, False, only)
     log_text = window._alert_log_path().read_text() if window._alert_log_path().exists() else ""
     check("a real plot writes where its alerts will go to alerts.log",
-          "plot started" in log_text and "this computer" in log_text, log_text[-200:])
+          "plot started" in log_text and "a sound at the end" in log_text, log_text[-200:])
     check("and hands the worker a notifier that logs", sent and sent[-1][4] is not None)
     window.inhibitor.stop()
     window.notify.enabled.setChecked(False)

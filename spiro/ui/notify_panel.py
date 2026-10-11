@@ -61,14 +61,18 @@ class NotifyPanel(QWidget):
             "gets through when the layer either side of it is longer.")
         layout.addWidget(row(QLabel("Only alert past"), 1, self.min_seconds))
 
-        # The person in the room: a notification on this screen as well,
-        # whatever else is set up. On unless turned off.
-        self.desktop_enabled = QCheckBox("Also show alerts on this computer")
-        self.desktop_enabled.setChecked(self._get("desktop_enabled", "true") == "true")
-        self.desktop_enabled.setToolTip(
-            "A desktop notification for each pen change and the end of the "
-            "plot, beside the phone alerts below")
-        layout.addWidget(self.desktop_enabled)
+        # The person in the room: a sound from this computer when the plot
+        # is done. Not a pop-up -- nothing on the screen -- and not behind
+        # the time bar or the switch above, which are about phones.
+        self.sound_enabled = QCheckBox("Play a sound when a plot finishes")
+        self.sound_enabled.setChecked(self._get("sound_enabled", "true") == "true")
+        self.sound_enabled.setToolTip(
+            "The \u201ccomplete\u201d sound from this computer's speakers, "
+            "whether or not phone alerts are on")
+        hear = QPushButton("Play it")
+        hear.setToolTip("Hear the sound now")
+        hear.clicked.connect(lambda: notify.CompleteSound().plot_done([]))
+        layout.addWidget(row(self.sound_enabled, 1, hear))
 
         # -- Home Assistant -------------------------------------------------- #
         box = QGroupBox("Home Assistant")
@@ -167,7 +171,7 @@ class NotifyPanel(QWidget):
             if key:
                 self.settings.setValue(key, widget.text())
         self.settings.setValue("enabled", "true" if self.enabled.isChecked() else "false")
-        for name, box in (("desktop_enabled", self.desktop_enabled),
+        for name, box in (("sound_enabled", self.sound_enabled),
                           ("ha_enabled", self.ha_enabled),
                           ("mqtt_enabled", self.mqtt_enabled),
                           ("hook_enabled", self.hook_enabled)):
@@ -226,52 +230,58 @@ class NotifyPanel(QWidget):
         ``log``, if given, is called with a line for every alert: sent,
         failed and why, or held back as too short.
         """
-        if not self.enabled.isChecked():
-            return None
-        named = []
-        if self.desktop_enabled.isChecked():
-            named.append(("this computer", notify.DesktopNotifier()))
-        if self.ha_enabled.isChecked():
-            named.append(("Home Assistant", notify.HomeAssistantNotifier(
-                self.ha_url.text().strip(), self.ha_token.text().strip(),
-                self.ha_service.text().strip(),
-                level=self.ha_level.currentText() or None)))
-        if self.mqtt_enabled.isChecked():
-            named.append(("MQTT", notify.MqttNotifier(
-                self.mqtt_host.text().strip(), self.mqtt_user.text(),
-                self.mqtt_pass.text(), self.mqtt_topic.text().strip(),
-                level=self.mqtt_level.currentText())))
-        if self.hook_enabled.isChecked():
-            named.append(("webhook", notify.WebhookNotifier(self.hook_url.text().strip())))
-        if not named:
-            return None
-        transports = [notify.Logged(t, name, log) if log else t for name, t in named]
+        sound = notify.CompleteSound() if self.sound_enabled.isChecked() else None
+        phones = None
+        if self.enabled.isChecked():
+            named = []
+            if self.ha_enabled.isChecked():
+                named.append(("Home Assistant", notify.HomeAssistantNotifier(
+                    self.ha_url.text().strip(), self.ha_token.text().strip(),
+                    self.ha_service.text().strip(),
+                    level=self.ha_level.currentText() or None)))
+            if self.mqtt_enabled.isChecked():
+                named.append(("MQTT", notify.MqttNotifier(
+                    self.mqtt_host.text().strip(), self.mqtt_user.text(),
+                    self.mqtt_pass.text(), self.mqtt_topic.text().strip(),
+                    level=self.mqtt_level.currentText())))
+            if self.hook_enabled.isChecked():
+                named.append(("webhook", notify.WebhookNotifier(self.hook_url.text().strip())))
+            if named:
+                transports = [notify.Logged(t, name, log) if log else t
+                              for name, t in named]
 
-        def skipped(what, seconds, bar):
-            if log:
-                log("held back — %s after %s, under the %d s bar"
-                    % (what, "%d s" % seconds if seconds is not None else "an unknown time",
-                       bar))
-        # Threshold on the outside: it decides per call, Async only moves the
-        # send off this thread, so wrapping the other way would send anyway.
-        return notify.Threshold(notify.Async(notify.MultiNotifier(*transports)),
-                                self.min_seconds.value(), on_skip=skipped)
+                def skipped(what, seconds, bar):
+                    if log:
+                        log("held back — %s after %s, under the %d s bar"
+                            % (what, "%d s" % seconds if seconds is not None
+                               else "an unknown time", bar))
+                # Threshold on the outside: it decides per call, Async only
+                # moves the send off this thread, so wrapping the other way
+                # would send anyway.
+                phones = notify.Threshold(
+                    notify.Async(notify.MultiNotifier(*transports)),
+                    self.min_seconds.value(), on_skip=skipped)
+        if phones is None and sound is None:
+            return None
+        if sound is None:
+            return phones
+        return notify.Both(phones, sound, log=log)
 
     def transport_names(self):
         """Where an alert would go now, in words."""
-        if not self.enabled.isChecked():
-            return []
-        return [name for name, box in (("this computer", self.desktop_enabled),
-                                       ("Home Assistant", self.ha_enabled),
-                                       ("MQTT", self.mqtt_enabled),
-                                       ("webhook", self.hook_enabled))
-                if box.isChecked()]
+        names = []
+        if self.enabled.isChecked():
+            names = [name for name, box in (("Home Assistant", self.ha_enabled),
+                                            ("MQTT", self.mqtt_enabled),
+                                            ("webhook", self.hook_enabled))
+                     if box.isChecked()]
+        if self.sound_enabled.isChecked():
+            names.append("a sound at the end")
+        return names
 
     def send_test(self):
         """Send synchronously, so the button can say what happened."""
         transports = []
-        if self.desktop_enabled.isChecked():
-            transports.append(("this computer", notify.DesktopNotifier()))
         if self.ha_enabled.isChecked():
             transports.append(("Home Assistant", notify.HomeAssistantNotifier(
                 self.ha_url.text().strip(), self.ha_token.text().strip(),

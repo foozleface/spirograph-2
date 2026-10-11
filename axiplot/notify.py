@@ -300,33 +300,84 @@ class WebhookNotifier(Notifier):
             return False
 
 
-class DesktopNotifier(Notifier):
-    """A notification on this computer's own desktop, through notify-send:
-    for the person in the room, who has no phone alert set up or is looking
-    at the screen rather than the phone."""
+class CompleteSound(Notifier):
+    """The "complete" sound from this computer's speakers when a plot
+    finishes -- for whoever is in the room. Not a pop-up: nothing appears on
+    the screen. Pen changes and test alerts make no sound; only the finish.
 
-    def __init__(self, app_name="Spirograph", timeout=5):
-        self.app_name = app_name
-        self.timeout = timeout
+    Played through the desktop sound theme (canberra-gtk-play, event
+    ``complete``), or the freedesktop file directly with pw-play or paplay
+    when that is missing. Returns at once; the sound plays on its own.
+    """
+
+    FILE = "/usr/share/sounds/freedesktop/stereo/complete.oga"
+
+    def __init__(self):
         self.last_error = None
 
+    def _command(self):
+        if shutil.which("canberra-gtk-play"):
+            return ["canberra-gtk-play", "--id", "complete",
+                    "--description", "Plot finished"]
+        for player in ("pw-play", "paplay"):
+            if shutil.which(player) and os.path.exists(self.FILE):
+                return [player, self.FILE]
+        return None
+
     def configured(self):
-        return shutil.which("notify-send") is not None
+        return self._command() is not None
 
     def send(self, title, message, data=None):
-        if not self.configured():
-            self.last_error = "notify-send is not installed"
+        return False                     # alerts in words are not its business
+
+    def layer_done(self, layer, index, total, seconds=None, next_layer=None):
+        return None
+
+    def plot_done(self, layers, seconds=None):
+        command = self._command()
+        if command is None:
+            self.last_error = "no sound player (canberra-gtk-play, pw-play or paplay)"
             return False
         try:
-            subprocess.run(["notify-send", "--app-name", self.app_name,
-                            "--icon", "printer", title, message],
-                           check=True, timeout=self.timeout,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            subprocess.Popen(command, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL, start_new_session=True)
             self.last_error = None
             return True
         except Exception as exc:
             self.last_error = str(exc)
             return False
+
+
+class Both(Notifier):
+    """Pass each event -- a layer done, the plot done -- to every one of
+    several notifiers, each deciding for itself what to do with it: the
+    phone alerts behind their time bar, the finishing sound without one."""
+
+    def __init__(self, *notifiers, log=None):
+        self.notifiers = [n for n in notifiers if n is not None]
+        self.log = log
+
+    def configured(self):
+        return bool(self.notifiers)
+
+    def send(self, title, message, data=None):
+        return any([n.send(title, message, data) for n in self.notifiers])
+
+    def layer_done(self, layer, index, total, seconds=None, next_layer=None):
+        for n in self.notifiers:
+            try:
+                n.layer_done(layer, index, total, seconds, next_layer)
+            except Exception:
+                pass
+
+    def plot_done(self, layers, seconds=None):
+        for n in self.notifiers:
+            try:
+                ok = n.plot_done(layers, seconds)
+            except Exception as exc:
+                ok, n.last_error = False, str(exc)
+            if isinstance(n, CompleteSound) and self.log is not None:
+                self.log("sound: %s" % ("played" if ok else "FAILED (%s)" % n.last_error))
 
 
 class Logged(Notifier):
