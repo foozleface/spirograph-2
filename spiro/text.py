@@ -98,7 +98,7 @@ def font_label(font):
     """What a font is called in the window."""
     if font.startswith(HERSHEY_PREFIX):
         name = font[len(HERSHEY_PREFIX):]
-        return dict(HERSHEY_FONTS).get(name, name)
+        return "Hershey " + dict(HERSHEY_FONTS).get(name, name)
     return font[len(OUTLINE_PREFIX):] if font.startswith(OUTLINE_PREFIX) else font
 
 

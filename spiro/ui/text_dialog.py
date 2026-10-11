@@ -8,7 +8,7 @@ drawn as its outline.
 """
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QColor, QFontDatabase, QStandardItemModel
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QStandardItemModel
 from PySide6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox,
                                QDoubleSpinBox, QGridLayout, QLabel,
                                QPlainTextEdit, QVBoxLayout)
@@ -17,6 +17,7 @@ from spiro import text as textlib
 from spiro.ui import theme, thumbs
 
 PREVIEW_W, PREVIEW_H = 560, 200
+HERSHEY_INK = "#b9a8ff"        # the accent, light enough to read on the dark list
 
 
 class TextDialog(QDialog):
@@ -110,20 +111,41 @@ class TextDialog(QDialog):
         model = QStandardItemModel(self.font)
         self.font.setModel(model)
 
-        def header(words):
+        def header(words, color=theme.MUTED):
             self.font.addItem(words, None)
             item = model.item(model.rowCount() - 1)
             item.setEnabled(False)
-            item.setForeground(QColor(theme.MUTED))
+            item.setForeground(QColor(color))
+            heading = QFont(self.font.font())
+            heading.setBold(color != theme.MUTED)
+            item.setFont(heading)
 
-        header("Single line — the pen draws each stroke once")
-        for name, label in textlib.HERSHEY_FONTS:
-            self.font.addItem("    " + label, textlib.HERSHEY_PREFIX + name)
+        # The Hershey fonts are the ones a plotter draws well -- each stroke
+        # once -- so they are named as such and set apart from the hundreds
+        # of outline fonts below them.
+        header("★ Hershey fonts — single line, the pen draws each stroke once",
+               HERSHEY_INK)
+        bold = QFont(self.font.font())
+        bold.setBold(True)
+        for name, _label in textlib.HERSHEY_FONTS:
+            font = textlib.HERSHEY_PREFIX + name
+            self.font.addItem("    " + textlib.font_label(font), font)
+            item = model.item(model.rowCount() - 1)
+            item.setForeground(QColor(HERSHEY_INK))
+            item.setFont(bold)
+            item.setToolTip("A Hershey font: single strokes, made for pen plotters")
         header("Outline — any installed font, drawn round each letter")
+        plain = QFont(self.font.font())
+        plain.setBold(False)
         for family in sorted(set(QFontDatabase.families())):
             if QFontDatabase.isPrivateFamily(family):
                 continue
             self.font.addItem("    " + family, textlib.OUTLINE_PREFIX + family)
+            # Set, not inherited: the closed box's Hershey colour would
+            # otherwise run down into the open list.
+            item = model.item(model.rowCount() - 1)
+            item.setForeground(QColor(theme.TEXT))
+            item.setFont(plain)
         index = self.font.findData(current)
         self.font.setCurrentIndex(index if index >= 0 else self.font.findData(
             textlib.DEFAULT_FONT))
@@ -141,7 +163,16 @@ class TextDialog(QDialog):
         return textlib.build_text_ini(spec["text"], spec["font"], spec["align"],
                                       spec["line_spacing"])
 
+    def _mark_choice(self):
+        """The closed list shows a Hershey choice in the same ink as the list."""
+        hershey = (self.font.currentData() or "").startswith(textlib.HERSHEY_PREFIX)
+        # Only the closed box: a combo's colour otherwise runs into its open
+        # list and paints every outline font as if it were a Hershey one.
+        self.font.setStyleSheet("QComboBox { color: %s; font-weight: 600; }"
+                                % HERSHEY_INK if hershey else "")
+
     def _redraw(self):
+        self._mark_choice()
         ok = self.buttons.button(QDialogButtonBox.Ok)
         try:
             self.drawing = textlib.render(self.ini())

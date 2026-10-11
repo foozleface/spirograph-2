@@ -1394,6 +1394,22 @@ window.right_tabs.setCurrentWidget(window.plot)
 check("Add text is in sight whichever side tab is showing",
       window.text_button.isVisibleTo(window)
       and window.centre.cornerWidget(Qt.TopRightCorner).isAncestorOf(window.text_button))
+fonts = RealTextDialog(window)
+model = fonts.font.model()
+hershey_rows = [i for i in range(fonts.font.count())
+                if (fonts.font.itemData(i) or "").startswith("hershey:")]
+outline_rows = [i for i in range(fonts.font.count())
+                if (fonts.font.itemData(i) or "").startswith("outline:")]
+check("the Hershey fonts are named as Hershey fonts",
+      hershey_rows and all("Hershey" in fonts.font.itemText(i) for i in hershey_rows))
+check("and set apart from the outline fonts: bold, in the accent",
+      all(model.item(i).font().bold() for i in hershey_rows)
+      and not any(model.item(i).font().bold() for i in outline_rows[:20])
+      and model.item(hershey_rows[0]).foreground().color()
+      != model.item(outline_rows[0]).foreground().color())
+check("and they come first", hershey_rows and outline_rows
+      and max(hershey_rows) < min(outline_rows))
+fonts.deleteLater()
 window.scene.items.clear()
 window._new_document()
 main_module.TextDialog = scripted_dialog(words="Hello", size=12.0, rotation=30.0)
