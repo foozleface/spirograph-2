@@ -27,6 +27,11 @@ from spiro.ui.zooming import WheelZoom
 # already past what a screen can show on a 600 mm sheet; the full path comes
 # back the moment the mouse is released.
 FAST_POINTS = 8000
+# Zoom reaches a fortieth of a millimetre a pixel -- finer than the AxiDraw
+# steps (0.0125 mm), so placing is never limited by the view. It once
+# stopped at 40 px/mm, which on the wide bed is barely thirty times the fit.
+MIN_PX_PER_MM = 0.05
+MAX_PX_PER_MM = 400.0
 
 HANDLE_PX = 7.0           # the corner grab square
 ROTATE_PX = 22.0          # how far the turn knob stands off the top edge
@@ -50,6 +55,7 @@ class PaperCanvas(QWidget):
         self.scene = scene
         self.selected_id = None
         self.px_per_mm = 1.0
+        self.fit_px_per_mm = 1.0         # what fit() chose: the zoom readout's 1x
         self.origin = QPointF(0, 0)       # top-left of the paper, in widget px
         self._paths = {}                  # id(drawing) -> (full, fast)
         self._drag = None
@@ -83,8 +89,14 @@ class PaperCanvas(QWidget):
         avail_w = max(self.width() - 2 * padding_px, 40)
         avail_h = max(self.height() - 2 * padding_px, 40)
         self.px_per_mm = min(avail_w / paper.width_mm, avail_h / paper.height_mm)
+        self.fit_px_per_mm = self.px_per_mm
         self.center_paper()
         self.update()
+
+    def nudge_mm(self):
+        """What one arrow-key press moves the selection: about eight pixels,
+        as a round number of millimetres."""
+        return min(max(nice_mm(8.0 / self.px_per_mm), 0.01), 10.0)
 
     def center_paper(self):
         paper = self.scene.paper
@@ -96,7 +108,7 @@ class PaperCanvas(QWidget):
         """Zoom about a point, so what is under the pointer stays there."""
         anchor = anchor or QPointF(self.width() / 2, self.height() / 2)
         before = self.to_mm(anchor)
-        self.px_per_mm = max(0.05, min(40.0, self.px_per_mm * factor))
+        self.px_per_mm = max(MIN_PX_PER_MM, min(MAX_PX_PER_MM, self.px_per_mm * factor))
         after = self.to_mm(anchor)
         self.origin += QPointF((after.x() - before.x()) * self.px_per_mm,
                                (after.y() - before.y()) * self.px_per_mm)
@@ -173,26 +185,32 @@ class PaperCanvas(QWidget):
         painter.end()
 
     def _paint_grid(self, painter, sheet):
-        """10 mm minor, 50 mm major — but only while they are far enough apart
-        to be a grid rather than a grey wash."""
-        step = 10.0
-        while step * self.px_per_mm < 6:
-            step *= 5
+        """Lines a round number of millimetres apart -- 1, 2 or 5 times a
+        power of ten, at least 6 px apart, with every fifth one stronger --
+        so zoomed right in there is still a grid to place against. Only the
+        lines on screen are drawn: at a tenth of a millimetre the bed holds
+        thousands."""
+        step = nice_mm(6.0 / self.px_per_mm)
         paper = self.scene.paper
         minor = QPen(theme.GRID, 1)
         major = QPen(theme.GRID_MAJOR, 1)
-        x = 0.0
-        while x <= paper.width_mm + 1e-6:
-            painter.setPen(major if abs(x % (step * 5)) < 1e-6 else minor)
-            px = self.origin.x() + x * self.px_per_mm
-            painter.drawLine(QPointF(px, sheet.top()), QPointF(px, sheet.bottom()))
-            x += step
-        y = 0.0
-        while y <= paper.height_mm + 1e-6:
-            painter.setPen(major if abs(y % (step * 5)) < 1e-6 else minor)
-            py = self.origin.y() + y * self.px_per_mm
-            painter.drawLine(QPointF(sheet.left(), py), QPointF(sheet.right(), py))
-            y += step
+        visible = QRectF(self.rect()).intersected(sheet)
+        if visible.isEmpty():
+            return
+        low = self.to_mm(visible.topLeft())
+        high = self.to_mm(visible.bottomRight())
+        for axis, start, end, length in (("x", low.x(), high.x(), paper.width_mm),
+                                         ("y", low.y(), high.y(), paper.height_mm)):
+            first = max(0, int(math.floor(start / step)))
+            last = min(int(math.floor(length / step + 1e-6)), int(math.ceil(end / step)))
+            for k in range(first, last + 1):
+                painter.setPen(major if k % 5 == 0 else minor)
+                if axis == "x":
+                    px = self.origin.x() + k * step * self.px_per_mm
+                    painter.drawLine(QPointF(px, sheet.top()), QPointF(px, sheet.bottom()))
+                else:
+                    py = self.origin.y() + k * step * self.px_per_mm
+                    painter.drawLine(QPointF(sheet.left(), py), QPointF(sheet.right(), py))
 
     def _paint_item(self, painter, item, view, flagged):
         full, fast = self._painter_paths(item)
@@ -312,11 +330,7 @@ class PaperCanvas(QWidget):
     def _paint_scale_bar(self, painter):
         """A bar of a round number of millimetres — the only honest way to say
         how big the thing on screen is."""
-        span = 10.0
-        while span * self.px_per_mm < 60:
-            span *= 5 if span < 50 else 2
-        while span * self.px_per_mm > 220:
-            span /= 2
+        span = nice_mm(60.0 / self.px_per_mm)
         length = span * self.px_per_mm
         y = self.height() - 18
         x = 14
@@ -325,7 +339,9 @@ class PaperCanvas(QWidget):
         painter.drawLine(QPointF(x, y - 4), QPointF(x, y + 4))
         painter.drawLine(QPointF(x + length, y - 4), QPointF(x + length, y + 4))
         painter.setFont(QFont("monospace", 8))
-        painter.drawText(QPointF(x + length + 8, y + 4), "%g mm" % span)
+        zoom = self.px_per_mm / max(self.fit_px_per_mm, 1e-9)
+        painter.drawText(QPointF(x + length + 8, y + 4),
+                         "%g mm    ×%s" % (span, ("%.1f" % zoom).rstrip("0").rstrip(".")))
 
     # -- interaction ---------------------------------------------------------------- #
 
@@ -454,12 +470,17 @@ class PaperCanvas(QWidget):
 
     def keyPressEvent(self, event):
         item = self.scene.find(self.selected_id) if self.selected_id else None
-        step = 0.1 if event.modifiers() & Qt.ShiftModifier else 1.0
+        # A nudge is a few pixels at the current zoom, rounded to a sensible
+        # number of millimetres: a whole millimetre zoomed right in would jump
+        # off the screen. Shift is a tenth of that.
+        step = self.nudge_mm() / (10.0 if event.modifiers() & Qt.ShiftModifier else 1.0)
         moves = {Qt.Key_Left: (-step, 0), Qt.Key_Right: (step, 0),
                  Qt.Key_Up: (0, -step), Qt.Key_Down: (0, step)}
         turns = {Qt.Key_BracketLeft: -1, Qt.Key_BracketRight: 1}
         if item is not None and event.key() in moves:
             item.move_by(*moves[event.key()])
+            self.statusMessage.emit("%s at %.2f, %.2f mm — nudged %g mm"
+                                    % (item.name, item.x_mm, item.y_mm, step))
             self.itemChanged.emit(item.item_id)
             self.update()
         elif item is not None and event.key() in turns:
@@ -566,6 +587,16 @@ def _rotate_cursor():
         painter.end()
         _ROTATE_CURSOR = QCursor(pix, 13, 13)
     return _ROTATE_CURSOR
+
+
+def nice_mm(at_least):
+    """The smallest 1, 2 or 5 times a power of ten that is ``at_least``."""
+    at_least = max(float(at_least), 1e-6)
+    power = 10.0 ** math.floor(math.log10(at_least))
+    for factor in (1, 2, 5, 10):
+        if factor * power >= at_least - 1e-12:
+            return factor * power
+    return 10 * power
 
 
 def _append(path, points, stride):

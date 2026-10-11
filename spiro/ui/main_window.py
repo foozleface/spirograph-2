@@ -47,6 +47,7 @@ from spiro.ui.paper_window import PaperWindow
 from spiro.ui.plot_panel import PlotPanel
 from spiro.ui.render_view import RenderPanel
 from spiro.ui.sheet_panel import SheetPanel
+from spiro.ui.widgets import row
 from spiro.ui.workers import PlotWorker, RenderWorker, manual_command
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -157,7 +158,23 @@ class MainWindow(QMainWindow):
         self.text_button.setToolTip("Put words on the paper — any font, size and "
                                     "angle (Ctrl+T)")
         self.text_button.clicked.connect(self._add_text)
-        self.centre.setCornerWidget(self.text_button, Qt.TopRightCorner)
+        # Zoom, said on screen: the wheel and the keys did it already, but
+        # nothing told anyone so.
+        zooms = []
+        for label, tip, fn in (
+                ("−", "Zoom out (Ctrl+-, or the wheel)", lambda: self._zoom_current(1 / 1.5)),
+                ("Fit", "See all of it (Ctrl+0)", self._fit_current),
+                ("+", "Zoom in (Ctrl+=, or the wheel) — right-drag to move about",
+                 lambda: self._zoom_current(1.5))):
+            button = QPushButton(label)
+            button.setToolTip(tip)
+            button.setFixedWidth(28 if len(label) == 1 else 40)
+            button.clicked.connect(fn)
+            zooms.append(button)
+        self.zoom_buttons = zooms
+        self.centre.setCornerWidget(row(*zooms, 10, self.text_button, spacing=2,
+                                        margins=(0, 0, 4, 0)),
+                                    Qt.TopRightCorner)
 
         self.splitter = QSplitter(Qt.Horizontal)
         for widget in (left, self.centre, right):

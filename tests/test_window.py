@@ -1292,10 +1292,23 @@ def scripted_dialog(**fields):
     return Scripted
 
 
+print("zooming in to place things:")
+from spiro.ui.canvas_view import MAX_PX_PER_MM, nice_mm  # noqa: E402
+window.canvas.fit()
+window.canvas.zoom_by(10000)
+check("the paper zooms in past what the plotter can resolve",
+      window.canvas.px_per_mm == MAX_PX_PER_MM and 1 / MAX_PX_PER_MM < 0.0125)
+check("and an arrow-key nudge shrinks with the zoom",
+      window.canvas.nudge_mm() <= 0.05)
+window.canvas.fit()
+check("but at the fitted view it is a sensible step",
+      0.5 <= window.canvas.nudge_mm() <= 10)
+check("grid and scale steps are round numbers of millimetres",
+      [nice_mm(v) for v in (0.03, 0.15, 3, 7, 40)] == [0.05, 0.2, 5, 10, 50])
 window.right_tabs.setCurrentWidget(window.plot)
 check("Add text is in sight whichever side tab is showing",
       window.text_button.isVisibleTo(window)
-      and window.centre.cornerWidget(Qt.TopRightCorner) is window.text_button)
+      and window.centre.cornerWidget(Qt.TopRightCorner).isAncestorOf(window.text_button))
 window.scene.items.clear()
 window._new_document()
 main_module.TextDialog = scripted_dialog(words="Hello", size=12.0, rotation=30.0)

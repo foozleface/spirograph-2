@@ -504,7 +504,7 @@ class SheetPanel(QWidget):
 def _mm_box(low, high):
     box = QDoubleSpinBox()
     box.setRange(low, high)
-    box.setDecimals(1)
+    box.setDecimals(2)             # zoomed in, a tenth is visibly coarse
     box.setSuffix(" mm")
-    box.setFixedWidth(88)
+    box.setFixedWidth(96)
     return box
