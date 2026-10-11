@@ -1338,6 +1338,58 @@ for view, scale in ((window.canvas, lambda: window.canvas.px_per_mm),
               "_interacting", getattr(view, "interacting", False)),
           (before, grown, scale()))
 window.canvas.fit()
+
+from PySide6.QtCore import QEvent  # noqa: E402
+from PySide6.QtGui import QKeyEvent, QMouseEvent  # noqa: E402
+
+
+def canvas_drag(start, end, steps=6):
+    c = window.canvas
+    QApplication.sendEvent(c, QMouseEvent(QEvent.MouseButtonPress, start, start,
+                                          Qt.LeftButton, Qt.LeftButton, Qt.NoModifier))
+    for k in range(1, steps + 1):
+        p = start + (end - start) * (k / steps)
+        QApplication.sendEvent(c, QMouseEvent(QEvent.MouseMove, p, p, Qt.NoButton,
+                                              Qt.LeftButton, Qt.NoModifier))
+    QApplication.sendEvent(c, QMouseEvent(QEvent.MouseButtonRelease, end, end,
+                                          Qt.LeftButton, Qt.NoButton, Qt.NoModifier))
+
+
+window.scene.items.clear()
+window._open_path(str(ROOT_DIR / "spin.ini"))
+window._render_now()
+wait_for(lambda: window.drawing is not None)
+window._place()
+held = window.scene.items[-1]
+window.canvas.fit()
+window.canvas.zoom_by(4, window.canvas.to_px(held.x_mm, held.y_mm))
+empty = window.canvas.to_px(held.x_mm, held.y_mm) + QPointF(0, held.h_mm * 0.8
+                                                              * window.canvas.px_per_mm)
+if window.scene.item_at(*(lambda m: (m.x(), m.y()))(window.canvas.to_mm(empty))):
+    empty = QPointF(5, 5)
+origin = QPointF(window.canvas.origin)
+spot = (held.x_mm, held.y_mm)
+canvas_drag(empty, empty + QPointF(-120, -40))
+check("dragging empty paper moves the view, not the pattern",
+      close(window.canvas.origin.x() - origin.x(), -120, 0.5)
+      and close(window.canvas.origin.y() - origin.y(), -40, 0.5)
+      and (held.x_mm, held.y_mm) == spot,
+      (window.canvas.origin - origin, spot, (held.x_mm, held.y_mm)))
+on_it = window.canvas.to_px(held.x_mm, held.y_mm)
+origin = QPointF(window.canvas.origin)
+canvas_drag(on_it, on_it + QPointF(50, 0))
+check("dragging a pattern still moves the pattern",
+      held.x_mm > spot[0] and window.canvas.origin == origin)
+QApplication.sendEvent(window.canvas, QKeyEvent(QEvent.KeyPress, Qt.Key_Space, Qt.NoModifier))
+moved_to = (held.x_mm, held.y_mm)
+on_it = window.canvas.to_px(held.x_mm, held.y_mm)
+canvas_drag(on_it, on_it + QPointF(0, 60))
+QApplication.sendEvent(window.canvas, QKeyEvent(QEvent.KeyRelease, Qt.Key_Space, Qt.NoModifier))
+check("with space held, dragging over a pattern moves the view instead",
+      (held.x_mm, held.y_mm) == moved_to
+      and close(window.canvas.origin.y() - origin.y(), 60, 0.5))
+window.scene.items.clear()
+window.canvas.fit()
 window.right_tabs.setCurrentWidget(window.plot)
 check("Add text is in sight whichever side tab is showing",
       window.text_button.isVisibleTo(window)

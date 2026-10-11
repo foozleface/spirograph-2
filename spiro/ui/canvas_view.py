@@ -60,6 +60,7 @@ class PaperCanvas(QWidget):
         self._paths = {}                  # id(drawing) -> (full, fast)
         self._drag = None
         self._interacting = False
+        self._space_held = False          # space + drag moves the view, over anything
         self._wheel = WheelZoom(self, attr="_interacting")
         self.show_grid = True
         self.show_margin = True
@@ -357,9 +358,9 @@ class PaperCanvas(QWidget):
     def mousePressEvent(self, event):
         pos = event.position()
         mm = self.to_mm(pos)
-        if event.button() in (Qt.MiddleButton, Qt.RightButton):
-            self._drag = {"mode": "pan", "from": pos}
-            self.setCursor(Qt.ClosedHandCursor)
+        if event.button() in (Qt.MiddleButton, Qt.RightButton) or (
+                event.button() == Qt.LeftButton and self._space_held):
+            self._start_pan(pos)
             return
         if event.button() != Qt.LeftButton:
             return
@@ -391,7 +392,15 @@ class PaperCanvas(QWidget):
                           "x0": item.x_mm, "y0": item.y_mm}
             self._interacting = True
             self.setCursor(Qt.ClosedHandCursor)
+        else:
+            # Empty paper, or off it: the drag moves the view. On a touchpad
+            # there is no middle button, and a right-drag is a contortion.
+            self._start_pan(pos)
         self.update()
+
+    def _start_pan(self, pos):
+        self._drag = {"mode": "pan", "from": pos}
+        self.setCursor(Qt.ClosedHandCursor)
 
     def mouseMoveEvent(self, event):
         pos = event.position()
@@ -410,8 +419,11 @@ class PaperCanvas(QWidget):
             else:
                 mm = self.to_mm(pos)
                 over = self.scene.item_at(mm.x(), mm.y())
-                self.setCursor(Qt.OpenHandCursor if over else Qt.ArrowCursor)
-                self.statusMessage.emit("%.1f, %.1f mm" % (mm.x(), mm.y()))
+                self.setCursor(Qt.OpenHandCursor if over or self._space_held
+                               else Qt.ArrowCursor)
+                self.statusMessage.emit(
+                    "%.1f, %.1f mm%s" % (mm.x(), mm.y(), "" if over else
+                                         " — drag to move the view"))
             return
 
         if self._drag["mode"] == "pan":
@@ -473,7 +485,21 @@ class PaperCanvas(QWidget):
             return True                          # a pinch on the touchpad
         return super().event(event)
 
+    def keyReleaseEvent(self, event):
+        if event.key() == Qt.Key_Space and not event.isAutoRepeat():
+            self._space_held = False
+            if self._drag is None:
+                self.setCursor(Qt.ArrowCursor)
+            return
+        super().keyReleaseEvent(event)
+
     def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Space:
+            if not event.isAutoRepeat():
+                self._space_held = True
+                if self._drag is None:
+                    self.setCursor(Qt.OpenHandCursor)
+            return
         item = self.scene.find(self.selected_id) if self.selected_id else None
         # A nudge is a few pixels at the current zoom, rounded to a sensible
         # number of millimetres: a whole millimetre zoomed right in would jump

@@ -164,7 +164,7 @@ class MainWindow(QMainWindow):
         for label, tip, fn in (
                 ("−", "Zoom out (Ctrl+-, or the wheel)", lambda: self._zoom_current(1 / 1.5)),
                 ("Fit", "See all of it (Ctrl+0)", self._fit_current),
-                ("+", "Zoom in (Ctrl+=, or the wheel) — right-drag to move about",
+                ("+", "Zoom in (Ctrl+=, pinch, or the wheel) — drag empty paper to move about",
                  lambda: self._zoom_current(1.5))):
             button = QPushButton(label)
             button.setToolTip(tip)
