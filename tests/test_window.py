@@ -303,6 +303,15 @@ window.plotRequested.disconnect(window.plotter.plot)
 sent = []
 window.plotRequested.connect(lambda *a: sent.append(a))
 try:
+    window.notify.enabled.setChecked(True)
+    window._plot_with(None, False, only)
+    log_text = window._alert_log_path().read_text() if window._alert_log_path().exists() else ""
+    check("a real plot writes where its alerts will go to alerts.log",
+          "plot started" in log_text and "this computer" in log_text, log_text[-200:])
+    check("and hands the worker a notifier that logs", sent and sent[-1][4] is not None)
+    window.inhibitor.stop()
+    window.notify.enabled.setChecked(False)
+    sent.clear()
     window._plot_with(None, True, only)
     check("a per-selection plot tells the worker not to pause",
           len(sent) == 1 and sent[-1][5] is False,

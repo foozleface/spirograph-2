@@ -206,6 +206,8 @@ settings.clear()
 panel = NotifyPanel(settings)
 check("with alerts off there is no notifier at all", panel.notifier() is None)
 
+check("this computer is offered and on by default", panel.desktop_enabled.isChecked())
+panel.desktop_enabled.setChecked(False)
 panel.enabled.setChecked(True)
 check("switched on but with no transport, still none", panel.notifier() is None)
 
@@ -257,6 +259,40 @@ check("a script service is sent the level, which is what makes a phone buzz",
 panel.ha_service.setText("notify.phone")
 check("a notify service is not, because it rejects unknown keys",
       "level" not in transport(panel, notify.HomeAssistantNotifier)._payload_probe())
+
+# -- every alert leaves a line ----------------------------------------------------- #
+
+print()
+print("what happened to each alert is written down:")
+lines = []
+panel.desktop_enabled.setChecked(True)
+desk = [n for n in fan_out(panel.notifier(log=lines.append)).notifiers
+        if isinstance(n, notify.Logged) and isinstance(n.inner, notify.DesktopNotifier)]
+check("the desktop goes in the fan-out, logged", len(desk) == 1)
+sent_cmds = []
+import subprocess as _subprocess  # noqa: E402
+real_run = _subprocess.run
+_subprocess.run = lambda cmd, **kw: sent_cmds.append(cmd)
+try:
+    ok = desk[0].send("Plot finished", "1 layer in 4m 10s")
+finally:
+    _subprocess.run = real_run
+check("a desktop alert goes through notify-send with the title and message",
+      ok and sent_cmds and sent_cmds[0][0] == "notify-send"
+      and "Plot finished" in sent_cmds[0] and "1 layer in 4m 10s" in sent_cmds[0],
+      sent_cmds)
+check("and the log says it was sent", any("this computer: sent" in l for l in lines), lines)
+lines.clear()
+dead = notify.Logged(notify.MqttNotifier("127.0.0.1", topic="t", port=1, timeout=1),
+                     "MQTT", lines.append)
+dead.send("Plot finished", "x")
+check("a failed send is logged with why", lines and "MQTT: FAILED" in lines[0]
+      and "(" in lines[0], lines)
+lines.clear()
+held = panel.notifier(log=lines.append)
+held.plot_done(LAYERS, 30)
+check("an alert held back as too short says so, and by how much",
+      lines and "held back" in lines[0] and "30 s" in lines[0], lines)
 
 settings.clear()
 print()

@@ -1428,7 +1428,11 @@ class MainWindow(QMainWindow):
         self._plot_started = time.time()
         if not dry_run:
             self.inhibitor.start()
-        notifier = None if dry_run else self.notify.notifier()
+        notifier = None if dry_run else self.notify.notifier(log=self._alert_log)
+        if not dry_run:
+            where = self.notify.transport_names()
+            self._alert_log("plot started — %s" % (
+                "alerts to " + ", ".join(where) if where else "alerts are off"))
         # Stop between layers only when there is a nib to change. One pattern
         # on one pen is one layer, so it runs start to finish.
         pause = len(self.scene.pens_in_use(only)) > 1
@@ -1628,6 +1632,27 @@ class MainWindow(QMainWindow):
         self._update_title()
         self._say("Picked up where you left off — %d pattern%s on the paper."
                   % (len(self.scene.items), "" if len(self.scene.items) == 1 else "s"))
+
+    # -- what happened to each alert ------------------------------------------------- #
+
+    def _alert_log_path(self):
+        return Path(self.settings.fileName()).parent / "alerts.log"
+
+    def _alert_log(self, line):
+        """Write one line to alerts.log beside the settings. Called from the
+        plot and send threads, so it only appends; a few hundred lines are
+        kept."""
+        path = self._alert_log_path()
+        stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(path, "a") as out:
+                out.write("%s  %s\n" % (stamp, line))
+            if path.stat().st_size > 200_000:
+                lines = path.read_text().splitlines()[-500:]
+                path.write_text("\n".join(lines) + "\n")
+        except OSError:
+            pass
 
     # -- the Delete key ----------------------------------------------------------- #
 

@@ -13,6 +13,8 @@ die because a phone was unreachable.
 """
 
 import json
+import shutil
+import subprocess
 import os
 import socket
 import struct
@@ -79,9 +81,20 @@ class Threshold(Notifier):
     walked away.
     """
 
-    def __init__(self, inner, min_seconds=90.0):
+    def __init__(self, inner, min_seconds=90.0, on_skip=None):
         self.inner = inner
         self.min_seconds = float(min_seconds)
+        # Told about every alert held back, so a missing one can be explained
+        # afterwards rather than guessed at.
+        self.on_skip = on_skip
+
+    def _skipped(self, what, seconds):
+        if self.on_skip is not None:
+            try:
+                self.on_skip(what, seconds, self.min_seconds)
+            except Exception:
+                pass
+        return None
 
     def configured(self):
         return getattr(self.inner, "configured", lambda: True)()
@@ -95,12 +108,12 @@ class Threshold(Notifier):
     def layer_done(self, layer, index, total, seconds=None, next_layer=None):
         if self._long(seconds) or self._long((next_layer or {}).get("estSec")):
             return self.inner.layer_done(layer, index, total, seconds, next_layer)
-        return None
+        return self._skipped("layer %d of %d done" % (index + 1, total), seconds)
 
     def plot_done(self, layers, seconds=None):
         if self._long(seconds):
             return self.inner.plot_done(layers, seconds)
-        return None
+        return self._skipped("plot finished", seconds)
 
 
 class HomeAssistantNotifier(Notifier):
@@ -285,6 +298,64 @@ class WebhookNotifier(Notifier):
         except Exception as exc:
             self.last_error = str(exc)
             return False
+
+
+class DesktopNotifier(Notifier):
+    """A notification on this computer's own desktop, through notify-send:
+    for the person in the room, who has no phone alert set up or is looking
+    at the screen rather than the phone."""
+
+    def __init__(self, app_name="Spirograph", timeout=5):
+        self.app_name = app_name
+        self.timeout = timeout
+        self.last_error = None
+
+    def configured(self):
+        return shutil.which("notify-send") is not None
+
+    def send(self, title, message, data=None):
+        if not self.configured():
+            self.last_error = "notify-send is not installed"
+            return False
+        try:
+            subprocess.run(["notify-send", "--app-name", self.app_name,
+                            "--icon", "printer", title, message],
+                           check=True, timeout=self.timeout,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            self.last_error = None
+            return True
+        except Exception as exc:
+            self.last_error = str(exc)
+            return False
+
+
+class Logged(Notifier):
+    """One transport, with every send written down: what was sent, and
+    whether it went or why not. Sends are otherwise silent by design -- a
+    phone is never worth a failed plot -- which left a missing alert with no
+    way to tell a dead broker from a skipped message."""
+
+    def __init__(self, inner, name, log):
+        self.inner = inner
+        self.name = name
+        self.log = log
+
+    def configured(self):
+        return getattr(self.inner, "configured", lambda: True)()
+
+    def send(self, title, message, data=None):
+        try:
+            ok = self.inner.send(title, message, data)
+        except Exception as exc:
+            ok, error = False, str(exc)
+        else:
+            error = getattr(self.inner, "last_error", None)
+        try:
+            self.log("%s: %s — %s%s" % (self.name, "sent" if ok else "FAILED",
+                                        title, "" if ok else " (%s)" % (error or "no reason given")))
+        except Exception:
+            pass
+        return ok
 
 
 class CallableNotifier(Notifier):
