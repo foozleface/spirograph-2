@@ -1305,6 +1305,39 @@ check("but at the fitted view it is a sensible step",
       0.5 <= window.canvas.nudge_mm() <= 10)
 check("grid and scale steps are round numbers of millimetres",
       [nice_mm(v) for v in (0.03, 0.15, 3, 7, 40)] == [0.05, 0.2, 5, 10, 50])
+from PySide6.QtCore import QPointF  # noqa: E402
+from PySide6.QtGui import QNativeGestureEvent, QPointingDevice  # noqa: E402
+
+
+def pinch(widget, value, kind=Qt.ZoomNativeGesture):
+    """What Qt sends for a touchpad pinch (XInput 2.4 through Xwayland)."""
+    centre = QPointF(widget.width() / 2, widget.height() / 2)
+    event = QNativeGestureEvent(kind, QPointingDevice.primaryPointingDevice(), 2,
+                                centre, centre, widget.mapToGlobal(centre),
+                                value, QPointF(0, 0))
+    QApplication.sendEvent(widget, event)
+
+
+for view, scale in ((window.canvas, lambda: window.canvas.px_per_mm),
+                    (window.render, lambda: window.render._scale)):
+    window.canvas.fit()
+    view.fit()
+    before = scale()
+    pinch(view, 0, Qt.BeginNativeGesture)
+    for _ in range(10):
+        pinch(view, 0.1)                     # fingers apart
+    pinch(view, 0, Qt.EndNativeGesture)
+    pump(300)
+    grown = scale()
+    for _ in range(10):
+        pinch(view, -0.09)                   # and back together
+    pump(300)
+    check("a pinch zooms the %s view in, and pinching back zooms out"
+          % ("paper" if view is window.canvas else "render"),
+          grown > before * 2 and scale() < grown / 2 and not view.__dict__.get(
+              "_interacting", getattr(view, "interacting", False)),
+          (before, grown, scale()))
+window.canvas.fit()
 window.right_tabs.setCurrentWidget(window.plot)
 check("Add text is in sight whichever side tab is showing",
       window.text_button.isVisibleTo(window)

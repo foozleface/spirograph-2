@@ -7,9 +7,15 @@ event asked for a repaint of a hundred-thousand-point path — one that lags
 behind the hand. So: momentum events are ignored, the zoom factor is
 accumulated, and the view is repainted once per frame at most, with
 antialiasing off until the hand is still.
+
+A pinch is not a scroll: Qt delivers it as a native gesture
+(``QNativeGestureEvent``, ``ZoomNativeGesture``) — on Linux through XInput
+2.4, which Xwayland passes on from the touchpad. Ignored, pinching did
+nothing at all, which looks exactly like a zoom that has stuck. It goes
+through the same accumulate-and-paint-once path as the wheel.
 """
 
-from PySide6.QtCore import QPointF, Qt, QTimer
+from PySide6.QtCore import QEvent, QPointF, Qt, QTimer
 
 FRAME_MS = 16
 SETTLE_MS = 160
@@ -48,6 +54,28 @@ class WheelZoom:
         if not self._frame.isActive():
             self._frame.start()
         self._settle.start()
+        event.accept()
+        return True
+
+    def gesture(self, event):
+        """Handle a native gesture. Returns True if it was consumed; a widget
+        calls this from ``event()`` for ``QEvent.NativeGesture``."""
+        if event.type() != QEvent.NativeGesture:
+            return False
+        kind = event.gestureType()
+        if kind == Qt.ZoomNativeGesture:
+            # value() is the change in scale since the last event: 0.05 is
+            # five per cent bigger.
+            self._factor *= max(1.0 + event.value(), 0.2)
+            self._anchor = QPointF(event.position())
+            setattr(self.widget, self.attr, True)
+            if not self._frame.isActive():
+                self._frame.start()
+            self._settle.start()
+        elif kind == Qt.SmartZoomNativeGesture and hasattr(self.widget, "fit"):
+            self.widget.fit()                 # a two-finger double tap
+        elif kind == Qt.EndNativeGesture:
+            self._settle.start()
         event.accept()
         return True
 

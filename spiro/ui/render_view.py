@@ -34,7 +34,7 @@ of a hundred thousand points.
 """
 
 import numpy as np
-from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import (QColor, QFont, QPainter, QPainterPath, QPen,
                            QPolygonF, QTransform)
 from PySide6.QtWidgets import (QCheckBox, QHBoxLayout, QLabel, QPushButton,
@@ -528,6 +528,11 @@ class RenderView(QWidget):
     def wheelEvent(self, event):
         if not self._wheel.wheel(event):
             super().wheelEvent(event)
+
+    def event(self, event):
+        if event.type() == QEvent.NativeGesture and self._wheel.gesture(event):
+            return True                          # a pinch on the touchpad
+        return super().event(event)
 
     def keyPressEvent(self, event):
         if event.key() in (Qt.Key_Plus, Qt.Key_Equal):

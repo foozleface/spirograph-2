@@ -15,7 +15,7 @@ re-fitting a hundred thousand points.
 
 import math
 
-from PySide6.QtCore import QPointF, QRectF, Qt, Signal
+from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import (QBrush, QColor, QCursor, QFont, QPainter,
                            QPainterPath, QPen, QPixmap, QPolygonF, QTransform)
 from PySide6.QtWidgets import QWidget
@@ -467,6 +467,11 @@ class PaperCanvas(QWidget):
     def wheelEvent(self, event):
         if not self._wheel.wheel(event):
             super().wheelEvent(event)
+
+    def event(self, event):
+        if event.type() == QEvent.NativeGesture and self._wheel.gesture(event):
+            return True                          # a pinch on the touchpad
+        return super().event(event)
 
     def keyPressEvent(self, event):
         item = self.scene.find(self.selected_id) if self.selected_id else None
