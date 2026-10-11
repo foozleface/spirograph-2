@@ -1370,17 +1370,16 @@ control = ControlServer(window, path=os.path.join(SETTINGS_DIR, "spirograph-2.so
 window.scene.items.clear()
 check("ping answers", ctl("ping").get("ok"))
 check("a blank pattern", ctl("new", "blank=true").get("ok") and not window.document.steps)
-reply = ctl("add", "type=ellipse")
-check("add puts a step in Build", reply.get("ok") and reply.get("step") == 0
-      and window.document.steps[0]["params"]["type"] == "ellipse", reply)
 gandy = Document.load(str(ROOT_DIR / "gandy-9175.ini"))
-for key, value in gandy.steps[0]["params"].items():
-    if key != "type":
-        assert ctl("set", "step=0", "key=%s" % key, "value=%s" % json.dumps(value)).get("ok"), key
-ctl("add", "type=rotation")
-for key, value in gandy.steps[1]["params"].items():
-    if key != "type":
-        ctl("set", "step=1", "key=%s" % key, "value=%s" % json.dumps(value))
+for index, step in enumerate(gandy.steps):
+    reply = ctl("add", "type=%s" % step["params"]["type"])
+    if index == 0:
+        check("add puts a step in Build", reply.get("ok") and reply.get("step") == 0
+              and window.document.steps[0]["params"]["type"] == step["params"]["type"], reply)
+    for key, value in step["params"].items():
+        if key != "type":
+            assert ctl("set", "step=%d" % index, "key=%s" % key,
+                       "value=%s" % json.dumps(value)).get("ok"), key
 from spiro.pipeline import run as _run  # noqa: E402
 _small = {"initial_samples": 20000, "output_samples": 4000}
 built = _run(window.document.to_ini(_small)).paths[0]
@@ -1395,7 +1394,8 @@ waited = ctl("wait")
 check("wait returns once the drawing is up to date", waited.get("ok"), waited)
 state = ctl("state")
 check("state says what is in Build and that it is drawn",
-      state.get("drawn") and len(state["document"]["steps"]) == 2, state.get("drawn"))
+      state.get("drawn") and len(state["document"]["steps"]) == len(gandy.steps),
+      state.get("drawn"))
 placed = ctl("place")
 check("place puts it on the paper", placed.get("ok") and len(window.scene.items) == 1, placed)
 shot = os.path.join(SETTINGS_DIR, "shot.png")
