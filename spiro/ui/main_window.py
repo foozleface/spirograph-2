@@ -19,7 +19,7 @@ import time
 import traceback
 from pathlib import Path
 
-from PySide6.QtCore import QSettings, Qt, QThread, QTimer, Signal
+from PySide6.QtCore import QEvent, QSettings, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (QApplication, QFileDialog, QLabel, QMainWindow,
                                QPushButton,
@@ -118,6 +118,12 @@ class MainWindow(QMainWindow):
         self._session_backstop.timeout.connect(self._save_session)
         self._session_backstop.start()
         self._restore_session()
+        # Delete follows where the last click was, not where focus ended up:
+        # see eventFilter.
+        self._delete_context = None
+        self._keylog = bool(os.environ.get("SPIRO_KEYLOG"))
+        if QApplication.instance() is not None:
+            QApplication.instance().installEventFilter(self)
 
     # -- construction ---------------------------------------------------------- #
 
@@ -1623,6 +1629,45 @@ class MainWindow(QMainWindow):
         self._say("Picked up where you left off — %d pattern%s on the paper."
                   % (len(self.scene.items), "" if len(self.scene.items) == 1 else "s"))
 
+    # -- the Delete key ----------------------------------------------------------- #
+
+    def _context_of(self, widget):
+        """"paper" for the paper and the Sheet list, "build" for Build."""
+        for side, roots in (("paper", (self.canvas, self.sheet)),
+                            ("build", (self.design,))):
+            for root in roots:
+                if widget is root or root.isAncestorOf(widget):
+                    return side
+        return None
+
+    def eventFilter(self, obj, event):
+        """Delete takes the paper's selection off whenever the last click was
+        on the paper side — on the paper or in the Sheet list — wherever
+        keyboard focus has wandered since. It used to work only while the
+        paper itself had focus, and a press that lands elsewhere does
+        nothing (or, in Build's step list, removes a step)."""
+        kind = event.type()
+        if kind == QEvent.MouseButtonPress and isinstance(obj, QWidget):
+            side = self._context_of(obj)
+            if side is not None:
+                self._delete_context = side
+        elif kind == QEvent.KeyPress and isinstance(obj, QWidget):
+            if self._keylog:
+                print("key %s %r mods=%s focus=%s context=%s" % (
+                    hex(event.key()), event.text(), event.modifiers(),
+                    type(QApplication.focusWidget()).__name__, self._delete_context),
+                    flush=True)
+            if (event.key() in (Qt.Key_Delete, Qt.Key_Backspace)
+                    and not event.modifiers() & (Qt.ControlModifier | Qt.AltModifier
+                                                 | Qt.MetaModifier)
+                    and self._delete_context == "paper"
+                    and not _typing_in(QApplication.focusWidget())
+                    and self.canvas.selected_id is not None
+                    and self.scene.find(self.canvas.selected_id) is not None):
+                self._remove_item(self.canvas.selected_id)
+                return True
+        return super().eventFilter(obj, event)
+
     def closeEvent(self, event):
         if self.plotter.busy:
             answer = QMessageBox.question(
@@ -1638,6 +1683,8 @@ class MainWindow(QMainWindow):
             self.paper_window.release_canvas()
             self.paper_window.close()
             self.paper_window = None
+        if QApplication.instance() is not None:
+            QApplication.instance().removeEventFilter(self)
         self.plot.save_settings()
         self.notify.save_settings()
         self._save_session()
@@ -1645,6 +1692,15 @@ class MainWindow(QMainWindow):
         self.render_panel.play.setChecked(False)
         self._stop_threads()
         super().closeEvent(event)
+
+
+def _typing_in(widget):
+    """Is this a box where Delete deletes a character?"""
+    from PySide6.QtWidgets import (QAbstractSpinBox, QComboBox, QLineEdit,
+                                   QPlainTextEdit, QTextEdit)
+    if isinstance(widget, (QLineEdit, QAbstractSpinBox, QPlainTextEdit, QTextEdit)):
+        return True
+    return isinstance(widget, QComboBox) and widget.isEditable()
 
 
 def _text_name(words):

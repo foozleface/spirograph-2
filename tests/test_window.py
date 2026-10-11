@@ -1251,6 +1251,45 @@ check("Delete on the paper takes it off", doomed not in window.scene.items)
 window._undo()
 check("and that undoes too", doomed in window.scene.items,
       (window._undo_order[-4:], window._redo_order, window.status_left.text()))
+# The press that did nothing: the pattern picked on the paper, but focus
+# somewhere else by the time Delete is pressed.
+from PySide6.QtTest import QTest as _QTest  # noqa: E402
+window.centre.setCurrentWidget(window.paper_host)
+window.canvas.select(None)
+pump(100)
+_QTest.mouseClick(window.canvas, Qt.LeftButton, Qt.NoModifier,
+                  window.canvas.to_px(doomed.x_mm, doomed.y_mm).toPoint())
+pump(300)
+picked = window.scene.find(window.canvas.selected_id)
+steps = len(window.document.steps)
+window.design.strip.setFocus()
+pump(50)
+_QTest.keyClick(window.design.strip, Qt.Key_Backspace)
+pump(400)
+check("Delete after picking on the paper takes it off, wherever focus went",
+      picked is not None and picked not in window.scene.items
+      and len(window.document.steps) == steps,
+      (picked and picked.name, len(window.document.steps), steps))
+window._undo()
+check("and Ctrl+Z still puts it back", picked in window.scene.items)
+window.document.add_module("rose")      # two steps, so removing one leaves a machine
+window.design.refresh(select=0)
+window.design.structureChanged.emit()
+window.design.documentChanged.emit()
+pump(500)
+_QTest.mouseClick(window.design.strip, Qt.LeftButton, Qt.NoModifier,
+                  window.design.strip.rect().topLeft() + __import__(
+                      "PySide6.QtCore", fromlist=["QPoint"]).QPoint(120, 20))
+pump(200)
+count = len(window.scene.items)
+before_steps = len(window.document.steps)
+_QTest.keyClick(window.design.strip, Qt.Key_Delete)
+pump(400)
+check("but after a click in Build, Delete is Build's again",
+      len(window.scene.items) == count and len(window.document.steps) == before_steps - 1,
+      (len(window.scene.items), count, len(window.document.steps), before_steps))
+window._undo()
+window._undo()
 before_move = (keep.x_mm, keep.y_mm)
 keep.move_to(keep.x_mm + 40, keep.y_mm + 5)
 window._item_moved(keep.item_id)
