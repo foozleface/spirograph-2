@@ -60,6 +60,11 @@ class PintographModule(TransformModule):
         self.arm_1 = self._getfloat('arm_1', 180.0)
         self.arm_2 = self._getfloat('arm_2', 180.0)
         self.elbow = 1.0 if self._getfloat('elbow', 1.0) >= 0 else -1.0
+        # The pen on rod 1 past the elbow: a long rod's tip swings in wide,
+        # smooth arcs where the elbow itself turns sharp corners. 0 is at
+        # the elbow, as before.
+        self.pen_extend = self._getfloat('pen_extend', 0.0)
+        self.end_pen_extend = self._getfloat('end_pen_extend', self.pen_extend)
         self.cycles = self._getfloat('cycles', 1.0)
 
     def transform(self, z, t):
@@ -83,6 +88,9 @@ class PintographModule(TransformModule):
         a = (self.arm_1 ** 2 - self.arm_2 ** 2 + d ** 2) / (2 * d)
         h = np.sqrt(np.maximum(self.arm_1 ** 2 - a ** 2, 0.0))
         pen = p1 + a * u + self.elbow * h * (1j * u)
+        extend = self._interpolate(self.pen_extend, self.end_pen_extend, t_norm, 'pen_extend')
+        if np.any(extend != 0):
+            pen = pen + extend * (pen - p1) / self.arm_1
 
         # Centre the drawing on the pen's rest position so it composes like
         # the other arms: the mechanism's frame, not the paper's corner.

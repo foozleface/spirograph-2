@@ -589,6 +589,22 @@ check("and in between it draws an egg, not an ellipse: lopsided about its middle
       abs(np.mean((egg - centre).real ** 3)) > 1.0, np.mean((egg - centre).real ** 3))
 check("the crank and rod is in the gallery", MODULE_DEFS["crank_rod"]["category"] == "generator")
 
+print("the pintograph's pen past the elbow:")
+from pintograph import PintographModule  # noqa: E402
+at_elbow = module(PintographModule, "turns_1 = 1\nturns_2 = 1\npen_extend = 0")
+past = module(PintographModule, "turns_1 = 1\nturns_2 = 1\npen_extend = 90")
+for m in (at_elbow, past):
+    m.set_pipeline_period(__import__("fractions").Fraction(1))
+tt = np.linspace(0, 1, 50)
+elbow = at_elbow.transform(np.zeros_like(tt, dtype=complex), tt)
+tip = past.transform(np.zeros_like(tt, dtype=complex), tt)
+pin1 = complex(-100, 0) + 60 * np.exp(1j * 2 * np.pi * tt)
+check("with no extension the pen is at the elbow, a rod's length from pin 1",
+      np.allclose(np.abs(elbow - pin1), 180, atol=1e-6))
+check("extended, it is that much further along rod 1, in line with it",
+      np.allclose(np.abs(tip - pin1), 270, atol=1e-6)
+      and np.allclose(np.angle((tip - pin1) / (elbow - pin1)), 0, atol=1e-9))
+
 print()
 print("pipeline: %d passed, %d failed" % (len(PASS), len(FAIL)))
 if FAIL:
