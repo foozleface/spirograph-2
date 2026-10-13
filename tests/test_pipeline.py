@@ -296,6 +296,18 @@ check("a clock after an arm leaves that arm on its own time",
 check("and reverses the arm after it",
       np.allclose((_after.stages[2] - _after.stages[0])[1:],
                   _tpts([_single(_circ)])[:0:-1], atol=1e-6))
+_motor = _tpts([_single({"type": "tempo", "mode": "motor", "spinup": 0.2}), _single(_spiral)])
+# A drive that takes a fifth of the draw to reach speed has barely turned
+# at that point, runs at full speed later, and still gets to the end.
+check("tempo motor starts slow and reaches speed: a tenth of the draw in, "
+      "the spiral has grown less than a tenth of the way",
+      (np.abs(_motor[200]) - 5) < 0.1 * 75
+      and abs(np.abs(_motor[-1]) - np.abs(_plain[-1])) < 1.0
+      and np.allclose(np.diff(np.abs(_motor[1500:1900])), np.diff(np.abs(_plain[1500:1900])), atol=0.02))
+_off = _tpts([_single({"type": "tempo", "mode": "motor", "spinup": 0, "off_at": 0.5, "coast": 0.02}),
+              _single(_spiral)])
+check("tempo motor switched off half way coasts to a stop: the last samples sit still",
+      np.abs(_off[-1] - _off[-100]) < 1e-6 and np.abs(_off[-1]) > np.abs(_off[0]))
 _stut = _tpts([_single({"type": "tempo", "mode": "stutter", "steps": 4, "dwell": 0.6}), _single(_circ)])
 check("tempo stutter stops the pen: many samples sit on four spots",
       len(np.unique(np.round(_stut, 6))) < len(_stut) * 0.5)
@@ -588,6 +600,14 @@ spread = np.abs(egg - centre)
 check("and in between it draws an egg, not an ellipse: lopsided about its middle",
       abs(np.mean((egg - centre).real ** 3)) > 1.0, np.mean((egg - centre).real ** 3))
 check("the crank and rod is in the gallery", MODULE_DEFS["crank_rod"]["category"] == "generator")
+pinned = module(CrankRodModule, "crank_radius = 40\nrod_length = 55\npen_along = 0.1\npen_aside = 60\n"
+                                "end_crank_radius = 20\nanchor = end\ncycles = 4")
+pinned.set_pipeline_period(__import__("fractions").Fraction(1))
+held = pinned.transform(np.zeros_like(T, dtype=complex), T)
+_quarter = len(T) // 4
+check("pinned by its end, each loop's left end sits at the centre as the crank shrinks",
+      all(abs(held[i * _quarter:(i + 1) * _quarter].real.min()) < 0.5 for i in range(4))
+      and held[:_quarter].real.max() > held[-_quarter:].real.max() + 10)
 
 print("the pintograph's pen past the elbow:")
 from pintograph import PintographModule  # noqa: E402
