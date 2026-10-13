@@ -157,7 +157,58 @@ class TransformModule(ABC):
         noise = smooth_noise(t_norm, wanders, "%s/%s" % (self.section, param_name))
         return value * (1.0 + percent / 100.0 * noise)
 
+    def _switch_schedule(self, param_name):
+        """``switch_<name> = at value, at value, ...`` parsed to a list of
+        (at, value), each ``at`` a fraction of the draw, in order. Empty
+        when there is no such key."""
+        raw = self._get(f'switch_{param_name}', '')
+        if not raw:
+            return []
+        out = []
+        for item in str(raw).split(','):
+            parts = [x for x in item.replace(':', ' ').split() if x]
+            if len(parts) != 2:
+                raise ValueError("%s: switch_%s wants 'at value' pairs, got %r"
+                                 % (self.section, param_name, item.strip()))
+            out.append((float(parts[0]), float(parts[1])))
+        return sorted(out)
+
+    def _switched(self, start, t_norm, schedule):
+        """A value changed by hand part-way through the draw: ``start``
+        until the first switch, then each new value from its moment on --
+        what swapping a pulley, moving a pin or re-clamping the paper does.
+        Abrupt, as the real thing is."""
+        t = np.asarray(t_norm, dtype=float)
+        value = np.full(t.shape, float(start))
+        for at, new in schedule:
+            value = np.where(t >= at, float(new), value)
+        return value if np.ndim(t_norm) else float(value)
+
+    def _turned(self, turns, t_norm, param_name):
+        """How far something has turned by ``t_norm`` when it turns ``turns``
+        times over the draw -- unless ``switch_<name>`` says its rate was
+        changed part-way: a pulley swapped while the machine runs. The
+        position is continuous (the shaft does not jump), only the speed
+        steps, so the turn count is the rate integrated piece by piece."""
+        schedule = self._switch_schedule(param_name)
+        if not schedule:
+            return turns * t_norm
+        t = np.asarray(t_norm, dtype=float)
+        ats = [0.0] + [at for at, _ in schedule]
+        rates = [turns] + [rate for _, rate in schedule]
+        total = np.zeros(t.shape)
+        for i, (at, rate) in enumerate(zip(ats, rates)):
+            until = ats[i + 1] if i + 1 < len(ats) else None
+            ran = np.maximum(t - at, 0.0)
+            if until is not None:
+                ran = np.minimum(ran, max(until - at, 0.0))
+            total = total + rate * ran
+        return total if np.ndim(t_norm) else float(total)
+
     def _drifted(self, start, end, t_norm, param_name):
+        schedule = self._switch_schedule(param_name)
+        if schedule:
+            return self._switched(start, t_norm, schedule)
         osc_key = f'osc_{param_name}'
         osc_val = self._get(osc_key, '')
         if not osc_val:
@@ -665,7 +716,8 @@ def generate_svg(points: np.ndarray, width: float, height: float,
                  background_color: str,
                  close_path: bool = False,
                  extra_paths: List[np.ndarray] = None,
-                 config_text: str = None) -> str:
+                 config_text: str = None,
+                 styles: list = None) -> str:
     """
     Generate SVG string from points.
 
@@ -684,33 +736,25 @@ def generate_svg(points: np.ndarray, width: float, height: float,
     """
     path_elements = []
 
-    # Primary path
-    path_data = _build_path_data(points)
-    if close_path:
-        path_data += " Z"
-    path_elements.append(
-        f'  <path d="{path_data}"\n'
-        f'        fill="none"\n'
-        f'        stroke="{stroke_color}"\n'
-        f'        stroke-width="{stroke_width}"\n'
-        f'        stroke-linecap="round"\n'
-        f'        stroke-linejoin="round"/>'
-    )
-
-    # Extra paths (from symmetry, multi-layer, etc.)
-    if extra_paths:
-        for extra_pts in extra_paths:
-            path_data = _build_path_data(extra_pts)
-            if close_path:
-                path_data += " Z"
-            path_elements.append(
-                f'  <path d="{path_data}"\n'
-                f'        fill="none"\n'
-                f'        stroke="{stroke_color}"\n'
-                f'        stroke-width="{stroke_width}"\n'
-                f'        stroke-linecap="round"\n'
-                f'        stroke-linejoin="round"/>'
-            )
+    # One element per path; a path with its own style (an ink change, an
+    # ink weight -- see ink_styles) is stroked in that colour and opacity.
+    all_paths = [points] + list(extra_paths or [])
+    styles = list(styles or []) + [None] * (len(all_paths) - len(styles or []))
+    for pts, style in zip(all_paths, styles):
+        path_data = _build_path_data(pts)
+        if close_path:
+            path_data += " Z"
+        color = (style or {}).get("color") or stroke_color
+        opacity = (style or {}).get("opacity", 1.0)
+        extra = f'\n        stroke-opacity="{opacity:.3f}"' if opacity < 1.0 else ''
+        path_elements.append(
+            f'  <path d="{path_data}"\n'
+            f'        fill="none"\n'
+            f'        stroke="{color}"{extra}\n'
+            f'        stroke-width="{stroke_width}"\n'
+            f'        stroke-linecap="round"\n'
+            f'        stroke-linejoin="round"/>'
+        )
 
     paths_str = '\n'.join(path_elements)
 
@@ -888,8 +932,79 @@ def run_single_pipeline(config: configparser.ConfigParser,
     return points
 
 
+def ink_styles(points: np.ndarray, t_values: np.ndarray,
+               config: configparser.ConfigParser):
+    """The pen changes and the ink weight of one finished curve, as a list
+    of pieces and a style per piece -- or (``[points]``, None) when the
+    file asks for neither.
+
+    ``[output] inks = #000000, #c0392b`` are the pens used in order, the
+    machine stopped and the pen swapped at each of ``ink_changes = 0.4``
+    (fractions of the draw; evenly spaced when not given). Gandy pauses his
+    machine to swap colours; this is that.
+
+    ``[output] ink_flow = 0.6`` is how much a gravity-fed pen darkens the
+    line where it moves slowly and thins it where it moves fast: the ink
+    per unit length goes as (median speed / speed) ** ink_flow, kept
+    between 0.25 and 1, read in runs of INK_RUN points.
+    """
+    raw = config.get('output', 'inks', fallback='') if config.has_section('output') else ''
+    inks = [c.strip() for c in raw.split(',') if c.strip()]
+    flow = config.getfloat('output', 'ink_flow', fallback=0.0) if config.has_section('output') else 0.0
+    if len(inks) < 2 and flow <= 0:
+        return [points], None
+    n = len(points)
+    # The pen swaps: where each ink starts, as a point index.
+    bounds = [0]
+    if len(inks) >= 2:
+        raw = config.get('output', 'ink_changes', fallback='')
+        changes = [float(x) for x in raw.split(',') if x.strip()]
+        if not changes:
+            changes = [k / len(inks) for k in range(1, len(inks))]
+        changes = sorted(min(max(c, 0.0), 1.0) for c in changes)[:len(inks) - 1]
+        bounds += [int(round(c * (n - 1))) for c in changes]
+    bounds.append(n)
+    pieces, styles = [], []
+    for k in range(len(bounds) - 1):
+        lo, hi = bounds[k], bounds[k + 1]
+        # Keep the line unbroken: the new pen starts where the old one stopped.
+        lo = max(lo - 1, 0) if k > 0 else lo
+        color = inks[k] if len(inks) >= 2 else None
+        if hi - lo < 2:
+            continue
+        if flow > 0 and t_values is not None:
+            seg_pts, seg_t = points[lo:hi], t_values[lo:hi]
+            for a in range(0, len(seg_pts) - 1, INK_RUN):
+                b = min(a + INK_RUN + 1, len(seg_pts))
+                if b - a < 2:
+                    continue
+                dt = float(seg_t[b - 1] - seg_t[a])
+                length = float(np.sum(np.abs(np.diff(seg_pts[a:b]))))
+                pieces.append(seg_pts[a:b])
+                styles.append({"color": color, "speed": length / dt if dt > 0 else np.inf})
+        else:
+            pieces.append(points[lo:hi])
+            styles.append({"color": color, "opacity": 1.0})
+    if flow > 0:
+        speeds = np.array([s["speed"] for s in styles if "speed" in s])
+        finite = speeds[np.isfinite(speeds) & (speeds > 0)]
+        ref = float(np.median(finite)) if len(finite) else 1.0
+        for s in styles:
+            v = s.pop("speed", None)
+            if v is None:
+                continue
+            s["opacity"] = (float(np.clip((ref / v) ** flow, INK_FAINTEST, 1.0))
+                            if np.isfinite(v) and v > 0 else 1.0)
+    return pieces, styles
+
+
+INK_RUN = 48            # output points per run of one ink weight
+INK_FAINTEST = 0.25     # the lightest a fast-moving pen's line goes
+
+
 def apply_finishing(path_arrays: List[np.ndarray],
-                    config: configparser.ConfigParser) -> List[np.ndarray]:
+                    config: configparser.ConfigParser,
+                    styles=None):
     """
     The passes that act on finished curves, in their one fixed order:
 
@@ -901,16 +1016,30 @@ def apply_finishing(path_arrays: List[np.ndarray],
     Each is an INI section of the same name and each is optional. This is
     the only place the order is decided: the command line and the app both
     call it, so a file finishes the same way wherever it is rendered.
+
+    ``styles``, when given, is one style dict per input path (see
+    :func:`ink_styles`); every piece a pass cuts or copies from a path keeps
+    that path's style, and ``(arrays, styles)`` comes back instead of the
+    arrays alone.
     """
     arrays = list(path_arrays)
+    tracked = styles is not None
+    styles = list(styles) if tracked else [None] * len(arrays)
+
+    def each(fn, label):
+        nonlocal arrays, styles
+        out, out_styles = [], []
+        for pts, style in zip(arrays, styles):
+            pieces = fn(pts)
+            out.extend(pieces)
+            out_styles.extend([style] * len(pieces))
+        arrays, styles = out, out_styles
+        print(label % len(arrays))
 
     if config.has_section('pen_lift'):
         from pen_lift import apply_pen_lift
-        lifted = []
-        for pts in arrays:
-            lifted.extend(apply_pen_lift(pts, config))
-        arrays = lifted
-        print(f"Pen lift ({config.get('pen_lift', 'mode', fallback='periodic')}): {len(arrays)} segments")
+        each(lambda pts: apply_pen_lift(pts, config),
+             f"Pen lift ({config.get('pen_lift', 'mode', fallback='periodic')}): %d segments")
 
     n_fold = config.getint('symmetry', 'n_fold', fallback=1)
     mirror = config.getboolean('symmetry', 'mirror', fallback=False)
@@ -918,43 +1047,34 @@ def apply_finishing(path_arrays: List[np.ndarray],
         from symmetry import apply_symmetry
         cx = config.getfloat('symmetry', 'center_x', fallback=0.0)
         cy = config.getfloat('symmetry', 'center_y', fallback=0.0)
-        expanded = []
-        for pts in arrays:
-            expanded.extend(apply_symmetry(pts, n_fold, mirror, cx, cy))
-        arrays = expanded
-        print(f"Applied {n_fold}-fold symmetry{' with mirror' if mirror else ''}: {len(arrays)} paths")
+        each(lambda pts: apply_symmetry(pts, n_fold, mirror, cx, cy),
+             f"Applied {n_fold}-fold symmetry{' with mirror' if mirror else ''}: %d paths")
 
     if config.has_section('tile'):
         from tile import apply_tile
-        tiled = []
-        for pts in arrays:
-            tiled.extend(apply_tile(
+        each(lambda pts: apply_tile(
                 pts, rows=config.getint('tile', 'rows', fallback=1),
                 cols=config.getint('tile', 'cols', fallback=1),
                 dx=config.getfloat('tile', 'dx', fallback=0.0),
                 dy=config.getfloat('tile', 'dy', fallback=0.0),
-                stagger=config.getboolean('tile', 'stagger', fallback=False)))
-        arrays = tiled
-        print(f"Tiled: {len(arrays)} paths")
+                stagger=config.getboolean('tile', 'stagger', fallback=False)),
+             "Tiled: %d paths")
 
     if config.has_section('clip'):
         from clip import apply_clip
-        clipped = []
-        for pts in arrays:
-            clipped.extend(apply_clip(
+        each(lambda pts: apply_clip(
                 pts, shape=config.get('clip', 'shape', fallback='circle'),
                 radius=config.getfloat('clip', 'radius', fallback=100.0),
                 width=config.getfloat('clip', 'width', fallback=200.0),
                 height=config.getfloat('clip', 'height', fallback=200.0),
                 center_x=config.getfloat('clip', 'center_x', fallback=0.0),
                 center_y=config.getfloat('clip', 'center_y', fallback=0.0),
-                invert=config.getboolean('clip', 'invert', fallback=False)))
-        arrays = clipped
-        print(f"Clipped: {len(arrays)} strokes")
+                invert=config.getboolean('clip', 'invert', fallback=False)),
+             "Clipped: %d strokes")
         if not arrays:
             raise ValueError("clip: nothing of the drawing is inside the shape")
 
-    return arrays
+    return (arrays, styles) if tracked else arrays
 
 
 def expand_moire_config(config: configparser.ConfigParser):
@@ -1075,6 +1195,7 @@ def main(config_path: str = "config.ini"):
         print(f"Multi-layer mode: {len(layer_sections)} layers")
         all_path_arrays = []
 
+        styles = None
         for section in layer_sections:
             layer_name = section.split('.', 1)[1]
             module_names = [m.strip() for m in config.get(section, 'modules').split(',')]
@@ -1095,21 +1216,23 @@ def main(config_path: str = "config.ini"):
     else:
         # Single pipeline mode
         module_names = [m.strip() for m in config.get('pipeline', 'modules').split(',')]
-        points = run_single_pipeline(config, module_names,
-                                     initial_samples, output_samples,
-                                     use_arc_length, start_point,
-                                     scroll_repeats=scroll_repeats)
-        all_path_arrays = [points]
+        points, t_values, _stages, _modules = run_single_pipeline(
+            config, module_names, initial_samples, output_samples,
+            use_arc_length, start_point, scroll_repeats=scroll_repeats,
+            want_stages=True)
+        all_path_arrays, styles = ink_styles(points, t_values, config)
 
     # Pen lift, symmetry, tile, clip — the one finishing chain
-    all_path_arrays = apply_finishing(all_path_arrays, config)
+    all_path_arrays, styles = apply_finishing(all_path_arrays, config, styles or [None] * len(all_path_arrays))
 
     # Apply plotter dash splitting (before normalization, uses raw arc lengths)
     if plotter_dash_on > 0 and plotter_dash_off > 0:
-        split_arrays = []
-        for pts in all_path_arrays:
-            split_arrays.extend(split_path_for_plotter(pts, plotter_dash_on, plotter_dash_off))
-        all_path_arrays = split_arrays
+        split_arrays, split_styles = [], []
+        for pts, style in zip(all_path_arrays, styles):
+            pieces = split_path_for_plotter(pts, plotter_dash_on, plotter_dash_off)
+            split_arrays.extend(pieces)
+            split_styles.extend([style] * len(pieces))
+        all_path_arrays, styles = split_arrays, split_styles
         print(f"Plotter dash: {len(all_path_arrays)} segments (on={plotter_dash_on}, off={plotter_dash_off})")
 
     # Normalize for SVG (shared bounding box across all paths)
@@ -1123,7 +1246,8 @@ def main(config_path: str = "config.ini"):
                        stroke_color, background_color,
                        close_path=close_path,
                        extra_paths=normalized_arrays[1:] if len(normalized_arrays) > 1 else None,
-                       config_text=config_text)
+                       config_text=config_text,
+                       styles=styles if any(styles) else None)
 
     # Write output
     output_path = Path(output_filename)

@@ -140,6 +140,12 @@ OSC_PREFIX = "osc_"
 # ``jitter_<name> = percent, wanders`` beside any drifting parameter: a slow
 # random slip of up to that percent -- see TransformModule._jittered.
 JITTER_PREFIX = "jitter_"
+# ``switch_<name> = at value, at value``: the parameter changed by hand
+# part-way through the draw -- a pulley swapped while the machine runs, a
+# pin moved along its slot, the paper re-clamped. Any numeric parameter
+# takes one. On a rate (a module's turns, a rotation's total) the position
+# is continuous and only the speed steps; on anything else the value jumps.
+SWITCH_PREFIX = "switch_"
 
 def _adv(**kw):
     kw["advanced"] = True
@@ -356,14 +362,31 @@ MODULE_DEFS = {
         "desc": "Two cranks, two rods, the pen where the rods meet — the two-disc drawing machine",
         "params": {
             "spacing":      {"type": "float", "default": 200.0, "min": 10, "max": 600, "desc": "Crank spacing"},
-            "radius_1":     {"type": "float", "default": 60.0,  "min": 1,  "max": 300, "desc": "Crank 1 radius"},
-            "end_radius_1": {"type": "float", "default": 60.0,  "min": 1,  "max": 300, "desc": "End value", "drift_for": "radius_1"},
-            "radius_2":     {"type": "float", "default": 45.0,  "min": 1,  "max": 300, "desc": "Crank 2 radius"},
-            "end_radius_2": {"type": "float", "default": 45.0,  "min": 1,  "max": 300, "desc": "End value", "drift_for": "radius_2"},
-            "turns_1":      {"type": "float", "default": 7.0,   "min": 0.1, "max": 200, "step": 0.5, "desc": "Crank 1 turns"},
-            "turns_2":      {"type": "float", "default": 5.0,   "min": 0.1, "max": 200, "step": 0.5, "desc": "Crank 2 turns"},
+            "radius_1":     {"type": "float", "default": 60.0,  "min": 0,  "max": 300, "desc": "Crank 1 radius"},
+            "end_radius_1": {"type": "float", "default": 60.0,  "min": 0,  "max": 300, "desc": "End value", "drift_for": "radius_1"},
+            "radius_2":     {"type": "float", "default": 45.0,  "min": 0,  "max": 300, "desc": "Crank 2 radius"},
+            "end_radius_2": {"type": "float", "default": 45.0,  "min": 0,  "max": 300, "desc": "End value", "drift_for": "radius_2"},
+            "turns_1":      {"type": "float", "default": 7.0,   "min": -200, "max": 200, "step": 0.5, "desc": "Crank 1 turns"},
+            "turns_2":      {"type": "float", "default": 5.0,   "min": -200, "max": 200, "step": 0.5, "desc": "Crank 2 turns"},
             "phase_1":      {"type": "float", "default": 0.0,   "min": 0,  "max": 360, "desc": "Crank 1 start°", "advanced": True},
             "phase_2":      {"type": "float", "default": 90.0,  "min": 0,  "max": 360, "desc": "Crank 2 start°", "advanced": True},
+            "eccentric_1":  {"type": "float", "default": 0.0, "min": 0, "max": 300, "desc": "Crank 1 second stage",
+                             "help": "A second, smaller disc carried on crank 1 with the pin on it, this far "
+                                     "off its own centre. 0 is a plain crank."},
+            "end_eccentric_1": {"type": "float", "default": 0.0, "min": 0, "max": 300, "desc": "End value", "drift_for": "eccentric_1"},
+            "eccentric_turns_1": {"type": "float", "default": 0.0, "min": -400, "max": 400, "step": 0.5, "desc": "Second stage turns (1)",
+                                  "help": "How many times crank 1's second disc turns over the draw; negative for "
+                                          "the other way. Nearly the crank's own turns and the crank's reach "
+                                          "breathes slowly; 0 and it is a fixed offset."},
+            "eccentric_phase_1": {"type": "float", "default": 0.0, "min": 0, "max": 360, "desc": "Second stage start° (1)", "advanced": True},
+            "eccentric_2":  {"type": "float", "default": 0.0, "min": 0, "max": 300, "desc": "Crank 2 second stage",
+                             "help": "A second, smaller disc carried on crank 2 with the pin on it, this far "
+                                     "off its own centre. 0 is a plain crank."},
+            "end_eccentric_2": {"type": "float", "default": 0.0, "min": 0, "max": 300, "desc": "End value", "drift_for": "eccentric_2"},
+            "eccentric_turns_2": {"type": "float", "default": 0.0, "min": -400, "max": 400, "step": 0.5, "desc": "Second stage turns (2)",
+                                  "help": "How many times crank 2's second disc turns over the draw; negative for "
+                                          "the other way."},
+            "eccentric_phase_2": {"type": "float", "default": 0.0, "min": 0, "max": 360, "desc": "Second stage start° (2)", "advanced": True},
             "arm_1":        {"type": "float", "default": 180.0, "min": 10, "max": 800, "desc": "Rod 1 length"},
             "arm_2":        {"type": "float", "default": 180.0, "min": 10, "max": 800, "desc": "Rod 2 length"},
             "pen_extend":   {"type": "float", "default": 0.0, "min": 0, "max": 400, "desc": "Pen past the elbow",
@@ -390,6 +413,11 @@ MODULE_DEFS = {
             "spinup": {"type": "float", "default": 0.1, "min": 0, "max": 1, "step": 0.01, "desc": "Time to reach speed (motor)", "when": "motor"},
             "off_at": {"type": "float", "default": 1.0, "min": 0, "max": 1, "step": 0.01, "desc": "Switched off at (motor; 1 = never)", "when": "motor"},
             "coast":  {"type": "float", "default": 0.05, "min": 0, "max": 1, "step": 0.01, "desc": "Time to coast to a stop (motor)", "when": "motor"},
+            "ripple": {"type": "float", "default": 0.0, "min": 0, "max": 0.95, "step": 0.01, "desc": "Speed pulses by",
+                       "help": "The drive's speed pulses by this fraction of itself, ripple_per times over "
+                               "the draw: a round belt's joint going over the pulley. 0 is a steady drive.",
+                       "advanced": True},
+            "ripple_per": {"type": "float", "default": 100.0, "min": 1, "max": 5000, "step": 1, "desc": "Pulses over the draw", "advanced": True},
         },
     },
     "rotation": {
@@ -858,6 +886,8 @@ def valid_keys(module_type):
     keys = {"type"} | set(spec["params"]) | set(COMMON_PARAMS)
     keys |= {OSC_PREFIX + base for base in drift_bases(module_type)}
     keys |= {JITTER_PREFIX + base for base in drift_bases(module_type)}
+    keys |= {SWITCH_PREFIX + name for name, p in spec["params"].items()
+             if p["type"] in ("float", "int")}
     if spec["category"] == "transform":
         keys |= set(TRANSFORM_PARAMS)
     return keys

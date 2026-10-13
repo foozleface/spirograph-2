@@ -625,6 +625,72 @@ check("extended, it is that much further along rod 1, in line with it",
       np.allclose(np.abs(tip - pin1), 270, atol=1e-6)
       and np.allclose(np.angle((tip - pin1) / (elbow - pin1)), 0, atol=1e-9))
 
+print("gandy's knobs: eccentric stages, pulley swaps, belt ripple, pen changes, ink weight:")
+from rotation import RotationModule  # noqa: E402
+from circle import CircleModule  # noqa: E402
+import configparser as _cp  # noqa: E402
+_ecc_ini = (
+    "[pipeline]\nmodules = p\n[p]\ntype = pintograph\nspacing = 200\nradius_1 = %s\nturns_1 = %s\n"
+    "radius_2 = 40\nturns_2 = 5\narm_1 = 180\narm_2 = 180\neccentric_1 = %s\neccentric_turns_1 = %s\n"
+    "[sampling]\ninitial_samples = 4000\noutput_samples = 1000\nuse_arc_length = false\n")
+_plain_crank = run(_ecc_ini % (60, 7, 0, 0)).paths[0]
+_ecc_crank = run(_ecc_ini % (0, 0, 60, 7)).paths[0]
+check("a second stage alone is a crank of its own throw and rate",
+      np.allclose(_plain_crank, _ecc_crank, atol=1e-9))
+_long_ini = _ecc_ini.replace("radius_2 = 40\nturns_2 = 5\narm_1 = 180\narm_2 = 180",
+                             "radius_2 = 0\nturns_2 = 0\narm_1 = 1000\narm_2 = 1000")
+def _loop_widths(path, loops=7):
+    return [np.ptp(seg.real) for seg in np.array_split(path, loops)]
+_steady = _loop_widths(run(_long_ini % (60, 7, 0, 0)).paths[0])
+_breathe = _loop_widths(run(_long_ini % (40, 7, 20, 6)).paths[0])
+check("a second stage nearly in step with the crank makes the loops breathe: with long "
+      "rods a plain crank's seven loops are all one width, the two-stage crank's shrink and grow",
+      np.std(_steady) < 1e-3 * np.mean(_steady) and max(_breathe) > 2.5 * min(_breathe))
+_sw = module(RotationModule, "total_degrees = 360\nswitch_total_degrees = 0.5 0")
+_sw.set_pipeline_period(__import__("fractions").Fraction(1))
+_turned = _sw.transform(100 + 0j, np.array([0.25, 0.5, 0.9]))
+check("a table ratio switched to 0 half way stops the table where it was: "
+      "a quarter turn at 0.25, half a turn from 0.5 on",
+      np.allclose(_turned, [100j, -100, -100], atol=1e-6))
+_sw2 = module(RotationModule, "total_degrees = 360\nswitch_total_degrees = 0.5 720")
+_sw2.set_pipeline_period(__import__("fractions").Fraction(1))
+check("switched to twice the rate it goes on from where it was, faster",
+      np.allclose(_sw2.transform(100 + 0j, np.array([0.5, 0.75])), [-100, -100], atol=1e-6))
+_swr = module(CircleModule, "radius = 10\nswitch_radius = 0.5 20, 0.8 5")
+_swr.set_pipeline_period(__import__("fractions").Fraction(1))
+check("a plain value switched part-way jumps to each new value at its moment",
+      np.allclose(np.abs(_swr.transform(0j, np.array([0.25, 0.6, 0.9]))), [10, 20, 5]))
+check("switch_ keys are accepted on every numeric parameter and nothing else",
+      "switch_turns_1" in valid_keys("pintograph") and "switch_total_degrees" in valid_keys("rotation")
+      and "switch_mode" not in valid_keys("tempo"))
+check("the INI writer takes a switch", "switch_turns_1 = 0.5 9" in build_ini(
+    steps=[_single({"type": "pintograph", "switch_turns_1": "0.5 9"})]))
+from tempo import TempoModule  # noqa: E402
+_rip = module(TempoModule, "mode = motor\nspinup = 0\nripple = 0.3\nripple_per = 10")
+_rip.set_pipeline_period(__import__("fractions").Fraction(1))
+_uu = np.linspace(0, 0.999, 2000)
+_vv = _rip.retime(_uu)
+check("a rippling drive still goes forward, arrives on time, and is not steady",
+      np.all(np.diff(_vv) > 0) and abs(_vv[-1] - _uu[-1]) < 1e-3
+      and np.ptp(np.diff(_vv)) > 0.3 * np.mean(np.diff(_vv)))
+_ink_ini = ("[pipeline]\nmodules = c, p\n[c]\ntype = circle\nradius = 50\ncycles = 3\n[p]\ntype = circle\n"
+            "radius = 10\ncycles = 40\n[output]\ninks = #112233, #445566, #778899\nink_changes = 0.3, 0.6\n"
+            "%s[sampling]\ninitial_samples = 20000\noutput_samples = 3000\n")
+_inked = run(_ink_ini % "")
+check("three inks make three paths in the file's colours, each starting where the last stopped",
+      len(_inked.paths) == 3 and [s["color"] for s in _inked.styles] == ["#112233", "#445566", "#778899"]
+      and _inked.paths[0][-1] == _inked.paths[1][0] and _inked.paths[1][-1] == _inked.paths[2][0])
+check("a plain file has no styles", run(_ink_ini.replace("inks = #112233, #445566, #778899\nink_changes = 0.3, 0.6\n", "") % "").styles is None)
+_flow = run(_ink_ini % "ink_flow = 0.7\n")
+_ops = [s["opacity"] for s in _flow.styles]
+check("ink weight by speed: many runs, darkest where the pen is slow, never below the faintest",
+      len(_flow.paths) > 20 and max(_ops) == 1.0 and 0.25 <= min(_ops) < 0.95
+      and all(s["color"] in ("#112233", "#445566", "#778899") for s in _flow.styles))
+_sym = run(_ink_ini % "" + "[symmetry]\nn_fold = 3\n")
+check("finishing carries each piece's ink: symmetry copies keep their colour",
+      len(_sym.paths) == 9 and len(_sym.styles) == 9
+      and [s["color"] for s in _sym.styles].count("#112233") == 3)
+
 print()
 print("pipeline: %d passed, %d failed" % (len(PASS), len(FAIL)))
 if FAIL:

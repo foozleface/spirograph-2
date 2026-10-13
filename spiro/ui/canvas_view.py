@@ -126,20 +126,32 @@ class PaperCanvas(QWidget):
         self.update()
 
     def _painter_paths(self, item):
+        """``[(style, full, fast)]``: the item's curves grouped by ink style
+        -- one group for a plain drawing, one per colour and ink weight for
+        a file that changes pens or weights its ink (see main.ink_styles).
+        ``style`` is None for the item's own pen at full strength."""
         key = id(item.drawing)
         cached = self._paths.get(key)
         if cached is None:
             unit = item.unit_paths()
-            full = QPainterPath()
-            fast = QPainterPath()
+            styles = getattr(item.drawing, "styles", None) or []
             total = sum(len(p) for p in unit)
             stride = max(1, total // FAST_POINTS)
-            for points in unit:
+            groups, order = {}, []
+            for index, points in enumerate(unit):
                 if len(points) < 2:
                     continue
+                style = styles[index] if index < len(styles) and styles[index] else None
+                style_key = ((style.get("color"), round(style.get("opacity", 1.0), 3))
+                             if style else None)
+                if style_key not in groups:
+                    groups[style_key] = (QPainterPath(), QPainterPath())
+                    order.append(style_key)
+                full, fast = groups[style_key]
                 _append(full, points, 1)
                 _append(fast, points, stride)
-            cached = (full, fast if stride > 1 else full)
+            cached = [(style_key, full, fast if stride > 1 else full)
+                      for style_key, (full, fast) in ((k, groups[k]) for k in order)]
             self._paths[key] = cached
         return cached
 
@@ -214,22 +226,24 @@ class PaperCanvas(QWidget):
                     painter.drawLine(QPointF(sheet.left(), py), QPointF(sheet.right(), py))
 
     def _paint_item(self, painter, item, view, flagged):
-        full, fast = self._painter_paths(item)
+        groups = self._painter_paths(item)
         scale, rotation, tx, ty = item.affine()
         placement = (QTransform().translate(tx, ty).rotate(rotation)
                      .scale(scale, scale))
         painter.save()
         painter.setTransform(placement * view)
-        color = QColor(self.scene.pen_of(item).color)
-        if flagged:
-            color = QColor(theme.ERR)
-        # The stroke is set in device pixels, not paper units, so a hairline
-        # stays a hairline at every zoom.
-        pen = QPen(color, 0)
-        pen.setCosmetic(True)
-        painter.setPen(pen)
+        pen_color = self.scene.pen_of(item).color
         painter.setBrush(Qt.NoBrush)
-        painter.drawPath(fast if self._interacting else full)
+        for style_key, full, fast in groups:
+            color = QColor(theme.ERR if flagged else (style_key or (None, 1.0))[0] or pen_color)
+            if style_key and not flagged:
+                color.setAlphaF(style_key[1])
+            # The stroke is set in device pixels, not paper units, so a
+            # hairline stays a hairline at every zoom.
+            pen = QPen(color, 0)
+            pen.setCosmetic(True)
+            painter.setPen(pen)
+            painter.drawPath(fast if self._interacting else full)
         painter.restore()
 
     def _paint_selection(self, painter, item):

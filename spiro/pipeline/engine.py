@@ -54,6 +54,11 @@ class Drawing:
     # The module instances behind ``stages``, in the same order — so the
     # window can ask a table move where it puts a point at a given moment.
     modules: list = field(default_factory=list)
+    # One style per path when the file changes pens or weights its ink
+    # (``[output] inks``, ``ink_flow``; see main.ink_styles): a dict with
+    # ``color`` (None for the item's own pen) and ``opacity``. None when
+    # every path is drawn alike.
+    styles: list = None
 
     @property
     def width(self):
@@ -124,7 +129,7 @@ def run(ini_text, reload_generators=False):
     import importlib
     if reload_generators and "main" in sys.modules:
         importlib.reload(sys.modules["main"])
-    from main import run_single_pipeline, expand_moire_config, apply_finishing
+    from main import run_single_pipeline, expand_moire_config, apply_finishing, ink_styles
 
     config = configparser.ConfigParser()
     config.read_string(ini_text)
@@ -147,7 +152,7 @@ def run(ini_text, reload_generators=False):
                     config.getfloat("output", "start_y", fallback=0.0))
 
     paths = []
-    stages, t_values, modules = [], None, []
+    stages, t_values, modules, styles = [], None, [], None
     layers = [s for s in config.sections() if s.startswith("layer.")]
     if layers:
         for section in layers:
@@ -164,16 +169,20 @@ def run(ini_text, reload_generators=False):
         points, t_values, stages, modules = run_single_pipeline(
             config, names, initial, output, arc_len, start,
             scroll_repeats=scroll, want_stages=True)
-        paths.append(points)
+        paths, styles = ink_styles(points, t_values, config)
 
-    paths = apply_finishing(paths, config)
+    if styles is not None:
+        paths, styles = apply_finishing(paths, config, styles)
+    else:
+        paths = apply_finishing(paths, config)
 
     combined = np.concatenate(paths)
     return Drawing(paths=paths,
                    min_x=float(combined.real.min()), max_x=float(combined.real.max()),
                    min_y=float(combined.imag.min()), max_y=float(combined.imag.max()),
                    style=style, ini_text=ini_text,
-                   stages=stages, t_values=t_values, modules=modules)
+                   stages=stages, t_values=t_values, modules=modules,
+                   styles=styles)
 
 
 def normalize(drawing, width=None, height=None, margin=None):

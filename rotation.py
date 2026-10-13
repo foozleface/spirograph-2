@@ -88,8 +88,10 @@ class RotationModule(TransformModule):
         """
         t_use = self._normalize_t(t)
 
-        # Current rotation angle
-        theta = t_use * self.total_radians
+        # Current rotation angle -- the table's turns integrated, so a
+        # ratio swapped part-way (switch_total_degrees) steps its speed and
+        # leaves it where it was.
+        theta = 2 * pi * self._turned(self.total_degrees / 360.0, t_use, 'total_degrees')
         if self.slip:
             from main import smooth_noise
             theta = theta + self.slip * pi / 180 * smooth_noise(

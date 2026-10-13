@@ -57,6 +57,10 @@ class TempoModule(TransformModule):
                 draw (1, the default, is never)
         coast:  for motor — how long it takes to coast to a stop after being
                 switched off, as a fraction of the draw (default 0.05)
+        ripple: in any mode — the drive's speed pulses by this fraction of
+                itself (default 0, none): a round belt's joint going over
+                the pulley, a worm with a high spot
+        ripple_per: how many pulses over the draw (default 100)
     """
 
     is_clock = True                 # the runner threads t through retime()
@@ -74,6 +78,8 @@ class TempoModule(TransformModule):
         self.spinup = max(self._getfloat('spinup', 0.1), 0.0)
         self.off_at = min(max(self._getfloat('off_at', 1.0), 0.0), 1.0)
         self.coast = max(self._getfloat('coast', 0.05), 0.0)
+        self.ripple = min(max(self._getfloat('ripple', 0.0), 0.0), 0.95)
+        self.ripple_per = max(self._getfloat('ripple_per', 100.0), 0.0)
 
     def retime(self, t):
         """The time the modules after this one will see."""
@@ -101,6 +107,11 @@ class TempoModule(TransformModule):
             v = self._motor(np.clip(u, 0.0, 1.0)) / self._motor(1.0)
         else:
             raise ValueError("tempo: unknown mode %r" % self.mode)
+        if self.ripple and self.ripple_per:
+            # Speed 1 + ripple cos(2 pi n v), integrated: v gains a sine
+            # that is 0 at both ends, so the draw still arrives on time.
+            w = 2 * np.pi * self.ripple_per
+            v = v + self.ripple / w * np.sin(w * v)
         # Never hand back exactly T: every generator folds t = T onto t = 0,
         # so a reversed draw would start with one point from the wrong end.
         return np.minimum(v, 1.0 - 1e-12) * T

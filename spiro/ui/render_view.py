@@ -259,6 +259,7 @@ class RenderView(QWidget):
         self.kinds = list(kinds or [])
         self.scopes = list(scopes or ["all"] * len(self.kinds))
         self._path = None
+        self._styled = None
         self._contributions = {}
         if drawing is None or previous is None or not self._fitted \
                 or abs(previous.aspect - drawing.aspect) > 1e-3 \
@@ -340,6 +341,25 @@ class RenderView(QWidget):
             self._path = path
         return self._path
 
+    def _styled_paths(self):
+        """``[(color, opacity, path)]`` for a drawing that changes pens or
+        weights its ink, else None -- see main.ink_styles."""
+        styles = getattr(self.drawing, "styles", None) if self.drawing is not None else None
+        if not styles:
+            return None
+        if getattr(self, "_styled", None) is None:
+            groups, order = {}, []
+            for points, style in zip(self.drawing.paths, styles):
+                if len(points) < 2:
+                    continue
+                key = ((style or {}).get("color"), round((style or {}).get("opacity", 1.0), 3))
+                if key not in groups:
+                    groups[key] = QPainterPath()
+                    order.append(key)
+                groups[key].addPolygon(_polygon(points))
+            self._styled = [(k[0], k[1], groups[k]) for k in order]
+        return self._styled
+
     def _contribution_path(self, index):
         if index not in self._contributions:
             path = QPainterPath()
@@ -392,7 +412,19 @@ class RenderView(QWidget):
         pen.setCosmetic(True)
         painter.setPen(pen)
         painter.setBrush(Qt.NoBrush)
-        painter.drawPath(self._painter_path())
+        styled = self._styled_paths()
+        if styled and not (scrubbing or kind_shown in ARM_KINDS):
+            # The file's own inks: each pen change its colour, each run of
+            # the line as dark as the pen was slow there.
+            for color, opacity, path in styled:
+                ink = QColor(color) if color else QColor(self.stroke)
+                ink.setAlphaF(opacity)
+                pen = QPen(ink, 0)
+                pen.setCosmetic(True)
+                painter.setPen(pen)
+                painter.drawPath(path)
+        else:
+            painter.drawPath(self._painter_path())
 
         if kind_shown in ARM_KINDS and not quick:
             # what this arm or carriage contributes on its own

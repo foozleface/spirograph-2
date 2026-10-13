@@ -181,14 +181,23 @@ class Scene:
         for item in self.plot_items(only):
             if pens is not None and item.pen not in pens:
                 continue
-            color = self.pen_of(item).color
-            for path in item.paths_mm():
+            pen_color = self.pen_of(item).color
+            styles = getattr(item.drawing, "styles", None) or []
+            for index, path in enumerate(item.paths_mm()):
                 if len(path) < 2:
                     continue
-                out.append('<path d="%s" fill="none" stroke="%s" '
+                # A drawing that changed pens or weighted its ink carries a
+                # style per path; the colour is the file's own, the opacity
+                # the ink weight. The plot job still counts the item as its
+                # one pen: the swaps in such a file are for the screen.
+                style = styles[index] if index < len(styles) and styles[index] else {}
+                color = style.get("color") or pen_color
+                opacity = style.get("opacity", 1.0)
+                extra = ' stroke-opacity="%.3f"' % opacity if opacity < 1.0 else ""
+                out.append('<path d="%s" fill="none" stroke="%s"%s '
                            'stroke-width="%g" stroke-linecap="round" '
                            'stroke-linejoin="round"></path>'
-                           % (_path_data(path), color, stroke_width_mm))
+                           % (_path_data(path), color, extra, stroke_width_mm))
         out.append('</svg>')
         return "\n".join(out) + "\n"
 
