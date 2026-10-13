@@ -673,6 +673,16 @@ _vv = _rip.retime(_uu)
 check("a rippling drive still goes forward, arrives on time, and is not steady",
       np.all(np.diff(_vv) > 0) and abs(_vv[-1] - _uu[-1]) < 1e-3
       and np.ptp(np.diff(_vv)) > 0.3 * np.mean(np.diff(_vv)))
+_hand = module(TempoModule, "mode = motor\nspinup = 0\nunsteady = 0.3\nunsteady_wanders = 5")
+_hand.set_pipeline_period(__import__("fractions").Fraction(1))
+_hv = _hand.retime(_uu)
+check("an unsteady drive wanders but still goes forward and arrives on time",
+      np.all(np.diff(_hv) > 0) and abs(_hv[-1] - _uu[-1]) < 1e-3
+      and np.abs(_hv - _uu).max() > 0.005)
+_clamp = module(TranslationModule, "start_x = 0\nend_x = 0\nstart_y = 0\nend_y = 0\nswitch_start_x = 0.5 50")
+_clamp.set_pipeline_period(__import__("fractions").Fraction(1))
+check("the paper re-clamped: a translation switched part-way jumps by that much",
+      np.allclose(_clamp.transform(np.zeros(3, dtype=complex), np.array([0.2, 0.5, 0.9])), [0, 50, 50]))
 _ink_ini = ("[pipeline]\nmodules = c, p\n[c]\ntype = circle\nradius = 50\ncycles = 3\n[p]\ntype = circle\n"
             "radius = 10\ncycles = 40\n[output]\ninks = #112233, #445566, #778899\nink_changes = 0.3, 0.6\n"
             "%s[sampling]\ninitial_samples = 20000\noutput_samples = 3000\n")

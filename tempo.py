@@ -61,6 +61,11 @@ class TempoModule(TransformModule):
                 itself (default 0, none): a round belt's joint going over
                 the pulley, a worm with a high spot
         ripple_per: how many pulses over the draw (default 100)
+        unsteady: in any mode — the drive's speed wanders at random by up to
+                this fraction of itself (default 0, steady): a hand on the
+                crank, a motor under a varying load
+        unsteady_wanders: how many slow swings the wandering makes over the
+                draw (default 6)
     """
 
     is_clock = True                 # the runner threads t through retime()
@@ -80,6 +85,8 @@ class TempoModule(TransformModule):
         self.coast = max(self._getfloat('coast', 0.05), 0.0)
         self.ripple = min(max(self._getfloat('ripple', 0.0), 0.0), 0.95)
         self.ripple_per = max(self._getfloat('ripple_per', 100.0), 0.0)
+        self.unsteady = min(max(self._getfloat('unsteady', 0.0), 0.0), 0.5)
+        self.unsteady_wanders = max(self._getfloat('unsteady_wanders', 6.0), 0.25)
 
     def retime(self, t):
         """The time the modules after this one will see."""
@@ -107,6 +114,15 @@ class TempoModule(TransformModule):
             v = self._motor(np.clip(u, 0.0, 1.0)) / self._motor(1.0)
         else:
             raise ValueError("tempo: unknown mode %r" % self.mode)
+        if self.unsteady:
+            # Speed 1 + unsteady * (noise - its mean), integrated over the
+            # draw: it wanders, but it arrives on time.
+            from main import smooth_noise
+            grid = np.linspace(0.0, 1.0, 2001)
+            noise = smooth_noise(grid, self.unsteady_wanders, self.section + "/unsteady")
+            gone = np.concatenate([[0.0], np.cumsum((noise[1:] + noise[:-1]) / 2 * np.diff(grid))])
+            gone = gone - grid * gone[-1]
+            v = v + self.unsteady * np.interp(np.clip(v, 0.0, 1.0), grid, gone)
         if self.ripple and self.ripple_per:
             # Speed 1 + ripple cos(2 pi n v), integrated: v gains a sine
             # that is 0 at both ends, so the draw still arrives on time.

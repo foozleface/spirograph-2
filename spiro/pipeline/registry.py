@@ -418,6 +418,11 @@ MODULE_DEFS = {
                                "the draw: a round belt's joint going over the pulley. 0 is a steady drive.",
                        "advanced": True},
             "ripple_per": {"type": "float", "default": 100.0, "min": 1, "max": 5000, "step": 1, "desc": "Pulses over the draw", "advanced": True},
+            "unsteady": {"type": "float", "default": 0.0, "min": 0, "max": 0.5, "step": 0.01, "desc": "Speed wanders by",
+                         "help": "The drive's speed wanders at random by up to this fraction of itself, "
+                                 "unsteady_wanders slow swings over the draw: a hand on the crank. 0 is steady.",
+                         "advanced": True},
+            "unsteady_wanders": {"type": "float", "default": 6.0, "min": 0.25, "max": 200, "step": 0.25, "desc": "Swings over the draw", "advanced": True},
         },
     },
     "rotation": {

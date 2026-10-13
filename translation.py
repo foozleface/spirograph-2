@@ -70,9 +70,11 @@ class TranslationModule(TransformModule):
         """
         t_use = self._normalize_t(t)
 
-        # Linear interpolation from start to end
-        offset = self.start + t_use * self.direction
-        
+        # From start to end -- or oscillating, wandering, or switched
+        # part-way (the paper re-clamped) like any other parameter.
+        offset = (self._interpolate(self.start_x, self.end_x, t_use, 'start_x')
+                  + 1j * self._interpolate(self.start_y, self.end_y, t_use, 'start_y'))
+
         return z + offset
     
     @property
