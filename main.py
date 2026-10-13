@@ -163,16 +163,19 @@ class TransformModule(ABC):
         if not osc_val:
             return start + (end - start) * t_norm
 
-        # Parse "speed,irregularity" e.g. "3,0.3"
+        # Parse "speed,irregularity[,phase]" e.g. "3,0.3" -- phase is how far
+        # into its first cycle the oscillation starts, as a fraction of one
+        # (0, the default, starts at the start value)
         parts = [float(x.strip()) for x in osc_val.split(',')]
         speed = parts[0] if len(parts) > 0 else 3.0
         irreg = parts[1] if len(parts) > 1 else 0.3
+        phase = parts[2] if len(parts) > 2 else 0.0
 
         # Map to [0, 1] range: starts at 0 (=start), peaks at 1 (=end), returns to 0
         # Uses raised cosine: 0.5 - 0.5*cos(2π*speed*t) so t=0 → 0, mid-cycle → 1, end → 0
         phi = 1.618033988749895  # golden ratio
         sqrt2 = 1.4142135623730951
-        tau = 2 * pi * speed * t_norm
+        tau = 2 * pi * (speed * t_norm + phase)
         base = 0.5 - 0.5 * np.cos(tau)
         p1 = 0.5 - 0.5 * np.cos(tau * phi)
         p2 = 0.5 - 0.5 * np.cos(tau * sqrt2)

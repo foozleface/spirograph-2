@@ -131,9 +131,11 @@ FINISHING_DEFS = {
 }
 
 # A drifting parameter may oscillate between its two values instead of
-# sliding once: ``osc_<name> = speed, irregularity``. Speed is how many times
-# it goes there and back over the draw; irregularity (0-1) mixes in two
-# incommensurate cosines so it wanders rather than ticks.
+# sliding once: ``osc_<name> = speed, irregularity[, phase]``. Speed is how
+# many times it goes there and back over the draw; irregularity (0-1) mixes
+# in two incommensurate cosines so it wanders rather than ticks; phase is
+# how far into its first cycle it starts, as a fraction of one (default 0,
+# at the first value).
 OSC_PREFIX = "osc_"
 # ``jitter_<name> = percent, wanders`` beside any drifting parameter: a slow
 # random slip of up to that percent -- see TransformModule._jittered.

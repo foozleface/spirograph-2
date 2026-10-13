@@ -77,8 +77,8 @@ class ParamRow(QWidget):
 
     ``valueChanged`` carries ``(name, value)``; the drift twin reports under
     its own ``end_*`` name, so the caller never has to know which is which.
-    A drift can also oscillate — ``osc_<name> = speed, irregularity`` in the
-    file — which is reported under that key.
+    A drift can also oscillate — ``osc_<name> = speed, irregularity[, phase]``
+    in the file — which is reported under that key.
     """
 
     valueChanged = Signal(str, object)
@@ -178,7 +178,7 @@ class ParamRow(QWidget):
             self.osc_wander.setDecimals(1)
             self.osc_wander.setFixedWidth(52)
             self.osc_wander.setToolTip("wander, 0 to 1")
-            speed, wander = _parse_osc(osc_value)
+            speed, wander, self._osc_phase = _parse_osc(osc_value)
             self.osc_speed.setValue(speed)
             self.osc_wander.setValue(wander)
             self.osc_mode.setCurrentIndex(1 if osc_value else 0)
@@ -256,8 +256,10 @@ class ParamRow(QWidget):
         self.osc_speed.setVisible(on)
         self.osc_wander.setVisible(on)
         if emit:
-            value = ("%g,%g" % (self.osc_speed.value(), self.osc_wander.value())
-                     if on else None)
+            # A phase set in the file has no control here; it is kept as is.
+            phase = getattr(self, "_osc_phase", 0.0)
+            value = (("%g,%g" % (self.osc_speed.value(), self.osc_wander.value())
+                      + (",%g" % phase if phase else "")) if on else None)
             self.valueChanged.emit("osc_" + self.name, value)
 
     def set_value(self, value):
@@ -284,16 +286,18 @@ def _parse_jitter(text):
 
 
 def _parse_osc(text):
-    """'speed,wander' -> (speed, wander), with the module's own defaults."""
+    """'speed,wander[,phase]' -> (speed, wander, phase), with the module's
+    own defaults; the phase is how far into its first cycle it starts."""
     if not text:
-        return 3.0, 0.3
+        return 3.0, 0.3, 0.0
     parts = [p.strip() for p in str(text).split(",")]
     try:
         speed = float(parts[0]) if parts and parts[0] else 3.0
         wander = float(parts[1]) if len(parts) > 1 and parts[1] else 0.3
+        phase = float(parts[2]) if len(parts) > 2 and parts[2] else 0.0
     except ValueError:
-        return 3.0, 0.3
-    return speed, wander
+        return 3.0, 0.3, 0.0
+    return speed, wander, phase
 
 
 def _slider_for(spec):

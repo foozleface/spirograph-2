@@ -49,7 +49,8 @@ class TempoModule(TransformModule):
                 what it drives is turned by hand before switch-on (default 0,
                 still)
         nudges: for motor — turned by hand in this many separate nudges
-                rather than smoothly (default 0, smoothly)
+                rather than smoothly, each position held as long as the
+                others (default 0, smoothly)
         spinup: for motor — how long the drive takes to reach speed, as a
                 fraction of the draw (0 is instant; default 0.1)
         off_at: for motor — when it is switched off, as a fraction of the
@@ -118,9 +119,11 @@ class TempoModule(TransformModule):
         # between them.
         hand = np.minimum(u, self.on_at)
         if self.nudges and self.on_at > 0:
+            # n nudges make n + 1 held positions, each held as long as the
+            # others; the nudge comes at the end of each hold but the last.
             n, pause = self.nudges, 0.5
-            f = hand / self.on_at * n
-            k = np.floor(f)
+            f = hand / self.on_at * (n + 1)
+            k = np.minimum(np.floor(f), n)
             move = np.clip((f - k - pause) / (1.0 - pause), 0.0, 1.0)
             move = move * move * (3 - 2 * move)
             hand = np.minimum(k + move, n) / n * self.on_at
