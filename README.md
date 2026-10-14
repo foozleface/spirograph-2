@@ -341,7 +341,9 @@ so in from its edge, so the mark a fountain pen leaves where it lands hides in
 ink that is already dense. A stretch too short to lift over is drawn through.
 The drawn pieces are then counted again from scratch; if the paper would still
 tear, the pen is lifted sooner and lands closer to the edge, and it is all
-simulated again. What it did is one line in the status bar when the job is
+simulated again. A few cells one pass over the limit -- twenty at most, a
+handful of touches, not a band -- are let through rather than cutting the plot
+at every crossing to clear them. What it did is one line in the status bar when the job is
 built, and anything it could not fix is said there too.
 
 The Sheet tab has the nib width (a Kakuno fine is 0.3 mm), the passes the paper

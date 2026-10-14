@@ -1789,6 +1789,15 @@ window.plotter.stop()
 window.close()          # stops the worker threads; leaving them running aborts at exit
 pump(100)
 print()
+print("the ink guard's words:")
+from spiro.ui.main_window import ink_guard_words  # noqa: E402
+_w = ink_guard_words({"guarded": True, "lifts": 12, "limit": 5, "max_passes": 6, "before": 40,
+                      "ok": True, "hot_cells": 3})
+check("a few cells let through one over are said so", "3 cells go one over, let through" in _w, _w)
+_w = ink_guard_words({"guarded": True, "lifts": 12, "limit": 5, "max_passes": 7, "before": 40,
+                      "ok": False, "hot_cells": 30})
+check("and what may still tear is a warning", "may still tear" in _w, _w)
+
 print("window: %d passed, %d failed" % (len(PASS), len(FAIL)))
 if FAIL:
     for name in FAIL:

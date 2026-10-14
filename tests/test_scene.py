@@ -294,8 +294,16 @@ check("the middle of the elbow, under heavy ink, gets exactly the limit", list(_
 _star = [np.linspace(30 + 25j - 20 * np.exp(1j * a), 30 + 25j + 20 * np.exp(1j * a), 300)
          for a in np.linspace(0, np.pi, 10, endpoint=False)]
 _pieces, _rep = density.plan(_star, 100, 50, 0.3, 5)
-check("ten lines through one point: too short to lift over, drawn through, and said so",
-      _rep["ok"] is False and _rep["lifts"] == 0 and _rep["hot_cells"] > 0 and len(_pieces) == 10, _rep)
+check("ten lines through one point: the later ones lift over the crossing",
+      _rep["ok"] and _rep["max_passes"] == 5 and _rep["lifts"] == 5 and len(_pieces) == 15, _rep)
+_dot = [np.linspace(30 + 25j, 30.2 + 25j, 20) for _ in range(6)]
+_pieces, _rep = density.plan(_dot, 100, 50, 0.3, 5)
+check("six touches on a dot too short to lift over: a few cells one over, let through",
+      _rep["ok"] and _rep["max_passes"] == 6 and 0 < _rep["hot_cells"] <= density.SLACK_CELLS
+      and _rep["lifts"] == 0 and len(_pieces) == 6, _rep)
+_pieces, _rep = density.plan(_dot, 100, 50, 0.3, 5, slack_cells=0)
+check("with no slack the same dot is said to tear",
+      _rep["ok"] is False and _rep["max_passes"] == 6 and _rep["hot_cells"] > 0, _rep)
 _sc2 = Scene(paper=Paper.from_axidraw(3))
 _sc2.max_passes = 2
 for _ in range(4):

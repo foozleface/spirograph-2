@@ -34,7 +34,8 @@ gives it. Pure functions and a grid or two; nothing here knows about Qt.
 """
 import numpy as np
 
-INSETS_MM = (1.0, 0.7, 0.5, 0.3)      # how far inside the heavy ink the pen lands, gentlest first
+INSETS_MM = (1.0, 0.7, 0.5, 0.3)
+SLACK_CELLS = 20     # cells that may go one pass over the limit: a few, not a band      # how far inside the heavy ink the pen lands, gentlest first
 MIN_INSET_MM = 0.1                     # never closer to the edge of the heavy ink than this
 INSET_REACH_MM = 1.5                   # how much further in the landing may go, for a lighter cell
 COARSE_CELLS = 20                      # a coarse cell, in fine cells (3 mm at a 0.3 mm nib)
@@ -344,7 +345,8 @@ def _cut(path, cuts):
     return out
 
 
-def plan(paths, width_mm, height_mm, nib_mm=0.3, max_passes=5, insets=INSETS_MM):
+def plan(paths, width_mm, height_mm, nib_mm=0.3, max_passes=5, insets=INSETS_MM,
+         slack_cells=SLACK_CELLS):
     """Lift the pen so that no cell of the paper is come over more than
     ``max_passes`` times, if it can be done: the pieces to draw, and a
     report.
@@ -352,13 +354,16 @@ def plan(paths, width_mm, height_mm, nib_mm=0.3, max_passes=5, insets=INSETS_MM)
     Tries the gentlest plan first -- lift only at the limit, with the
     deepest inset -- and checks it by counting the drawn pieces afresh on
     the full grid. When the paper would still tear, lifts sooner and lands
-    closer to the edge of the heavy ink, and tries again. ``report["ok"]``
-    says whether the limit was met; ``report["max_passes"]`` is the worst
-    cell either way and ``report["hot_cells"]`` how many cells are over.
+    closer to the edge of the heavy ink, and tries again. A few cells one
+    pass over -- ``slack_cells`` of them at most -- are let through: the
+    paper takes a handful of extra touches, and lifting sooner to clear
+    them would cut the plot at every crossing. ``report["ok"]`` says
+    whether the limit was met; ``report["max_passes"]`` is the worst cell
+    either way and ``report["hot_cells"]`` how many cells are over.
     """
     paths = [np.asarray(p, dtype=complex) for p in paths if len(p) >= 2]
     before = InkGrid(width_mm, height_mm, nib_mm).count(paths)
-    report = {"nib_mm": nib_mm, "limit": max_passes,
+    report = {"nib_mm": nib_mm, "limit": max_passes, "slack_cells": slack_cells,
               "before": before.max_passes(), "hot_before": before.hot_cells(max_passes),
               "cell_mm": before.cell}
     if before.max_passes() <= max_passes:
@@ -385,9 +390,9 @@ def plan(paths, width_mm, height_mm, nib_mm=0.3, max_passes=5, insets=INSETS_MM)
                 best = result
             if threshold_best is None or result[:2] < threshold_best:
                 threshold_best = result[:2]
-            if check.max_passes() <= max_passes:
+            if check.max_passes() <= max_passes + 1 and result[1] <= slack_cells:
                 report.update(ok=True, lifts=lifts, threshold=threshold, inset_mm=inset,
-                              max_passes=check.max_passes(), hot_cells=0, tries=tries,
+                              max_passes=check.max_passes(), hot_cells=result[1], tries=tries,
                               pieces_per_path=per_path, tries_detail=detail)
                 return pieces, report
             if last == result[:2]:

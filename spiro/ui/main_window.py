@@ -1762,9 +1762,12 @@ def ink_guard_words(report):
              "passes and the worst spot now gets %d (was %d)."
              % (report["lifts"], "" if report["lifts"] == 1 else "s", report["limit"],
                 report["max_passes"], report["before"]))
-    if not report.get("ok"):
+    hot = report.get("hot_cells") or 0
+    if hot and report.get("ok"):
+        words += " %d cell%s go one over, let through." % (hot, "" if hot == 1 else "s")
+    elif not report.get("ok"):
         words += (" %d spot%s are crossings too short to lift over and may still tear."
-                  % (report["hot_cells"], "" if report["hot_cells"] == 1 else "s"))
+                  % (hot, "" if hot == 1 else "s"))
     return words
 
 
