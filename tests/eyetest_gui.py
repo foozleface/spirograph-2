@@ -72,6 +72,9 @@ app = QApplication.instance() or QApplication([])
 # Settings go to a throwaway folder: the gate must neither read the user's
 # remembered choices (a plot mode, a pen speed) nor write over them.
 SETTINGS_DIR = tempfile.mkdtemp(prefix="spiro-settings-")
+# The window's control socket goes there too: a window on the desktop
+# listens on the user's one socket, and a second window would take it over.
+os.environ["XDG_RUNTIME_DIR"] = SETTINGS_DIR
 QSettings.setPath(QSettings.NativeFormat, QSettings.UserScope, SETTINGS_DIR)
 __import__("atexit").register(__import__("shutil").rmtree, SETTINGS_DIR, True)
 app.setStyleSheet(theme.STYLESHEET)
@@ -208,6 +211,40 @@ window.render_panel.scrubber.setValue(count - 1)
 window.design.more_toggle.setChecked(True) if hasattr(window.design, "more_toggle") else None
 pump(100)
 snap(window.design, "joe-shell-build-more")
+
+print("the nested-ring toy — a rider in a carrier with an off-centre bore:")
+window._open_path(str(ROOT / "reference" / "plots" / "01-nested-rings.ini"))
+wait_for(lambda: window.drawing is not None and "01-nested-rings" in window.render.caption)
+pump(200)
+snap(window, "nested-rings-window")
+count = window.render.sample_count()
+window.design.strip.select(1)
+window.design._select_step(1)
+window.render_panel.scrubber.setValue(int(count * 0.37))
+pump(100)
+snap(window.render_panel, "nested-rings-carrier-selected-scrubbed")
+window.design.explain("bore_offset")
+wait_for(lambda: not window.design.explainer.pending, timeout=60)
+pump(150)
+snap(window.design, "nested-rings-build-explainer-bore-offset")
+window.document.steps[1]["params"]["bore_offset"] = 0
+window.document.steps[1]["params"]["end_bore_offset"] = 0
+window.design.refresh(select=1)
+rendered(window)
+window.render_panel.scrubber.setValue(count - 1)
+pump(150)
+snap(window.render_panel, "nested-rings-bore-centred")
+window.document.steps[1]["params"]["bore_offset"] = 12
+window.document.steps[1]["params"]["end_bore_offset"] = 12
+window.design.refresh(select=1)
+rendered(window)
+window.render_panel.scrubber.setValue(count - 1)
+pump(150)
+snap(window.render_panel, "nested-rings-bore-twelve-off")
+window.document.steps[1]["params"]["bore_offset"] = 6
+window.document.steps[1]["params"]["end_bore_offset"] = 6
+window.design.refresh(select=1)
+rendered(window)
 
 print("finishing:")
 window.design.strip.select(1)

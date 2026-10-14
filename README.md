@@ -50,6 +50,11 @@ The pattern is a **machine**, and the window says so in four colours:
   sits in the order makes no difference — unless an arc or spiral is set to
   **turn with the track**, when it also turns the arms above it to face
   along the track, like a car carrying them round a bend.
+  The **Ring carrier** is the nested-ring toy: a ring rolling round inside
+  a fixed ring, carrying the steps before it in a bore that can be set
+  off-centre (that is the rings-2-and-3 setting on the toy). It always
+  turns what it carries, and a carrier before a carrier is a ring in a
+  ring in a ring.
   The **Crank & rod** arm is the linkage real drawing machines are built
   from: a crank pushing a rod whose far end slides on a track, with the pen
   on the rod — it draws eggs and teardrops, which an ellipse cannot. An
@@ -340,6 +345,7 @@ screen and in the SVG; the Inks box under Finishing edits them.
 | `translation` | Slide along a straight line |
 | `arc` | Slide along a circular arc |
 | `spiral_arc` | Slide along a spiral path |
+| `ring_carrier` | A ring rolling in a fixed ring, carrying the earlier steps in an off-centre bore |
 | `bend` | Warp flat geometry into a curve (X→angle, Y→radius) |
 | `damping` | Exponential decay envelope — pattern spirals toward a point |
 | `noise` | Smooth random perturbation (hand-drawn look) |

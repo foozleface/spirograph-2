@@ -706,6 +706,50 @@ check("finishing carries each piece's ink: symmetry copies keep their colour",
       len(_sym.paths) == 9 and len(_sym.styles) == 9
       and [s["color"] for s in _sym.styles].count("#112233") == 3)
 
+# -- the nested-ring toy: a ring carrier --------------------------------------------- #
+
+print("ring carrier:")
+_rider = dict(type="spirograph_gear", fixed_teeth=72, rolling_teeth=48,
+              hole_position=0.6, cycles=5)
+_carrier = dict(defaults_for("ring_carrier"), fixed_teeth=180, rolling_teeth=144,
+                bore_offset=0, end_bore_offset=0, cycles=1)
+_s = lambda p: {"kind": "single", "params": p}  # noqa: E731
+_nest = run(build_ini(steps=[_s(_rider), _s(_carrier)], sampling=SMALL)).paths[0]
+# the same machine written out by hand: rider, the carrier's spin as a
+# table move, the carrier's orbit as a gear with its hole at the centre
+_hand = run(build_ini(steps=[
+    _s(_rider),
+    _s(dict(defaults_for("rotation"), total_degrees=-360, normalize=True)),
+    _s(dict(type="spirograph_gear", fixed_teeth=180, rolling_teeth=144,
+            hole_position=0, cycles=1))], sampling=SMALL)).paths[0]
+check("a carrier with the bore at its centre is a gear, a turn and a gear, by hand",
+      np.max(np.abs(_nest - _hand)) < 1e-6, np.max(np.abs(_nest - _hand)))
+_off = run(build_ini(steps=[_s(_rider), _s(dict(_carrier, bore_offset=12, end_bore_offset=12))],
+                     sampling=SMALL)).paths[0]
+check("an off-centre bore is a different drawing",
+      np.max(np.abs(_off - _nest)) > 5)
+import ring_carrier as _rc  # noqa: E402
+_T = np.linspace(0, 1, 401)
+_c0 = module(_rc.RingCarrierModule, "fixed_teeth = 180\nrolling_teeth = 144\nbore_offset = 0")
+_c12 = module(_rc.RingCarrierModule, "fixed_teeth = 180\nrolling_teeth = 144\nbore_offset = 12")
+for _c in (_c0, _c12):
+    _c.set_pipeline_period(__import__("fractions").Fraction(1))
+_gap = np.abs(_c12.transform(np.zeros_like(_T, dtype=complex), _T)
+              - _c0.transform(np.zeros_like(_T, dtype=complex), _T))
+check("and the bore sits the set distance from the carrier's centre, the whole way round",
+      np.allclose(_gap, 12, atol=1e-9), (np.min(_gap), np.max(_gap)))
+_m = _c0
+check("the carrier always turns what it carries, whatever the file says",
+      _m.follow and module(_rc.RingCarrierModule, "follow = false").follow)
+check("144 teeth inside 180 spin a quarter turn backwards per orbit, one turn per trip",
+      close(float(_m.heading(0.25)), -np.pi / 2, 1e-9) and close(float(_m.heading(0.5)), -np.pi, 1e-9)
+      and abs(np.exp(1j * float(_m.heading(1.0))) - 1) < 1e-9 and _m.rotations == 4)
+_deep = run(build_ini(steps=[_s(_rider), _s(dict(_carrier, fixed_teeth=100, rolling_teeth=80, bore_offset=4, end_bore_offset=4)),
+                             _s(dict(_carrier, fixed_teeth=250, rolling_teeth=180, bore_offset=8, end_bore_offset=8))],
+                      sampling=SMALL)).paths[0]
+check("a carrier before a carrier is a ring in a ring in a ring",
+      len(_deep) == SMALL["output_samples"] and np.all(np.isfinite(_deep)) and np.ptp(np.abs(_deep)) > 10)
+
 print()
 print("pipeline: %d passed, %d failed" % (len(PASS), len(FAIL)))
 if FAIL:

@@ -500,6 +500,22 @@ MODULE_DEFS = {
             **_FOLLOW,
         },
     },
+    "ring_carrier": {
+        "category": "path",
+        "label": "Ring Carrier",
+        "desc": "A ring rolling in a fixed ring, carrying an off-centre bore that the steps before it ride in",
+        "params": {
+            "fixed_teeth":     {"type": "int",   "default": 180,  "min": 10,  "max": 400, "desc": "Fixed ring teeth (ring 1)"},
+            "rolling_teeth":   {"type": "int",   "default": 144,  "min": 5,   "max": 300, "desc": "Carrier teeth (ring 2)"},
+            "tooth_pitch":     {"type": "float", "default": 1.0,  "min": 0.1, "max": 5.0, "step": 0.1, "desc": "Size per tooth"},
+            "bore_offset":     {"type": "float", "default": 6.0,  "min": 0.0, "max": 100, "step": 0.5, "desc": "Bore off-centre by (rings 2+3 setting)"},
+            "end_bore_offset": {"type": "float", "default": 6.0,  "min": 0.0, "max": 100, "step": 0.5, "desc": "End value", "drift_for": "bore_offset"},
+            "bore_angle":      {"type": "float", "default": 0.0,  "min": 0,   "max": 360, "desc": "Bore offset direction°", "advanced": True},
+            "inside":          {"type": "bool",  "default": True,  "desc": "Inside (hypo) vs outside (epi)"},
+            "cycles":          {"type": "float", "default": 1.0,  "min": 1,   "max": 50, "step": 1, "desc": "Trips round ring 1"},
+            "rotations":       {"type": "int",   "default": 0,    "min": 0,   "max": 200, "desc": "Orbits per trip (0 = until it closes)", "advanced": True},
+        },
+    },
     "spiral_arc": {
         "category": "path",
         "label": "Spiral Path",

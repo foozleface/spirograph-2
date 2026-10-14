@@ -71,6 +71,7 @@ PLAIN_WORDS = {
     "translation":     "slide the whole thing along a line",
     "arc":             "carry the whole thing round an arc",
     "spiral_arc":      "carry the whole thing out along a spiral",
+    "ring_carrier":    "a ring rolling in a ring, carrying the rest in an off-centre bore",
     "rail_slide":      "shuttle the whole thing back and forth",
     "rotation":        "turn the paper as it draws",
     "oscillating_rotation": "rock the paper back and forth",

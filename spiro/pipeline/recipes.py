@@ -310,6 +310,19 @@ def _classic_gear(r):
         inside=True, cycles=1)], "stroke_width": 0.12}
 
 
+@recipe("Nested rings — a ring in a ring, the bore set off-centre")
+def _nested_rings(r):
+    bore, rider = r.pick([(65, 40), (72, 48), (60, 36), (84, 56)])
+    return {"steps": [
+        single("spirograph_gear", fixed_teeth=bore, rolling_teeth=rider,
+               tooth_pitch=1.0, hole_position=r.f(0.6, 0.9), inside=True,
+               cycles=r.pick([3, 5, 7, 9])),
+        single("ring_carrier", fixed_teeth=r.pick([180, 200, 250]),
+               rolling_teeth=r.pick([135, 144, 150, 160]), tooth_pitch=1.0,
+               bore_offset=r.f(0, 12), inside=True, cycles=1)],
+        "stroke_width": 0.12}
+
+
 @recipe("Concentric rings")
 def _concentric(r):
     fixed = r.pick([100, 96, 120])
