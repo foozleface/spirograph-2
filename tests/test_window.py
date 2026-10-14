@@ -1471,6 +1471,10 @@ ctl("place")
 check("unplace with no name takes Build's own copy off",
       ctl("unplace").get("removed") == 1 and len(window.scene.items) == 0)
 ctl("place")
+_job = ctl("job")
+check("job answers with the plot's pens and the ink guard's report, and no SVG",
+      _job.get("ok") and "svg" not in _job and _job["ink"].get("guarded") is True
+      and _job["strokes"] >= 1 and _job["mode"] in ("mono", "color"), _job)
 check("and what was built through it is undoable", ctl("undo").get("ok")
       and len(window.scene.items) == 0)
 control.close()

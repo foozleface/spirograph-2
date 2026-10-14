@@ -1199,8 +1199,10 @@ class MainWindow(QMainWindow):
                 item._unit = None
                 self.canvas.invalidate(item)
             self.canvas.update()
-        return self.scene.job(opts=self.plot.options(self.sheet.current_model()),
-                              only=only)
+        job = self.scene.job(opts=self.plot.options(self.sheet.current_model()),
+                             only=only)
+        self._say(ink_guard_words(job.get("ink") or {}), hold=8.0)
+        return job
 
     def _needs_plot_quality(self, only=None):
         """The items whose curves came from a coarser preview.
@@ -1747,6 +1749,23 @@ def _typing_in(widget):
     if isinstance(widget, (QLineEdit, QAbstractSpinBox, QPlainTextEdit, QTextEdit)):
         return True
     return isinstance(widget, QComboBox) and widget.isEditable()
+
+
+def ink_guard_words(report):
+    """One line on what the ink guard did to a plot job."""
+    if not report.get("guarded"):
+        return "Ink guard off: every line is drawn, however many times the pen crosses it."
+    if not report.get("lifts"):
+        return ("Ink: at most %d pass%s over any spot, within the paper's %d."
+                % (report["max_passes"], "" if report["max_passes"] == 1 else "es", report["limit"]))
+    words = ("Ink: lifted the pen %d time%s inside the heavy ink; the paper takes %d "
+             "passes and the worst spot now gets %d (was %d)."
+             % (report["lifts"], "" if report["lifts"] == 1 else "s", report["limit"],
+                report["max_passes"], report["before"]))
+    if not report.get("ok"):
+        words += (" %d spot%s are crossings too short to lift over and may still tear."
+                  % (report["hot_cells"], "" if report["hot_cells"] == 1 else "s"))
+    return words
 
 
 def _text_name(words):

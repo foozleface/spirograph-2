@@ -31,6 +31,9 @@ render                       redraw now
 place                        put the pattern on the paper
 unplace [name]               take patterns off the paper: every one of that
                              name, or Build's own copy when no name is given
+job                          the plot job as it would go to the machine,
+                             without the SVG: pens, paper, and the ink
+                             guard's report (lifts, worst spot, limit)
 save path                    save the pattern as an .ini
 undo / redo
 screenshot path [what]       what: window (default), build, render, paper
@@ -216,6 +219,13 @@ class ControlServer(QObject):
                              else "Build's pattern is not on the paper")
         w._take_off(items)
         return {"removed": len(items), "left": len(w.scene.items)}
+
+    def cmd_job(self, _r):
+        w = self.window
+        job = w.scene.job(opts=w.plot.options(w.sheet.current_model()))
+        out = {k: v for k, v in job.items() if k != "svg"}
+        out["strokes"] = job["svg"].count("</path>")
+        return out
 
     def cmd_save(self, r):
         path = Path(os.path.expanduser(str(r["path"])))

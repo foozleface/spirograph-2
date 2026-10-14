@@ -329,6 +329,26 @@ box under Finishing edits them. Placed on the paper, a pattern with more than
 one ink takes a plotter pen per ink, chosen by colour, so the plot stops
 between them for the swap.
 
+### Ink density
+
+A fountain pen wets the paper, and after about five passes over one spot the
+fibres tear. Before a plot the sheet is simulated in the order the machine
+draws it, on a grid of cells half a nib across, counting how many times the
+nib has come over each cell; a stroke that would carry a cell past the limit
+is lifted over the heavy ink and put down again after it. The lift and the
+landing go *inside* the heavy stretch, on the least-inked cell a millimetre or
+so in from its edge, so the mark a fountain pen leaves where it lands hides in
+ink that is already dense. A stretch too short to lift over is drawn through.
+The drawn pieces are then counted again from scratch; if the paper would still
+tear, the pen is lifted sooner and lands closer to the edge, and it is all
+simulated again. What it did is one line in the status bar when the job is
+built, and anything it could not fix is said there too.
+
+The Sheet tab has the nib width (a Kakuno fine is 0.3 mm), the passes the paper
+takes, and a switch for the guard; a sheet file keeps them. The screen draws
+every line; only the plot is lifted. `spiro/scene/density.py` is the whole of
+it, and has no Qt in it.
+
 ## Generators
 
 | Module | Description |

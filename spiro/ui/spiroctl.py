@@ -42,7 +42,9 @@ def main(argv=None):
             time.sleep(0.3)
         print(json.dumps({"ok": False, "error": "still drawing"}))
         return 1
-    reply = send(parse(args))
+    # A command may have real work behind it -- a job runs the ink guard
+    # over the whole sheet -- so the command line waits as long as it takes.
+    reply = send(parse(args), timeout_ms=600000)
     print(json.dumps(reply, indent=1))
     return 0 if reply.get("ok") else 1
 

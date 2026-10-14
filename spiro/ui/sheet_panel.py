@@ -11,7 +11,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox,
                                QHeaderView, QLabel, QLineEdit, QMessageBox,
-                               QPushButton, QTableWidget, QTableWidgetItem,
+                               QPushButton, QSpinBox, QTableWidget, QTableWidgetItem,
                                QVBoxLayout, QWidget)
 
 from spiro.scene import PAPER_PRESETS, Paper
@@ -73,6 +73,29 @@ class SheetPanel(QWidget):
         layout.addWidget(row(QLabel("Margin"), 1, self.margin))
         self.paper_note = theme.muted("", wrap=True)
         layout.addWidget(self.paper_note)
+
+        # -- the pen, and what the paper takes from it ------------------------- #
+        self.nib = QDoubleSpinBox()
+        self.nib.setRange(0.05, 5.0)
+        self.nib.setSingleStep(0.05)
+        self.nib.setDecimals(2)
+        self.nib.setSuffix(" mm")
+        self.nib.setToolTip("The nib's line width: a Kakuno fine is 0.3 mm. The ink "
+                            "guard counts passes on cells half this wide.")
+        self.nib.valueChanged.connect(self._ink_changed)
+        self.passes = QSpinBox()
+        self.passes.setRange(1, 100)
+        self.passes.setToolTip("How many times the pen can cross one spot before the wet "
+                               "paper tears. The plot lifts the pen over heavier ink than "
+                               "this, landing just inside it where the marks hide.")
+        self.passes.valueChanged.connect(self._ink_changed)
+        self.guard = QCheckBox("Lift the pen over heavy ink")
+        self.guard.setToolTip("Off: every line is plotted however many times the pen "
+                              "crosses it.")
+        self.guard.toggled.connect(self._ink_changed)
+        layout.addWidget(row(QLabel("Nib"), 1, self.nib))
+        layout.addWidget(row(QLabel("Passes the paper takes"), 1, self.passes))
+        layout.addWidget(self.guard)
 
         # -- items ------------------------------------------------------------ #
         layout.addWidget(theme.hline())
@@ -272,11 +295,22 @@ class SheetPanel(QWidget):
         if not self._syncing:
             self._apply_paper()
 
+    def _ink_changed(self, *_args):
+        if self._syncing:
+            return
+        self.scene.nib_mm = float(self.nib.value())
+        self.scene.max_passes = int(self.passes.value())
+        self.scene.guard_ink = bool(self.guard.isChecked())
+        self.sceneChanged.emit()
+
     # -- items --------------------------------------------------------------------- #
 
     def refresh(self, select=None):
         self._syncing = True
         try:
+            self.nib.setValue(float(self.scene.nib_mm))
+            self.passes.setValue(int(self.scene.max_passes))
+            self.guard.setChecked(bool(self.scene.guard_ink))
             self._refresh_items(select)
             self._refresh_pens()
         finally:

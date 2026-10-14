@@ -16,6 +16,7 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from spiro.scene import density
 from spiro.scene.item import PlacedItem
 from spiro.scene.paper import Paper
 
@@ -63,6 +64,13 @@ class Scene:
     paper: Paper = field(default_factory=Paper)
     pens: list = field(default_factory=lambda: default_pens(2))
     items: list = field(default_factory=list)
+    # The pen on the machine, and what the paper will take from it: a
+    # fountain pen's nib width, and how many passes over one spot before
+    # the wet paper tears. The plot lifts the pen over heavier ink than
+    # that (see spiro.scene.density); the screen draws every line.
+    nib_mm: float = 0.3
+    max_passes: int = 5
+    guard_ink: bool = True
 
     # -- items ---------------------------------------------------------------- #
 
@@ -211,6 +219,72 @@ class Scene:
 
     # -- output ----------------------------------------------------------------- #
 
+    def plot_strokes(self, pens=None, only=None):
+        """Every stroke of the plot in the order the machine draws it --
+        pen by pen, item by item -- as ``(pen_index, opacity, path)`` in
+        paper millimetres. The order matters to the ink guard, which counts
+        passes as they land."""
+        out = []
+        in_use = [index for index, _ in self.pens_in_use(only)]
+        if pens is not None:
+            in_use = [i for i in in_use if i in pens]
+        for pen_index in in_use:
+            for item in self.plot_items(only):
+                if pen_index not in self.pens_for(item):
+                    continue
+                styles = getattr(item.drawing, "styles", None) or []
+                for index, path in enumerate(item.paths_mm()):
+                    if len(path) < 2:
+                        continue
+                    style = styles[index] if index < len(styles) and styles[index] else {}
+                    ink = style.get("color")
+                    mine = self.pen_for_color(ink) if ink else None
+                    if mine is None:
+                        mine = min(max(item.pen, 0), len(self.pens) - 1) if self.pens else 0
+                    if mine != pen_index:
+                        continue
+                    out.append((pen_index, style.get("opacity", 1.0), path))
+        return out
+
+    def guarded_strokes(self, pens=None, only=None):
+        """:meth:`plot_strokes` with the pen lifted over ink the paper
+        would not take: ``(strokes, report)``. With the guard off, the
+        strokes as they are and a report saying so."""
+        strokes = self.plot_strokes(pens, only)
+        if not self.guard_ink:
+            return strokes, {"ok": None, "guarded": False, "lifts": 0}
+        pieces, report = density.plan([path for _, _, path in strokes],
+                                      self.paper.width_mm, self.paper.height_mm,
+                                      self.nib_mm, self.max_passes)
+        report["guarded"] = True
+        if not report["lifts"]:
+            return strokes, report
+        # plan() keeps the order and cuts paths into pieces; put the pen and
+        # opacity back on each piece by walking the two in step
+        out = []
+        pieces = iter(pieces)
+        for (pen_index, opacity, _), n in zip(strokes, report["pieces_per_path"]):
+            for _ in range(n):
+                out.append((pen_index, opacity, next(pieces)))
+        return out, report
+
+    def plot_svg(self, stroke_width_mm=0.3, pens=None, only=None):
+        """The SVG the machine gets: the guarded strokes, in plot order,
+        each stroked with its pen's colour. Returns ``(svg, report)``."""
+        strokes, report = self.guarded_strokes(pens, only)
+        w, h = self.paper.width_mm, self.paper.height_mm
+        out = ['<?xml version="1.0" encoding="UTF-8"?>',
+               '<svg xmlns="http://www.w3.org/2000/svg" '
+               'width="%gmm" height="%gmm" viewBox="0 0 %g %g">' % (w, h, w, h)]
+        for pen_index, opacity, path in strokes:
+            extra = ' stroke-opacity="%.3f"' % opacity if opacity < 1.0 else ""
+            out.append('<path d="%s" fill="none" stroke="%s"%s '
+                       'stroke-width="%g" stroke-linecap="round" '
+                       'stroke-linejoin="round"></path>'
+                       % (_path_data(path), self.pens[pen_index].color, extra, stroke_width_mm))
+        out.append('</svg>')
+        return "\n".join(out) + "\n", report
+
     def to_svg(self, stroke_width_mm=0.3, background=None, pens=None, only=None):
         """The whole sheet as one SVG, in millimetres.
 
@@ -281,15 +355,16 @@ class Scene:
         for the swap.
         """
         in_use = self.pens_in_use(only)
-        svg = self.to_svg(pens={index for index, _ in in_use} or None, only=only)
+        svg, report = self.plot_svg(pens={index for index, _ in in_use} or None, only=only)
         return dict(self.identity(only), svg=svg, opts=opts or {},
-                    optimizer=optimizer, vpype=vpype or {})
+                    optimizer=optimizer, vpype=vpype or {}, ink=report)
 
     def stamp(self, only=None):
         """What makes this sheet *this* sheet, for the purposes of "is layer 3
         already on the paper?". Any change to the geometry, the pens or the
         paper gives a different answer."""
         parts = ["%g x %g" % (self.paper.width_mm, self.paper.height_mm)]
+        parts.append("ink %g %d %d" % (self.nib_mm, self.max_passes, self.guard_ink))
         parts += ["pen %s %s %d" % (pen.color, pen.label, pen.include)
                   for pen in self.pens]
         for item in self.plot_items(only):
@@ -325,6 +400,8 @@ class Scene:
                           "margin_mm": self.paper.margin_mm,
                           "label": self.paper.label},
                 "pens": [p.to_dict() for p in self.pens],
+                "ink": {"nib_mm": self.nib_mm, "max_passes": self.max_passes,
+                        "guard": self.guard_ink},
                 "items": [i.to_dict() for i in self.items]}
         if extra:
             data.update(extra)
@@ -372,6 +449,10 @@ class Scene:
                            str(paper.get("label", "")))
         pens = [Pen.from_dict(p) for p in data.get("pens", [])]
         self.pens = pens or default_pens(2)
+        ink = data.get("ink") or {}
+        self.nib_mm = float(ink.get("nib_mm", self.nib_mm))
+        self.max_passes = int(ink.get("max_passes", self.max_passes))
+        self.guard_ink = bool(ink.get("guard", self.guard_ink))
         self.items = [PlacedItem.from_dict(entry, drawing)
                       for entry, drawing in zip(data["items"], drawings)]
         self.ensure_pens(max((i.pen for i in self.items), default=-1) + 1)

@@ -265,6 +265,59 @@ check("a pen recoloured away from its ink: that ink falls back to the pen the it
       _sc.pens_for(_it) == [1, 0, 3])
 _sc.pens[2].color = "#8e44ad"
 
+# -- ink density: lifting the pen before the paper tears --------------------------- #
+
+print("ink density:")
+from spiro.scene import density  # noqa: E402
+_line = np.linspace(10 + 10j, 50 + 10j, 400)
+_g = density.InkGrid(100, 50, 0.3)
+check("cells are half a nib across", close(_g.cell, 0.15))
+_g.count([_line])
+check("one pass over a line is one visit on every cell under the nib",
+      _g.max_passes() == 1 and _g.hot_cells(0) > 500)
+_g.count([_line, _line])
+check("three passes are three", _g.max_passes() == 3)
+_pieces, _rep = density.plan([_line.copy() for _ in range(9)], 100, 50, 0.3, 5)
+check("nine passes over one line: the sixth and later are not drawn at all",
+      _rep["ok"] and _rep["max_passes"] == 5 and _rep["lifts"] == 4 and len(_pieces) == 5
+      and _rep["pieces_per_path"] == [1, 1, 1, 1, 1, 0, 0, 0, 0], _rep)
+_elbow = [np.concatenate([np.linspace(10 + 10j, 30 + 10j, 200), np.linspace(30 + 10j, 30 + 40j, 300)])
+          for _ in range(8)]
+_pieces, _rep = density.plan(_elbow, 100, 50, 0.3, 5)
+check("eight passes round an elbow: the limit holds", _rep["ok"] and _rep["max_passes"] == 5, _rep)
+_lifted = [p for p in _pieces if len(p) < 400]
+check("and the later passes draw only their first and last stretches",
+      _rep["lifts"] == 3 and all(abs(p[0] - (10 + 10j)) < 1e-6 or abs(p[-1] - (30 + 40j)) < 1e-6 for p in _lifted))
+_h = density.InkGrid(100, 50, 0.3).count(_pieces)
+_mid = _h.counts[_h.cells_of(np.array([20 + 10j, 30 + 25j]))]
+check("the middle of the elbow, under heavy ink, gets exactly the limit", list(_mid) == [5, 5], list(_mid))
+_star = [np.linspace(30 + 25j - 20 * np.exp(1j * a), 30 + 25j + 20 * np.exp(1j * a), 300)
+         for a in np.linspace(0, np.pi, 10, endpoint=False)]
+_pieces, _rep = density.plan(_star, 100, 50, 0.3, 5)
+check("ten lines through one point: too short to lift over, drawn through, and said so",
+      _rep["ok"] is False and _rep["lifts"] == 0 and _rep["hot_cells"] > 0 and len(_pieces) == 10, _rep)
+_sc2 = Scene(paper=Paper.from_axidraw(3))
+_sc2.max_passes = 2
+for _ in range(4):
+    _it = _sc2.add(drawing(), name="same", pen=0)
+    _it.move_to(150, 100)
+    _it.set_width(80)
+_job = _sc2.job()
+check("the plot job carries the guard's report: the pen was lifted and the worst spot is lighter",
+      _job["ink"]["guarded"] and _job["ink"]["lifts"] > 0
+      and _job["ink"]["max_passes"] < _job["ink"]["before"], _job["ink"])
+check("so the job has more strokes than the sheet has paths",
+      len(colorsplit.parse(_job["svg"])["paths"]) > 4)
+_sc2.guard_ink = False
+_job = _sc2.job()
+check("with the guard off the job is the plain sheet",
+      not _job["ink"]["guarded"] and len(colorsplit.parse(_job["svg"])["paths"]) == 4)
+_sc2.guard_ink = True
+_sc2.nib_mm = 0.5
+_round = Scene.from_dict(_sc2.to_dict(), [i.drawing for i in _sc2.items])
+check("nib, limit and the guard switch go through the sheet file",
+      (_round.nib_mm, _round.max_passes, _round.guard_ink) == (0.5, 2, True))
+
 # -- pens and the job ------------------------------------------------------------ #
 
 print("pens and the plot job:")
