@@ -271,6 +271,48 @@ tooth_pitch = 1.0
 end_tooth_pitch = 2.5      # drifts from 1.0 → 2.5 over the draw
 ```
 
+### Changed by hand
+
+Any numeric parameter can be changed part-way through the draw, the way a person
+swaps a pulley while the machine runs, moves a pin along its slot, or re-clamps
+the paper. Write `switch_<name> = moment value, moment value` with each moment a
+fraction of the draw; in the app, the ✋ beside a knob opens the same row.
+
+```ini
+[crank]
+type = pintograph
+turns_1 = 7
+switch_turns_1 = 0.5 9       # from half-way, nine turns per draw
+```
+
+On a rate (a pintograph's turns, a rotation's total degrees) only the speed
+steps and the shaft stays where it was. On anything else the value jumps.
+
+### Runs, not one line
+
+James Nolan Gandy's drawings are mostly several runs: a set of loops, the table
+turned by hand, another set. The pieces are a `tempo` in `stutter` mode with
+`dwell = 1` (the table indexed by hand, the next position taken between one
+sample and the next), a `rotation` after it for the positions to lie round, a
+`scale` with `scope = 1` oscillating once per run for the loop's swell, and a
+threshold `pen_lift` to cut the line where the pen was lifted. Sample in time
+(`use_arc_length = false`) so the jump stays one long step for the lift to
+find. `gandy-9175-v15.ini` is the worked example; "Runs by hand" under
+Surprise me builds one.
+
+### Inks
+
+```ini
+[output]
+inks = #000000, #c0392b, #1f6fb4   # the pens, in order
+ink_changes = 0.3, 0.6             # where the machine was stopped to swap them
+ink_flow = 0.5                     # the line darker where the pen moved slowly
+```
+
+Each pen starts where the last stopped. `ink_flow` weights each run of the line
+by how slowly the pen moved there, as a gravity-fed pen does. Both show on the
+screen and in the SVG; the Inks box under Finishing edits them.
+
 ## Generators
 
 | Module | Description |

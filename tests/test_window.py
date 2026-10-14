@@ -1006,6 +1006,61 @@ check("an out-of-range file value is shown, not clamped",
           __import__("spiro.ui.widgets", fromlist=["ParamRow"]).ParamRow(
               "total_degrees", MODULE_DEFS["rotation"]["params"]["total_degrees"], -180)))
 
+print("changed by hand:")
+_t1 = MODULE_DEFS["pintograph"]["params"]["turns_1"]
+hand = ParamRow("turns_1", _t1, 7.0)
+_hand_said = []
+hand.valueChanged.connect(lambda key, value: _hand_said.append((key, value)))
+hand.hand_toggle.setChecked(True)
+hand.hand_edit.setText("0.5 9")
+hand.hand_edit.editingFinished.emit()
+check("the by-hand row writes switch_<name> as moment and value",
+      ("switch_turns_1", "0.5 9") in _hand_said, _hand_said)
+hand.hand_add.click()
+check("plus adds a change a little after the last, at the knob's value",
+      _hand_said[-1] == ("switch_turns_1", "0.5 9, 0.6 7"), _hand_said[-1])
+hand.hand_edit.setText("0.7 nonsense")
+hand.hand_edit.editingFinished.emit()
+check("nonsense is refused, not written",
+      _hand_said[-1] == ("switch_turns_1", "0.5 9, 0.6 7") and hand.hand_edit.styleSheet())
+hand.hand_toggle.setChecked(False)
+check("switching it off takes the key off", _hand_said[-1] == ("switch_turns_1", None))
+check("a file's switch shows when it is opened",
+      (lambda w: w.hand_toggle.isChecked() and w.hand_edit.text() == "0.3 5")(
+          ParamRow("turns_1", _t1, 7.0, switch_value="0.3 5")))
+check("a drifting knob has the by-hand row too",
+      ParamRow("radius_x", _rx["radius_x"], 50.0, drift_name="end_radius_x",
+               drift_spec=_rx["end_radius_x"], drift_value=50.0).hand_toggle is not None)
+check("a choice has no by-hand row",
+      ParamRow("mode", MODULE_DEFS["tempo"]["params"]["mode"], "motor").hand_toggle is None)
+
+print("inks:")
+from spiro.pipeline.document import Document as _Doc  # noqa: E402
+from spiro.ui.finishing_panel import FinishingPanel  # noqa: E402
+_doc = _Doc()
+_inks = FinishingPanel(_doc)
+check("one pen to start, and nothing written for it",
+      len(_inks.swatches) == 1 and "inks" not in _doc.output)
+_inks.pen_add.click()
+_inks.pen_add.click()
+check("two pens added write three inks in order",
+      [c.strip() for c in _doc.output.get("inks", "").split(",")] == ["#000000", "#c0392b", "#1f6fb4"],
+      _doc.output.get("inks"))
+_inks.ink_changes.setText("0.3, 0.6")
+_inks.ink_changes.editingFinished.emit()
+check("swapped-at writes ink_changes", _doc.output.get("ink_changes") == "0.3, 0.6")
+_inks.ink_flow.setValue(0.5)
+check("ink by speed writes ink_flow", _doc.output.get("ink_flow") == 0.5)
+_inks.pen_remove.click()
+_inks.pen_remove.click()
+check("down to one pen the ink keys are gone",
+      "inks" not in _doc.output and "ink_changes" not in _doc.output and _doc.output.get("ink_flow") == 0.5)
+_doc.output.update({"inks": "#111111, #222222", "ink_changes": "0.4", "ink_flow": 0.3})
+_inks.reload()
+check("a file's inks show when it is opened",
+      _inks.pens() == ["#111111", "#222222"] and _inks.ink_changes.text() == "0.4"
+      and _inks.ink_flow.value() == 0.3)
+
 # -- the manual commands ------------------------------------------------------------- #
 
 # Home is the one that cannot be a moveto. Interactive mode dead-reckons from

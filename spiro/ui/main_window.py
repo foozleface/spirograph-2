@@ -485,7 +485,8 @@ class MainWindow(QMainWindow):
         self.document.steps = flatten_steps(made["steps"])
         self.document.symmetry = made["symmetry"]
         self.document.output.update(made["output"])
-        self.document.extras = {}
+        self.document.extras = dict(made.get("extras", {}))
+        self.document.sampling.update(made.get("sampling", {}))
         self.document.path = None
         self.document.name = made["slug"]
         self.document.renew()

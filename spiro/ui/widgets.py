@@ -58,7 +58,37 @@ def slider_span(spec, value):
         return (low, high)
     return (min(low, value), max(high, value))
 EDITOR_WIDTH = 76          # a parameter's number box
-DRIFT_WIDTH = 22           # the drift switch at the end of a row
+DRIFT_WIDTH = 22           # the drift switch at the end of a row, and the by-hand one
+TAIL = 2 * (DRIFT_WIDTH + 6)   # what a sub-row leaves clear under those two switches
+
+HAND_TIP = (
+    "By hand: the value changed part-way through the draw. Each change is a "
+    "moment (0 to 1 of the draw) and the new value, several separated by "
+    "commas: 0.5 9, 0.8 5. A pulley swapped while the machine runs, a pin "
+    "moved along its slot, the paper re-clamped.\n"
+    "On a rate (turns, total degrees) only the speed changes and the shaft "
+    "stays where it was; on anything else the value jumps.")
+
+
+def parse_switch(text):
+    """'at value, at value' -> [(at, value)] in order, or None if it is not
+    that. Empty text is an empty list."""
+    out = []
+    for item in str(text or "").split(","):
+        if not item.strip():
+            continue
+        parts = item.replace(":", " ").split()
+        if len(parts) != 2:
+            return None
+        try:
+            out.append((float(parts[0]), float(parts[1])))
+        except ValueError:
+            return None
+    return sorted(out)
+
+
+def format_switch(schedule):
+    return ", ".join("%g %g" % (at, value) for at, value in schedule)
 LABEL_WIDTH = 118          # the name column; longer names elide, the tooltip has the rest
 
 
@@ -78,14 +108,17 @@ class ParamRow(QWidget):
     ``valueChanged`` carries ``(name, value)``; the drift twin reports under
     its own ``end_*`` name, so the caller never has to know which is which.
     A drift can also oscillate — ``osc_<name> = speed, irregularity[, phase]``
-    in the file — which is reported under that key.
+    in the file — which is reported under that key. Any number can also be
+    changed by hand part-way through the draw — ``switch_<name> = at value,
+    ...`` — reported under that key from the by-hand row.
     """
 
     valueChanged = Signal(str, object)
     picked = Signal(str)                # the parameter being worked on
 
     def __init__(self, name, spec, value, drift_name=None, drift_spec=None,
-                 drift_value=None, osc_value=None, jitter_value=None, parent=None):
+                 drift_value=None, osc_value=None, jitter_value=None,
+                 switch_value=None, parent=None):
         super().__init__(parent)
         self.name = name
         self.drift_name = drift_name
@@ -111,19 +144,39 @@ class ParamRow(QWidget):
             self.slider.sliderPressed.connect(lambda: self.picked.emit(self.name))
             row.addWidget(self.slider, 2)
         row.addWidget(self.editor, 0)
-        layout.addLayout(row)
 
         self.drift_editor = None
         # The drift switch sits at the end of the row — a whole row of its
         # own for every drifting knob left room for four parameters on screen.
         # Rows without one keep the gap, so the number boxes line up.
+        numeric = spec.get("type") in ("int", "float")
+        # The by-hand switch sits beside the drift switch; every numeric row
+        # has one, and rows without keep the gap so the boxes line up.
+        self.hand_toggle = None
+        if numeric:
+            self.hand_toggle = QPushButton("✋")
+            self.hand_toggle.setObjectName("drift")
+            self.hand_toggle.setFixedWidth(DRIFT_WIDTH)
+            self.hand_toggle.setCheckable(True)
+            self.hand_toggle.setToolTip(HAND_TIP)
         if not drift_name:
             row.addSpacing(DRIFT_WIDTH + 6)     # no layout gap beside a spacer
+            if self.hand_toggle is not None:
+                row.addWidget(self.hand_toggle, 0)
+            else:
+                row.addSpacing(DRIFT_WIDTH + 6)
+            layout.addLayout(row)
+            self._build_hand(layout, switch_value)
         else:
             self.drift_toggle = QPushButton("⇢")
             self.drift_toggle.setObjectName("drift")
             self.drift_toggle.setFixedWidth(DRIFT_WIDTH)
             row.addWidget(self.drift_toggle, 0)
+            if self.hand_toggle is not None:
+                row.addWidget(self.hand_toggle, 0)
+            else:
+                row.addSpacing(DRIFT_WIDTH + 6)
+            layout.addLayout(row)
             drift_row = QHBoxLayout()
             drift_row.setContentsMargins(0, 0, 0, 0)
             drift_row.setSpacing(6)
@@ -157,7 +210,7 @@ class ParamRow(QWidget):
                      lambda v: self.valueChanged.emit(self.drift_name, v))
             self.drift_editor.installEventFilter(self)
             drift_row.addWidget(self.drift_editor)
-            drift_row.addSpacing(DRIFT_WIDTH + 6)
+            drift_row.addSpacing(TAIL)
             # Once there is a drift, it can slide once or go there and back.
             self.osc_mode = QComboBox()
             self.osc_mode.addItem("once", None)
@@ -189,7 +242,7 @@ class ParamRow(QWidget):
             osc_row.addWidget(self.osc_mode)
             osc_row.addWidget(self.osc_speed)
             osc_row.addWidget(self.osc_wander)
-            osc_row.addSpacing(DRIFT_WIDTH + 6)
+            osc_row.addSpacing(TAIL)
             self.osc_host = QWidget()
             self.osc_host.setLayout(osc_row)
             self.drift_host = QWidget()
@@ -202,6 +255,62 @@ class ParamRow(QWidget):
             self.drift_toggle.toggled.connect(self._toggle_drift)
             self._toggle_drift(self.drift_toggle.isChecked())
             self._osc_changed(emit=False)
+            self._build_hand(layout, switch_value)
+
+    def _build_hand(self, layout, switch_value):
+        """The by-hand row: the moments and values the knob was changed to
+        during the draw, as text, with a button that adds the next one."""
+        self.hand_host = None
+        if self.hand_toggle is None:
+            return
+        hand_row = QHBoxLayout()
+        hand_row.setContentsMargins(0, 0, 0, 0)
+        hand_row.setSpacing(6)
+        hand_row.addWidget(theme.muted("by hand, at"))
+        self.hand_edit = QLineEdit(str(switch_value or ""))
+        self.hand_edit.setPlaceholderText("moment value, moment value …")
+        self.hand_edit.setToolTip(HAND_TIP)
+        self.hand_edit.editingFinished.connect(self._hand_changed)
+        hand_row.addWidget(self.hand_edit, 1)
+        self.hand_add = QPushButton("+")
+        self.hand_add.setFixedWidth(DRIFT_WIDTH)
+        self.hand_add.setToolTip("Add a change a little after the last one, "
+                                 "to the value the knob has now")
+        self.hand_add.clicked.connect(self._hand_add)
+        hand_row.addWidget(self.hand_add)
+        hand_row.addSpacing(DRIFT_WIDTH + 6)
+        self.hand_host = QWidget()
+        self.hand_host.setLayout(hand_row)
+        layout.addWidget(self.hand_host)
+        self.hand_toggle.setChecked(bool(switch_value))
+        self.hand_toggle.toggled.connect(self._toggle_hand)
+        self.hand_host.setVisible(bool(switch_value))
+
+    def _toggle_hand(self, on):
+        self.hand_host.setVisible(on)
+        if on:
+            self._hand_changed()
+        else:
+            self.valueChanged.emit("switch_" + self.name, None)
+
+    def _hand_changed(self):
+        schedule = parse_switch(self.hand_edit.text())
+        if schedule is None:
+            self.hand_edit.setStyleSheet("border: 1px solid %s;" % theme.ERR)
+            return
+        self.hand_edit.setStyleSheet("")
+        self.valueChanged.emit("switch_" + self.name,
+                               format_switch(schedule) if schedule else None)
+
+    def _hand_add(self):
+        schedule = parse_switch(self.hand_edit.text()) or []
+        at = 0.5 if not schedule else min(round(schedule[-1][0] + 0.1, 4), 0.95)
+        schedule.append((at, float(_value_of(self.editor))))
+        self.hand_edit.setText(format_switch(schedule))
+        if not self.hand_toggle.isChecked():
+            self.hand_toggle.setChecked(True)
+        else:
+            self._hand_changed()
 
     def eventFilter(self, obj, event):
         # The pictures follow the knob in hand, not the pointer passing over:

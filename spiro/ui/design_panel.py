@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (QComboBox, QFrame, QLabel, QPushButton,
                                QScrollArea, QVBoxLayout, QWidget)
 
 from spiro.pipeline.registry import (COMMON_PARAMS, JITTER_PREFIX, MODULE_DEFS,
-                                     OSC_PREFIX)
+                                     OSC_PREFIX, SWITCH_PREFIX)
 from spiro.ui import glyphs, theme
 from spiro.ui.explainer import ExplainerCard
 from spiro.ui.finishing_panel import FinishingPanel
@@ -400,7 +400,8 @@ class DesignPanel(QWidget):
             drift_spec=spec["params"].get(end_name),
             drift_value=params.get(end_name, params.get(name, param_spec["default"])),
             osc_value=params.get(OSC_PREFIX + name),
-            jitter_value=params.get(JITTER_PREFIX + name))
+            jitter_value=params.get(JITTER_PREFIX + name),
+            switch_value=params.get(SWITCH_PREFIX + name))
         widget.valueChanged.connect(
             lambda key, value, target=params: self._set_param(target, key, value))
         widget.picked.connect(self.explain)
@@ -485,6 +486,12 @@ class DesignPanel(QWidget):
         for name in ("pen_lift", "moire", "tile", "clip"):
             if self.document.extras.get(name):
                 yield name.replace("_", " ")
+        output = self.document.output or {}
+        pens = [c for c in str(output.get("inks", "")).split(",") if c.strip()]
+        if len(pens) > 1:
+            yield "%d pens" % len(pens)
+        if float(output.get("ink_flow", 0) or 0) > 0:
+            yield "ink by speed"
 
     def _finishing_changed(self):
         self._label_finishing()

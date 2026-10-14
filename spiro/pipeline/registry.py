@@ -359,7 +359,7 @@ MODULE_DEFS = {
     "pintograph": {
         "category": "generator",
         "label": "Pintograph",
-        "desc": "Two cranks, two rods, the pen where the rods meet — the two-disc drawing machine",
+        "desc": "Two cranks, two rods, the pen past the hinge — Gandy's two-disc machine; each crank can carry a second disc",
         "params": {
             "spacing":      {"type": "float", "default": 200.0, "min": 10, "max": 600, "desc": "Crank spacing"},
             "radius_1":     {"type": "float", "default": 60.0,  "min": 0,  "max": 300, "desc": "Crank 1 radius"},
@@ -399,11 +399,14 @@ MODULE_DEFS = {
     "tempo": {
         "category": "clock",
         "label": "Tempo",
-        "desc": "Re-clock everything after it: backwards, there and back, in steps, faster, offset, eased",
+        "desc": "Re-clock everything after it: backwards, there and back, in steps (a table indexed by hand), faster, offset, eased, or driven by a motor",
         "params": {
             "mode":  {"type": "choice", "choices": ["pingpong", "reverse", "stutter", "speed", "offset", "ease", "motor"], "default": "pingpong", "desc": "How"},
             "rate":  {"type": "float", "default": 2.0, "min": 0.1, "max": 50, "step": 0.5, "desc": "Times over (speed)", "when": "speed"},
-            "steps": {"type": "int",   "default": 8,   "min": 1,   "max": 200, "desc": "Stops (stutter)", "when": "stutter"},
+            "steps": {"type": "int",   "default": 8,   "min": 1,   "max": 200, "desc": "Stops (stutter)", "when": "stutter",
+                      "help": "How many positions the later steps stop at. With dwell 1 this is a table turned "
+                              "by hand between runs: put it before a rotation of 360 and the runs land that many "
+                              "times round; cut the line between them with a threshold pen lift."},
             "dwell": {"type": "float", "default": 0.5, "min": 0,   "max": 1, "step": 0.05, "desc": "Time stopped (stutter; 1 = instant steps)", "when": "stutter"},
             "phase": {"type": "float", "default": 0.25, "min": 0,  "max": 1, "step": 0.05, "desc": "Start ahead by (offset)", "when": "offset"},
             "curve": {"type": "choice", "choices": EASING_MODES, "default": "ease_in_out", "desc": "Curve (ease)", "when": "ease"},

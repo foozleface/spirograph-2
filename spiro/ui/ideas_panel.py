@@ -32,6 +32,23 @@ SKIP = {".venv", "venv", ".git", "__pycache__", "node_modules", "test-results",
 FIRST = ["joe_fun", "", "claude_autogen", "compositions", "examples"]
 
 
+def note(path, lines=8):
+    """The comment a file opens with, which is where a pattern says what it
+    is for -- the first few lines, without their semicolons."""
+    out = []
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                if not line.startswith(";"):
+                    break
+                out.append(line[1:].strip())
+                if len(out) >= lines:
+                    break
+    except OSError:
+        return ""
+    return " ".join(out).strip()
+
+
 def describe(document):
     """What a pattern is made of, in the machine's words."""
     arms, paths, moves, clocks = [], [], [], []
@@ -141,8 +158,10 @@ class IdeasPanel(QWidget):
                 ini = None
             item = QListWidgetItem(path.stem)
             item.setData(Qt.UserRole, str(path))
-            item.setData(Qt.UserRole + 1, words)
-            item.setToolTip("%s\n%s" % (path.relative_to(self.root), words))
+            said = note(path)
+            item.setData(Qt.UserRole + 1, words + ("\n" + said if said else ""))
+            item.setToolTip("%s\n%s%s" % (path.relative_to(self.root),
+                                          said + "\n\n" if said else "", words))
             item.setTextAlignment(Qt.AlignHCenter | Qt.AlignTop)
             placeholder = QPixmap(THUMB, THUMB)
             placeholder.fill(theme.CANVAS_BG)

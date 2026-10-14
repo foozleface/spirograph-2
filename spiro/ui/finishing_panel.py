@@ -14,13 +14,18 @@ the document, because the INI is the document.
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QGroupBox,
-                               QLabel, QSpinBox, QVBoxLayout, QWidget)
+                               QHBoxLayout, QLabel, QLineEdit, QPushButton,
+                               QSpinBox, QVBoxLayout, QWidget)
 
 from spiro.pipeline.registry import FINISHING_DEFS
 from spiro.ui import theme
-from spiro.ui.widgets import number_box, row
+from spiro.ui.widgets import Swatch, number_box, row
 
 ORDER = ["symmetry", "pen_lift", "moire", "tile", "clip"]
+
+# The pens a drawing's own inks are offered in, in the order they are added.
+INK_PALETTE = ["#000000", "#c0392b", "#1f6fb4", "#1e8449", "#8e44ad", "#d68910"]
+MAX_INKS = 6
 
 
 class FinishingPanel(QWidget):
@@ -62,6 +67,55 @@ class FinishingPanel(QWidget):
             self.editors[section] = editors
             box.toggled.connect(self._apply)
             layout.addWidget(box)
+
+        # -- inks: pens swapped by hand, and the ink weighted by speed -------- #
+        box = QGroupBox("Inks")
+        box.setToolTip(
+            "What the file says about its own ink. More than one pen: the "
+            "machine was stopped and the pen swapped part-way, each pen "
+            "starting where the last stopped. Ink by speed: a gravity-fed "
+            "pen's line darkens where it moves slowly and thins where it is "
+            "fast. Both show on the screen and in the SVG; a plot still uses "
+            "the one pen the pattern is placed with.")
+        inner = QVBoxLayout(box)
+        inner.setContentsMargins(8, 4, 8, 6)
+        inner.setSpacing(3)
+        inner.addWidget(theme.muted(
+            "Pens swapped part-way, and a line as dark as the pen was slow.", wrap=True))
+        self.pens_host = QWidget()
+        self.pens_layout = QHBoxLayout(self.pens_host)
+        self.pens_layout.setContentsMargins(0, 0, 0, 0)
+        self.pens_layout.setSpacing(4)
+        self.swatches = []
+        self.pen_add = QPushButton("+ pen")
+        self.pen_add.setToolTip("One more pen, swapped in part-way through the draw")
+        self.pen_add.clicked.connect(self._add_pen)
+        self.pen_remove = QPushButton("−")
+        self.pen_remove.setFixedWidth(26)
+        self.pen_remove.setToolTip("Take the last pen off")
+        self.pen_remove.clicked.connect(self._remove_pen)
+        inner.addWidget(row(QLabel("Pens"), 1, self.pens_host, self.pen_add, self.pen_remove))
+        self.ink_changes = QLineEdit()
+        self.ink_changes.setPlaceholderText("equal shares")
+        self.ink_changes.setFixedWidth(130)
+        self.ink_changes.setToolTip(
+            "Where the pen was swapped, as fractions of the draw: 0.3, 0.6. "
+            "Left blank, the pens take equal shares of the line.")
+        self.ink_changes.editingFinished.connect(self._apply_inks)
+        inner.addWidget(row(QLabel("Swapped at"), 1, self.ink_changes))
+        self.ink_flow = QDoubleSpinBox()
+        self.ink_flow.setRange(0.0, 2.0)
+        self.ink_flow.setSingleStep(0.1)
+        self.ink_flow.setDecimals(2)
+        self.ink_flow.setFixedWidth(100)
+        self.ink_flow.setKeyboardTracking(False)
+        self.ink_flow.setToolTip(
+            "How much the line darkens where the pen moves slowly and fades "
+            "where it moves fast. 0 is an even line; 0.5 is a felt tip on a "
+            "slow machine; 1 is strong.")
+        self.ink_flow.valueChanged.connect(self._apply_inks)
+        inner.addWidget(row(QLabel("Ink by speed"), 1, self.ink_flow))
+        layout.addWidget(box)
 
         box = QGroupBox("Framing")
         inner = QVBoxLayout(box)
@@ -130,9 +184,65 @@ class FinishingPanel(QWidget):
                     value = values.get(key, p["default"])
                     _set(widget, value)
             self.margin.setValue(float(self.document.output.get("margin", 0.08)))
+            output = self.document.output or {}
+            pens = [c.strip() for c in str(output.get("inks", "")).split(",") if c.strip()]
+            self._set_pens(pens or [str(output.get("stroke_color", INK_PALETTE[0]))])
+            self.ink_changes.setText(str(output.get("ink_changes", "") or ""))
+            self.ink_flow.setValue(float(output.get("ink_flow", 0) or 0))
         finally:
             self._loading = False
         self._show_relevant()
+
+    # -- inks ---------------------------------------------------------------------- #
+
+    def _set_pens(self, colors):
+        for swatch in self.swatches:
+            self.pens_layout.removeWidget(swatch)
+            swatch.deleteLater()
+        self.swatches = []
+        for color in colors[:MAX_INKS]:
+            swatch = Swatch(color)
+            swatch.setToolTip("Pen %d — click to choose its colour" % (len(self.swatches) + 1))
+            swatch.colorPicked.connect(self._apply_inks)
+            self.pens_layout.addWidget(swatch)
+            self.swatches.append(swatch)
+        self.pen_add.setEnabled(len(self.swatches) < MAX_INKS)
+        self.pen_remove.setEnabled(len(self.swatches) > 1)
+
+    def pens(self):
+        return [swatch.color for swatch in self.swatches]
+
+    def _add_pen(self):
+        colors = self.pens()
+        unused = [c for c in INK_PALETTE if c not in colors] or INK_PALETTE
+        self._set_pens(colors + [unused[0]])
+        self._apply_inks()
+
+    def _remove_pen(self):
+        colors = self.pens()
+        if len(colors) > 1:
+            self._set_pens(colors[:-1])
+            self._apply_inks()
+
+    def _apply_inks(self, *_args):
+        if self._loading:
+            return
+        output = self.document.output
+        colors = self.pens()
+        if len(colors) > 1:
+            output["inks"] = ", ".join(colors)
+        else:
+            output.pop("inks", None)
+        changes = self.ink_changes.text().strip()
+        if changes and len(colors) > 1:
+            output["ink_changes"] = changes
+        else:
+            output.pop("ink_changes", None)
+        if self.ink_flow.value() > 0:
+            output["ink_flow"] = round(self.ink_flow.value(), 2)
+        else:
+            output.pop("ink_flow", None)
+        self.documentChanged.emit()
 
     def _fill_vary(self, widget, current):
         widget.clear()

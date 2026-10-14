@@ -799,6 +799,78 @@ def _spiral_noise(r):
         rot(r.pick([180, 360, 540]))], "stroke_width": 0.12}
 
 
+# -- the operator's moves: what a person does between and during runs --------------- #
+
+@recipe("Runs by hand — a set of loops, the table turned, another set")
+def _runs_by_hand(r):
+    """Gandy's way: not one geared run but several, the table turned by hand
+    between them. The stutter clock with dwell 1 is the hand on the table;
+    each run is one swell of the loop, small to large to small."""
+    runs = r.pick([7, 9, 11, 13])
+    per_run = r.i(20, 36)
+    return {"steps": [
+        single("translation", start_x=r.f(30, 60), end_x=0, start_y=0, end_y=0),
+        single("ellipse", anchor="end", center_x=0, radius_x=r.f(120, 160),
+               radius_y=r.f(100, 140), rotation=r.f(0, 30), cycles=runs * per_run),
+        single("scale", scope=1, start_scale=0.3, end_scale=1.0,
+               osc_start_scale="%d,0" % runs, origin_x=0, origin_y=0),
+        single("tempo", mode="stutter", steps=runs, dwell=1),
+        rot(360)],
+        "stroke_width": 0.1, "symmetry": 1,
+        "extras": {"pen_lift": {"mode": "threshold", "threshold": 40}},
+        "sampling": {"use_arc_length": False}}
+
+
+@recipe("Two-stage crank — a disc on a disc, the reach breathing")
+def _two_stage_crank(r):
+    turns = r.i(80, 140)
+    extend = r.f(200, 320)
+    return {"steps": [
+        single("pintograph", spacing=200, radius_1=r.f(30, 45), turns_1=turns,
+               eccentric_1=r.f(20, 35), eccentric_turns_1=turns + r.pick([3, 5, 7, 9]),
+               radius_2=r.f(20, 35), turns_2=r.pick([1, 2, 3]), phase_2=90,
+               arm_1=200, arm_2=200, pen_extend=extend, cycles=1),
+        table_turn(r.pick([360, 540, 720]), extend)],
+        "stroke_width": 0.1, "symmetry": 1}
+
+
+def table_turn(degrees, extend, spacing=200.0, arm=200.0):
+    """A rotation about where a pintograph's pen rests -- the elbow of two
+    equal rods over the crank centres, plus the pen's reach past it -- so
+    the table turns under the drawing rather than around some far point."""
+    half = spacing / 2
+    height = (arm * arm - half * half) ** 0.5
+    along = extend / arm
+    return single("rotation", total_degrees=degrees, origin_x=half * along,
+                  origin_y=height * (1 + along), normalize=True)
+
+
+@recipe("Pulley swapped while it runs — one ratio, then another")
+def _pulley_swapped(r):
+    second = r.i(80, 120)
+    beat = r.pick([5, 7, 9])
+    extend = r.f(240, 320)
+    return {"steps": [
+        single("pintograph", spacing=200, radius_1=60, turns_1=second + beat,
+               radius_2=60, turns_2=second, phase_2=90, arm_1=200, arm_2=200,
+               pen_extend=extend, cycles=1,
+               switch_turns_1="%g %g" % (r.f(0.4, 0.6), second + beat + r.pick([4, 6, 8]))),
+        table_turn(r.pick([360, 540, 720]), extend)],
+        "stroke_width": 0.1, "symmetry": 1}
+
+
+@recipe("Three pens — the machine stopped twice to swap the ink")
+def _three_pens(r):
+    return {"steps": [
+        single("ellipse", radius_x=r.f(80, 120), radius_y=r.f(40, 70),
+               cycles=r.i(40, 80)),
+        rot(r.pick([360, 540, 720]))],
+        "stroke_width": 0.25, "symmetry": 1,
+        "output": {"inks": "#1f3a93, #c0392b, #1e8449",
+                   "ink_changes": "%g, %g" % (r.f(0.25, 0.4), r.f(0.6, 0.75)),
+                   "ink_flow": 0.4}}
+
+
 # -- picking one ------------------------------------------------------------------------- #
 
 def names():
@@ -831,7 +903,9 @@ def random_pattern(rng=None, avoid=(), index=None):
     everything has been used recently the constraint is dropped rather than
     returning nothing.
 
-    Returns ``{index, name, steps, symmetry, output}``.
+    Returns ``{index, name, steps, symmetry, output, extras, sampling}``: the
+    last two usually empty, filled by a recipe that finishes its line or
+    needs the draw sampled a particular way.
     """
     r = _Rand(rng)
     if index is None:
@@ -848,7 +922,10 @@ def random_pattern(rng=None, avoid=(), index=None):
     symmetry = ({"n_fold": fold, "mirror": bool(fold > 1 and r.chance(0.4))}
                 if fold > 1 else {})
 
+    output = {"stroke_width": made.get("stroke_width", 0.12)}
+    output.update(made.get("output", {}))
     return {"index": index, "name": builder.recipe_name,
             "slug": slug(builder.recipe_name), "steps": made["steps"],
-            "symmetry": symmetry,
-            "output": {"stroke_width": made.get("stroke_width", 0.12)}}
+            "symmetry": symmetry, "output": output,
+            "extras": dict(made.get("extras", {})),
+            "sampling": dict(made.get("sampling", {}))}
