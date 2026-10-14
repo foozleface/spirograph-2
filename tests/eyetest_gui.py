@@ -75,7 +75,11 @@ SETTINGS_DIR = tempfile.mkdtemp(prefix="spiro-settings-")
 # The window's control socket goes there too: a window on the desktop
 # listens on the user's one socket, and a second window would take it over.
 os.environ["XDG_RUNTIME_DIR"] = SETTINGS_DIR
-QSettings.setPath(QSettings.NativeFormat, QSettings.UserScope, SETTINGS_DIR)
+# INI, not the native store: on macOS the native store is the system
+# preferences, which ignore the path -- so the window under test would
+# read the desktop app's own settings, and the session saved beside them.
+QSettings.setDefaultFormat(QSettings.IniFormat)
+QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, SETTINGS_DIR)
 __import__("atexit").register(__import__("shutil").rmtree, SETTINGS_DIR, True)
 app.setStyleSheet(theme.STYLESHEET)
 if OUT.exists():
@@ -245,6 +249,55 @@ window.document.steps[1]["params"]["bore_offset"] = 6
 window.document.steps[1]["params"]["end_bore_offset"] = 6
 window.design.refresh(select=1)
 rendered(window)
+
+print("the snail — a loop walked out along a spiral, pens swapped on the way:")
+window._open_path(str(ROOT / "reference" / "plots" / "04-snail.ini"))
+wait_for(lambda: window.drawing is not None and "04-snail" in window.render.caption)
+pump(200)
+snap(window, "snail-window")
+window.design.finishing_toggle.setChecked(True)
+pump(150)
+window.design.params_area.verticalScrollBar().setValue(
+    window.design.params_area.verticalScrollBar().maximum())
+pump(100)
+snap(window.design, "snail-finishing-inks-box")
+window.design.finishing_toggle.setChecked(False)
+strip = window.render_panel.timeline
+snap(window.render_panel, "snail-render-with-pen-timeline")
+from PySide6.QtCore import QPointF  # noqa: E402
+from PySide6.QtGui import QMouseEvent  # noqa: E402
+def _mouse(kind, x, button=Qt.LeftButton):
+    ev = QMouseEvent(kind, QPointF(x, strip.height() / 2), QPointF(x, strip.height() / 2),
+                     button, button if kind != QEvent.MouseButtonRelease else Qt.NoButton,
+                     Qt.NoModifier)
+    QApplication.sendEvent(strip, ev)
+x0 = strip._x(0.30)
+x1 = strip._x(0.345)
+_mouse(QEvent.MouseButtonPress, x0)
+_mouse(QEvent.MouseMove, (x0 + x1) / 2)
+_mouse(QEvent.MouseMove, x1)
+pump(60)
+snap(window.render_panel, "snail-timeline-dragging-a-holiday")
+_mouse(QEvent.MouseButtonRelease, x1)
+rendered(window)
+pump(150)
+print("  holidays now: %r" % window.document.output.get("holidays"))
+snap(window.render_panel, "snail-timeline-holiday-made")
+window.design.finishing_toggle.setChecked(True)
+pump(100)
+window.design.params_area.verticalScrollBar().setValue(
+    window.design.params_area.verticalScrollBar().maximum())
+pump(60)
+snap(window.design, "snail-inks-box-shows-the-holiday")
+window.design.finishing_toggle.setChecked(False)
+window._place()
+pump(200)
+window.right_tabs.setCurrentWidget(window.sheet)
+pump(100)
+snap(window.sheet, "snail-sheet-a-pen-per-ink")
+snap(window, "snail-on-paper")
+window.canvas.deleteRequested.emit(window.scene.items[-1].item_id)
+pump(150)
 
 print("finishing:")
 window.design.strip.select(1)

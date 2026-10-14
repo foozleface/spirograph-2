@@ -42,6 +42,7 @@ from PySide6.QtWidgets import (QCheckBox, QHBoxLayout, QLabel, QPushButton,
 
 from spiro.pipeline.registry import is_arm  # noqa: F401  (kinds come from the window)
 from spiro.ui import glyphs, theme
+from spiro.ui.ink_timeline import InkTimeline
 from spiro.ui.zooming import WheelZoom
 
 PADDING_PX = 36
@@ -587,7 +588,7 @@ class RenderView(QWidget):
 
 
 class RenderPanel(QWidget):
-    """The render view with the scrubber under it."""
+    """The render view, the pen timeline, and the scrubber under it."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -596,6 +597,15 @@ class RenderPanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         layout.addWidget(self.view, 1)
+
+        # The pen plan over the draw, lined up with the scrubber under it.
+        self.timeline = InkTimeline()
+        strip = QWidget()
+        strip.setObjectName("panel")
+        strip_layout = QHBoxLayout(strip)
+        strip_layout.setContentsMargins(0, 2, 0, 0)
+        strip_layout.addWidget(self.timeline, 1)
+        layout.addWidget(strip)
 
         bar = QWidget()
         bar.setObjectName("panel")

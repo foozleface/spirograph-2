@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QGroupBox, QLabel, QSpinBox
 
 from axiplot import notify
 from spiro.ui import theme
+from spiro.ui.settings import store
 from spiro.ui.widgets import row
 
 
@@ -36,7 +37,7 @@ class NotifyPanel(QWidget):
 
     def __init__(self, settings=None, parent=None):
         super().__init__(parent)
-        self.settings = settings or QSettings("spirograph-2", "notify")
+        self.settings = settings or store("notify")
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)

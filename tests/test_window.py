@@ -53,7 +53,11 @@ app = QApplication.instance() or QApplication([])
 # Settings go to a throwaway folder: the gate must neither read the user's
 # remembered choices (a plot mode, a pen speed) nor write over them.
 SETTINGS_DIR = tempfile.mkdtemp(prefix="spiro-settings-")
-QSettings.setPath(QSettings.NativeFormat, QSettings.UserScope, SETTINGS_DIR)
+# INI, not the native store: on macOS the native store is the system
+# preferences, which ignore the path -- so the window under test would
+# read the desktop app's own settings, and the session saved beside them.
+QSettings.setDefaultFormat(QSettings.IniFormat)
+QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, SETTINGS_DIR)
 __import__("atexit").register(__import__("shutil").rmtree, SETTINGS_DIR, True)
 ROOT_DIR = Path(__file__).resolve().parents[1]
 
@@ -1456,6 +1460,17 @@ check("place puts it on the paper", placed.get("ok") and len(window.scene.items)
 shot = os.path.join(SETTINGS_DIR, "shot.png")
 check("screenshot writes a picture", ctl("screenshot", "path=" + shot, "what=paper").get("ok")
       and os.path.getsize(shot) > 1000)
+ctl("place")
+ctl("place")
+check("unplace by name takes every copy of that name off the paper",
+      ctl("unplace", "name=%s" % window.document.name).get("removed") == 3
+      and len(window.scene.items) == 0)
+check("and says so when there is nothing to take off",
+      "not on the paper" in ctl("unplace")["error"])
+ctl("place")
+check("unplace with no name takes Build's own copy off",
+      ctl("unplace").get("removed") == 1 and len(window.scene.items) == 0)
+ctl("place")
 check("and what was built through it is undoable", ctl("undo").get("ok")
       and len(window.scene.items) == 0)
 control.close()

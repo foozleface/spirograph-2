@@ -307,13 +307,24 @@ class SheetPanel(QWidget):
                           % (item.x_mm, item.y_mm))
             self.items.setItem(index, 3, at)
 
-            pen = QComboBox()
-            for pen_index, entry in enumerate(self.scene.pens):
-                pen.addItem("%d · %s" % (pen_index + 1, entry.label), pen_index)
-            pen.setCurrentIndex(min(item.pen, len(self.scene.pens) - 1))
-            pen.currentIndexChanged.connect(
-                lambda _i, target=item, box=pen: self._set_pen(target, box))
-            self.items.setCellWidget(index, 4, pen)
+            inks = self.scene.item_inks(item)
+            if inks:
+                # The file swapped pens part-way: one plotter pen per ink,
+                # chosen by colour, not by this column.
+                pens = self.scene.pens_for(item)
+                cell = QTableWidgetItem(", ".join("%d" % (i + 1) for i in pens))
+                cell.setToolTip("%d inks in the file, each on the pen of its colour"
+                                % len(inks))
+                cell.setFlags(cell.flags() & ~Qt.ItemIsEditable)
+                self.items.setItem(index, 4, cell)
+            else:
+                pen = QComboBox()
+                for pen_index, entry in enumerate(self.scene.pens):
+                    pen.addItem("%d · %s" % (pen_index + 1, entry.label), pen_index)
+                pen.setCurrentIndex(min(item.pen, len(self.scene.pens) - 1))
+                pen.currentIndexChanged.connect(
+                    lambda _i, target=item, box=pen: self._set_pen(target, box))
+                self.items.setCellWidget(index, 4, pen)
 
             if select is not None and item.item_id == select:
                 self.items.selectRow(index)

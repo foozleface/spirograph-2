@@ -932,6 +932,69 @@ def run_single_pipeline(config: configparser.ConfigParser,
     return points
 
 
+def ink_plan(inks, changes="", holidays="", advance=0.0):
+    """The pen plan of one draw: ``[(t0, t1, ink_index), ...]`` -- the spans
+    of the draw during which the pen is down, as fractions, each with the
+    ink it is drawn in, in order. Between spans the pen is up and the
+    machine runs on: the pattern continues unseen.
+
+    ``changes`` is where the pens were swapped, as fractions: ``0.3, 0.6``.
+    A swap written as a span, ``0.3-0.34``, is the machine stopped at 0.3,
+    the pen changed, and run on to 0.34 with the pen up before it was put
+    down again. A swap written as a point gets ``advance`` of pen-up after
+    it (0: the new pen starts where the old one stopped). Left empty, the
+    pens take equal shares.
+
+    ``holidays`` are spans with the pen up and no swap: ``0.5-0.53``.
+
+    Pure: no config, no points. The Inks box, the pen timeline and the
+    SVG writer all read the plan from here, so they cannot disagree.
+    """
+    inks = list(inks)
+    count = max(len(inks), 1)
+
+    def spans(text):
+        out = []
+        for token in str(text or "").split(","):
+            token = token.strip()
+            if not token:
+                continue
+            a, _, b = token.partition("-")
+            a = min(max(float(a), 0.0), 1.0)
+            b = min(max(float(b), a), 1.0) if b.strip() else None
+            out.append((a, b))
+        return out
+
+    swaps = spans(changes)[:count - 1]
+    if count > 1 and not swaps:
+        swaps = [(k / count, None) for k in range(1, count)]
+    swaps.sort()
+    plan = []
+    at, ink = 0.0, 0
+    for a, b in swaps:
+        if b is None:
+            b = min(a + max(float(advance or 0.0), 0.0), 1.0)
+        if a > at:
+            plan.append((at, a, ink))
+        at, ink = b, min(ink + 1, count - 1)
+    if at < 1.0:
+        plan.append((at, 1.0, ink))
+    for h0, h1 in sorted(spans(holidays)):
+        if h1 is None or h1 <= h0:
+            continue
+        cut = []
+        for t0, t1, k in plan:
+            if h1 <= t0 or h0 >= t1:
+                cut.append((t0, t1, k))
+                continue
+            if t0 < h0:
+                cut.append((t0, h0, k))
+            if h1 < t1:
+                cut.append((h1, t1, k))
+        plan = cut
+    return plan
+
+
 def ink_styles(points: np.ndarray, t_values: np.ndarray,
                config: configparser.ConfigParser):
     """The pen changes and the ink weight of one finished curve, as a list
@@ -941,34 +1004,32 @@ def ink_styles(points: np.ndarray, t_values: np.ndarray,
     ``[output] inks = #000000, #c0392b`` are the pens used in order, the
     machine stopped and the pen swapped at each of ``ink_changes = 0.4``
     (fractions of the draw; evenly spaced when not given). Gandy pauses his
-    machine to swap colours; this is that.
+    machine to swap colours; this is that. A change written ``0.4-0.43``
+    is the machine run on with the pen up from 0.4 to 0.43 before the new
+    pen is put down; ``ink_advance = 0.004`` is that gap for every change
+    written as a point; ``holidays = 0.7-0.72`` is the pen up and down
+    again with no swap. See :func:`ink_plan`.
 
     ``[output] ink_flow = 0.6`` is how much a gravity-fed pen darkens the
     line where it moves slowly and thins it where it moves fast: the ink
     per unit length goes as (median speed / speed) ** ink_flow, kept
     between 0.25 and 1, read in runs of INK_RUN points.
     """
-    raw = config.get('output', 'inks', fallback='') if config.has_section('output') else ''
+    has = config.has_section('output')
+    raw = config.get('output', 'inks', fallback='') if has else ''
     inks = [c.strip() for c in raw.split(',') if c.strip()]
-    flow = config.getfloat('output', 'ink_flow', fallback=0.0) if config.has_section('output') else 0.0
-    if len(inks) < 2 and flow <= 0:
+    flow = config.getfloat('output', 'ink_flow', fallback=0.0) if has else 0.0
+    changes = config.get('output', 'ink_changes', fallback='') if has else ''
+    holidays = config.get('output', 'holidays', fallback='') if has else ''
+    advance = config.getfloat('output', 'ink_advance', fallback=0.0) if has else 0.0
+    if len(inks) < 2 and flow <= 0 and not holidays.strip():
         return [points], None
     n = len(points)
-    # The pen swaps: where each ink starts, as a point index.
-    bounds = [0]
-    if len(inks) >= 2:
-        raw = config.get('output', 'ink_changes', fallback='')
-        changes = [float(x) for x in raw.split(',') if x.strip()]
-        if not changes:
-            changes = [k / len(inks) for k in range(1, len(inks))]
-        changes = sorted(min(max(c, 0.0), 1.0) for c in changes)[:len(inks) - 1]
-        bounds += [int(round(c * (n - 1))) for c in changes]
-    bounds.append(n)
+    plan = ink_plan(inks, changes, holidays, advance)
     pieces, styles = [], []
-    for k in range(len(bounds) - 1):
-        lo, hi = bounds[k], bounds[k + 1]
-        # Keep the line unbroken: the new pen starts where the old one stopped.
-        lo = max(lo - 1, 0) if k > 0 else lo
+    for t0, t1, k in plan:
+        lo = int(round(t0 * (n - 1)))
+        hi = int(round(t1 * (n - 1))) + 1
         color = inks[k] if len(inks) >= 2 else None
         if hi - lo < 2:
             continue

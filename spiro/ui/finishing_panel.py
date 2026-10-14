@@ -75,8 +75,8 @@ class FinishingPanel(QWidget):
             "machine was stopped and the pen swapped part-way, each pen "
             "starting where the last stopped. Ink by speed: a gravity-fed "
             "pen's line darkens where it moves slowly and thins where it is "
-            "fast. Both show on the screen and in the SVG; a plot still uses "
-            "the one pen the pattern is placed with.")
+            "fast. Both show on the screen and in the SVG, and a pattern with "
+            "more than one pen takes a plotter pen per ink when it is placed.")
         inner = QVBoxLayout(box)
         inner.setContentsMargins(8, 4, 8, 6)
         inner.setSpacing(3)
@@ -100,9 +100,32 @@ class FinishingPanel(QWidget):
         self.ink_changes.setFixedWidth(130)
         self.ink_changes.setToolTip(
             "Where the pen was swapped, as fractions of the draw: 0.3, 0.6. "
-            "Left blank, the pens take equal shares of the line.")
+            "0.3-0.34 is the machine run on with the pen up from 0.3 to 0.34 "
+            "before the new pen went down. Left blank, the pens take equal "
+            "shares of the line. The strip under the render edits this too.")
         self.ink_changes.editingFinished.connect(self._apply_inks)
         inner.addWidget(row(QLabel("Swapped at"), 1, self.ink_changes))
+        self.ink_advance = QDoubleSpinBox()
+        self.ink_advance.setRange(0.0, 0.2)
+        self.ink_advance.setSingleStep(0.001)
+        self.ink_advance.setDecimals(3)
+        self.ink_advance.setFixedWidth(100)
+        self.ink_advance.setKeyboardTracking(False)
+        self.ink_advance.setToolTip(
+            "How far the machine is run with the pen up after each swap, as a "
+            "fraction of the draw: stop, change the pen, nudge it on, restart. "
+            "0 keeps the line unbroken.")
+        self.ink_advance.valueChanged.connect(self._apply_inks)
+        inner.addWidget(row(QLabel("Advance after swap"), 1, self.ink_advance))
+        self.holidays = QLineEdit()
+        self.holidays.setPlaceholderText("none")
+        self.holidays.setFixedWidth(130)
+        self.holidays.setToolTip(
+            "Stretches of the draw with the pen up and no swap, as fractions: "
+            "0.5-0.53, 0.8-0.82. The machine runs on; nothing is drawn. Drag "
+            "across the strip under the render to make one.")
+        self.holidays.editingFinished.connect(self._apply_inks)
+        inner.addWidget(row(QLabel("Pen up at"), 1, self.holidays))
         self.ink_flow = QDoubleSpinBox()
         self.ink_flow.setRange(0.0, 2.0)
         self.ink_flow.setSingleStep(0.1)
@@ -188,6 +211,8 @@ class FinishingPanel(QWidget):
             pens = [c.strip() for c in str(output.get("inks", "")).split(",") if c.strip()]
             self._set_pens(pens or [str(output.get("stroke_color", INK_PALETTE[0]))])
             self.ink_changes.setText(str(output.get("ink_changes", "") or ""))
+            self.ink_advance.setValue(float(output.get("ink_advance", 0) or 0))
+            self.holidays.setText(str(output.get("holidays", "") or ""))
             self.ink_flow.setValue(float(output.get("ink_flow", 0) or 0))
         finally:
             self._loading = False
@@ -238,6 +263,15 @@ class FinishingPanel(QWidget):
             output["ink_changes"] = changes
         else:
             output.pop("ink_changes", None)
+        holidays = self.holidays.text().strip()
+        if holidays:
+            output["holidays"] = holidays
+        else:
+            output.pop("holidays", None)
+        if self.ink_advance.value() > 0 and len(colors) > 1:
+            output["ink_advance"] = round(self.ink_advance.value(), 3)
+        else:
+            output.pop("ink_advance", None)
         if self.ink_flow.value() > 0:
             output["ink_flow"] = round(self.ink_flow.value(), 2)
         else:

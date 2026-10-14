@@ -13,3 +13,4 @@ Finished drawing, square crop from a gallery post. Black paper, gel ink shading 
 
 - Centre of the spiral is near the sheet centre; the loop's long axis stays tangent to the spiral, so the loop is attached to a turning carrier, not to the sheet.
 - Mechanism: fast loop (crank + eccentric) carried by a slow turning table whose radius creeps outward. In this project: `ellipse` loop under `rotation` with a drifting `translation`; same family as the `gandy-9175` ring run, with the radius sweep made continuous instead of stepped.
+- `reference/plots/04-snail.ini` is this drawing as a file: an ellipse arm at 150 loops, growing, carried out along a spiral path of a turn and a half and turned with it; five pens swapped at four points, the machine run on with the pen up at each swap, so the colour bands sit apart. The pen plan is the strip under the render; placed on the paper it takes a plotter pen per ink.

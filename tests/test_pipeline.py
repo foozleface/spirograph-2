@@ -696,6 +696,27 @@ check("three inks make three paths in the file's colours, each starting where th
       len(_inked.paths) == 3 and [s["color"] for s in _inked.styles] == ["#112233", "#445566", "#778899"]
       and _inked.paths[0][-1] == _inked.paths[1][0] and _inked.paths[1][-1] == _inked.paths[2][0])
 check("a plain file has no styles", run(_ink_ini.replace("inks = #112233, #445566, #778899\nink_changes = 0.3, 0.6\n", "") % "").styles is None)
+from main import ink_plan  # noqa: E402
+check("a plan with no swaps and no holidays is one span of the first ink",
+      ink_plan(["#a"]) == [(0.0, 1.0, 0)])
+check("pens with nothing said take equal shares, meeting end to end",
+      ink_plan(["#a", "#b", "#c"]) == [(0.0, 1 / 3, 0), (1 / 3, 2 / 3, 1), (2 / 3, 1.0, 2)])
+check("a swap written as a span is the pen up between its ends",
+      ink_plan(["#a", "#b"], "0.3-0.34") == [(0.0, 0.3, 0), (0.34, 1.0, 1)])
+check("a swap written as a point takes the advance after it",
+      ink_plan(["#a", "#b"], "0.3", advance=0.02) == [(0.0, 0.3, 0), (0.32, 1.0, 1)])
+check("a holiday cuts the pen-down span it falls in, same pen either side",
+      ink_plan(["#a", "#b"], "0.5", "0.2-0.25") == [(0.0, 0.2, 0), (0.25, 0.5, 0), (0.5, 1.0, 1)])
+check("and one pen alone can take a holiday",
+      ink_plan(["#a"], holidays="0.4-0.6") == [(0.0, 0.4, 0), (0.6, 1.0, 0)])
+_holiday = run(_ink_ini.replace("inks = #112233, #445566, #778899\nink_changes = 0.3, 0.6\n", "") % "holidays = 0.4-0.5\n")
+check("a one-ink file with a holiday draws as two pieces with a gap between them",
+      len(_holiday.paths) == 2 and abs(_holiday.paths[0][-1] - _holiday.paths[1][0]) > 0.5)
+_nudged = run(_ink_ini % "ink_advance = 0.01\n")
+check("advanced with the pen up after a swap: each new pen starts a gap after the last stopped",
+      len(_nudged.paths) == 3 and _nudged.paths[0][-1] != _nudged.paths[1][0]
+      and abs(_nudged.paths[0][-1] - _nudged.paths[1][0]) > 0.5
+      and sum(len(p) for p in _nudged.paths) < sum(len(p) for p in _inked.paths))
 _flow = run(_ink_ini % "ink_flow = 0.7\n")
 _ops = [s["opacity"] for s in _flow.styles]
 check("ink weight by speed: many runs, darkest where the pen is slow, never below the faintest",

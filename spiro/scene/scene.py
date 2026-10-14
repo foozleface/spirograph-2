@@ -131,6 +131,54 @@ class Scene:
         return out
 
     # -- pens ------------------------------------------------------------------ #
+    #
+    # An item is drawn by one pen -- unless its file swapped pens part-way
+    # (``[output] inks``). Then each piece of it carries its own colour, and
+    # the sheet has a pen for each of those colours: the plot stops between
+    # them for the swap, as the machine was stopped. Such an item's own
+    # ``pen`` is where it goes if an ink has no pen.
+
+    @staticmethod
+    def item_inks(item):
+        """The ink colours an item's file swapped between, in order of first
+        use; empty for a one-pen item."""
+        styles = getattr(item.drawing, "styles", None) or []
+        out = []
+        for style in styles:
+            color = (style or {}).get("color")
+            if color and color not in out:
+                out.append(color)
+        return out
+
+    def pen_for_color(self, color):
+        """The index of the pen of that colour, or None."""
+        for index, pen in enumerate(self.pens):
+            if pen.color.lower() == str(color).lower():
+                return index
+        return None
+
+    def ensure_pen_colors(self, colors):
+        """A pen for each colour, added after the ones there are, named
+        after the default pen of that colour when there is one."""
+        names = dict(DEFAULT_PEN_COLORS)
+        for color in colors:
+            if self.pen_for_color(color) is None:
+                self.pens.append(Pen(color, names.get(color.lower(), color)))
+        return self.pens
+
+    def pens_for(self, item):
+        """The pen indices that draw an item: its inks' pens, or its own."""
+        inks = self.item_inks(item)
+        if not inks:
+            return [min(max(item.pen, 0), len(self.pens) - 1)] if self.pens else []
+        out = []
+        for color in inks:
+            index = self.pen_for_color(color)
+            if index is None:
+                index = min(max(item.pen, 0), len(self.pens) - 1)
+            if index not in out:
+                out.append(index)
+        return out
 
     def pen_of(self, item):
         index = min(max(item.pen, 0), len(self.pens) - 1) if self.pens else 0
@@ -147,12 +195,12 @@ class Scene:
 
     def pens_in_use(self, only=None):
         """The pens that actually have something to draw, in pen order."""
-        used = {i.pen for i in self.plot_items(only)}
+        used = {index for i in self.plot_items(only) for index in self.pens_for(i)}
         return [(index, pen) for index, pen in enumerate(self.pens)
                 if index in used and pen.include]
 
     def items_for_pen(self, index):
-        return [i for i in self.items if i.visible and i.pen == index]
+        return [i for i in self.items if i.visible and index in self.pens_for(i)]
 
     def ensure_pens(self, n):
         """Grow the pen list to at least n, keeping what is already there."""
@@ -179,7 +227,7 @@ class Scene:
             out.append('<rect x="0" y="0" width="%g" height="%g" fill="%s"/>'
                        % (w, h, background))
         for item in self.plot_items(only):
-            if pens is not None and item.pen not in pens:
+            if pens is not None and not set(self.pens_for(item)) & set(pens):
                 continue
             pen_color = self.pen_of(item).color
             styles = getattr(item.drawing, "styles", None) or []
@@ -188,10 +236,17 @@ class Scene:
                     continue
                 # A drawing that changed pens or weighted its ink carries a
                 # style per path; the colour is the file's own, the opacity
-                # the ink weight. The plot job still counts the item as its
-                # one pen: the swaps in such a file are for the screen.
+                # the ink weight. Each ink is drawn by the sheet's pen of
+                # that colour, so the piece is stroked with the pen's colour
+                # and the plot stops between inks as it does between pens.
                 style = styles[index] if index < len(styles) and styles[index] else {}
-                color = style.get("color") or pen_color
+                ink = style.get("color")
+                pen_index = self.pen_for_color(ink) if ink else None
+                if pen_index is None:
+                    pen_index = min(max(item.pen, 0), len(self.pens) - 1) if self.pens else 0
+                if pens is not None and pen_index not in pens:
+                    continue
+                color = self.pens[pen_index].color if self.pens else (ink or pen_color)
                 opacity = style.get("opacity", 1.0)
                 extra = ' stroke-opacity="%.3f"' % opacity if opacity < 1.0 else ""
                 out.append('<path d="%s" fill="none" stroke="%s"%s '

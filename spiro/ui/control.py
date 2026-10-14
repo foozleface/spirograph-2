@@ -29,6 +29,8 @@ set step key value           change one setting of one step; a null value
 quality label                Draft / Fine / Ultra
 render                       redraw now
 place                        put the pattern on the paper
+unplace [name]               take patterns off the paper: every one of that
+                             name, or Build's own copy when no name is given
 save path                    save the pattern as an .ini
 undo / redo
 screenshot path [what]       what: window (default), build, render, paper
@@ -203,6 +205,17 @@ class ControlServer(QObject):
         self.window._place()
         item = self.window.scene.items[-1]
         return {"name": item.name, "w_mm": item.w_mm, "h_mm": item.h_mm}
+
+    def cmd_unplace(self, r):
+        w = self.window
+        name = r.get("name")
+        items = ([i for i in w.scene.items if i.name == str(name)] if name
+                 else w._linked_items())
+        if not items:
+            raise ValueError("nothing on the paper called %r" % name if name
+                             else "Build's pattern is not on the paper")
+        w._take_off(items)
+        return {"removed": len(items), "left": len(w.scene.items)}
 
     def cmd_save(self, r):
         path = Path(os.path.expanduser(str(r["path"])))

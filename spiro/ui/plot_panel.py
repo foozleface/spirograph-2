@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox,
 
 from axiplot import driver as axidriver
 from spiro.ui import theme
+from spiro.ui.settings import store
 from spiro.ui.widgets import row
 
 # name -> (label, minimum, maximum, default, suffix). These are the AxiDraw's
@@ -44,7 +45,7 @@ class PlotPanel(QWidget):
 
     def __init__(self, settings=None, parent=None):
         super().__init__(parent)
-        self.settings = settings or QSettings("spirograph-2", "plotter")
+        self.settings = settings or store("plotter")
         self.running = False
 
         scroll = QVBoxLayout(self)

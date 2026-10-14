@@ -34,6 +34,7 @@ from spiro.scene import SHEET_SUFFIX, Paper, Scene, item_inis
 from spiro.text import is_text_ini
 from spiro.text import parse as text_spec
 from spiro.ui import theme
+from spiro.ui.settings import store
 from spiro.ui.canvas_view import PaperCanvas
 from spiro.ui import glyphs
 from spiro.ui.design_panel import DesignPanel
@@ -70,7 +71,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Spirograph")
         self.resize(1600, 950)
 
-        self.settings = QSettings("spirograph-2", "app")
+        self.settings = store("app")
         self.document = Document()
         self.scene = Scene(paper=Paper.from_axidraw(3))
         self.drawing = None               # the current preview, not yet placed
@@ -143,8 +144,8 @@ class MainWindow(QMainWindow):
         self.render_panel = RenderPanel()
         self.render = self.render_panel.view
         self.sheet = SheetPanel(self.scene)
-        self.plot = PlotPanel(QSettings("spirograph-2", "plotter"))
-        self.notify = NotifyPanel(QSettings("spirograph-2", "notify"))
+        self.plot = PlotPanel(store("plotter"))
+        self.notify = NotifyPanel(store("notify"))
 
         right = QTabWidget()
         right.addTab(self.sheet, "Sheet")
@@ -366,6 +367,7 @@ class MainWindow(QMainWindow):
         self.design.offPaperRequested.connect(self._remove_linked)
         self.design.randomRequested.connect(self._randomize)
         self.design.selectionChanged.connect(self.render_panel.set_highlight)
+        self.render_panel.timeline.changed.connect(self._ink_plan_edited)
         self.library.openRequested.connect(self._open_path)
         self.library.statusMessage.connect(self.status_left.setText)
         self.ideas.openRequested.connect(self._open_path)
@@ -881,6 +883,18 @@ class MainWindow(QMainWindow):
 
     # -- generating ------------------------------------------------------------------ #
 
+    def _ink_plan_edited(self, values):
+        """The pen timeline under the render was dragged: the plan goes into
+        the file's output section, the Inks box follows, and it redraws."""
+        output = self.document.output
+        for key, value in values.items():
+            if value:
+                output[key] = value
+            else:
+                output.pop(key, None)
+        self.design.finishing.reload()
+        self.design._finishing_changed()
+
     def _schedule_render(self):
         self._render_timer.start()
 
@@ -932,6 +946,7 @@ class MainWindow(QMainWindow):
         scopes = [params.get("scope", "all") for params in singles]
         self.render_panel.set_drawing(drawing, "%s   ·   %s" % (self.document.name, caption),
                                       kinds, scopes)
+        self.render_panel.timeline.set_output(self.document.output)
         self.design.set_stages(drawing)
         # Re-generating replaces the drawing behind any item that came from
         # this document, so an edit is visible on the paper immediately.
@@ -995,15 +1010,18 @@ class MainWindow(QMainWindow):
         item = self._paper_step(lambda: self.scene.add(
             self.drawing, name=self.document.name, source=self.document.renew()))
         self.scene.ensure_pens(item.pen + 1)
+        # A file that swapped pens part-way gets a plotter pen per ink.
+        self.scene.ensure_pen_colors(self.scene.item_inks(item))
         self.sheet.refresh(select=item.item_id)
         self.canvas.select(item.item_id)
         self.canvas.invalidate()
         self.centre.setCurrentWidget(self.paper_host)
         self._update_placement()
         self._touch_session()
-        self._say("Placed %s — %.0f x %.0f mm at %.0f, %.0f on pen %d"
+        pens = ", ".join(str(i + 1) for i in self.scene.pens_for(item))
+        self._say("Placed %s — %.0f x %.0f mm at %.0f, %.0f on pen%s %s"
                   % (item.name, item.w_mm, item.h_mm, item.x_mm, item.y_mm,
-                     item.pen + 1))
+                     "s" if len(self.scene.pens_for(item)) > 1 else "", pens))
 
     # -- text on the paper ---------------------------------------------------------- #
 

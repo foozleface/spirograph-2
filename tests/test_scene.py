@@ -230,6 +230,41 @@ check("restricting the SVG to one pen leaves only that pen's paths",
       {p["stroke"] for p in colorsplit.parse(scene.to_svg(pens={1}))["paths"]}
       == {scene.pens[1].color})
 
+# -- a pattern that swapped pens part-way ------------------------------------------- #
+
+print("a pattern with inks:")
+_inked = run(build_ini(steps=[{"kind": "single", "params": {"type": "spirograph_gear",
+                                                            "fixed_teeth": 96, "rolling_teeth": 41}}],
+                       output={"inks": "#c0392b, #8e44ad, #1f6fb4", "ink_changes": "0.3, 0.6"},
+                       sampling={"initial_samples": 15000, "output_samples": 1500}))
+check("the drawing carries its three inks", Scene.item_inks(type("I", (), {"drawing": _inked})())
+      == ["#c0392b", "#8e44ad", "#1f6fb4"])
+_sc = Scene(paper=Paper.from_axidraw(3))
+_it = _sc.add(_inked, name="inked")
+_sc.ensure_pen_colors(_sc.item_inks(_it))
+check("placing it adds a pen for each ink it has no pen for: purple and blue join black and red",
+      [p.color for p in _sc.pens] == ["#000000", "#c0392b", "#8e44ad", "#1f6fb4"]
+      and [p.label for p in _sc.pens[2:]] == ["Purple", "Blue"])
+check("the item is drawn by the pens of its inks, not the one it was placed on",
+      _sc.pens_for(_it) == [1, 2, 3] and _it.pen == 0)
+check("so those are the pens in use, and black has nothing",
+      [i for i, _ in _sc.pens_in_use()] == [1, 2, 3] and _sc.items_for_pen(0) == []
+      and _sc.items_for_pen(2) == [_it])
+_svg = _sc.to_svg()
+check("every piece is stroked with its ink's pen colour",
+      {p["stroke"] for p in colorsplit.parse(_svg)["paths"]} == {"#c0392b", "#8e44ad", "#1f6fb4"})
+check("and asking for one pen gives only that ink's piece",
+      {p["stroke"] for p in colorsplit.parse(_sc.to_svg(pens={2}))["paths"]} == {"#8e44ad"})
+_job = _sc.job()
+check("the job is in colour mode with three pens, so the plot stops between the inks",
+      _job["mode"] == "color" and [p["label"] for p in _job["pens"]] == ["Red", "Purple", "Blue"]
+      and len(colorsplit.split_by_groups(_job["svg"], [{"colors": [p["color"]], "label": p["label"]}
+                                                      for p in _job["pens"]])) == 3)
+_sc.pens[2].color = "#101010"
+check("a pen recoloured away from its ink: that ink falls back to the pen the item sits on",
+      _sc.pens_for(_it) == [1, 0, 3])
+_sc.pens[2].color = "#8e44ad"
+
 # -- pens and the job ------------------------------------------------------------ #
 
 print("pens and the plot job:")

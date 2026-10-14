@@ -311,12 +311,23 @@ Surprise me builds one.
 [output]
 inks = #000000, #c0392b, #1f6fb4   # the pens, in order
 ink_changes = 0.3, 0.6             # where the machine was stopped to swap them
+ink_advance = 0.004                # run on with the pen up this far after each swap
+holidays = 0.5-0.53                # the pen up, and down again, with no swap
 ink_flow = 0.5                     # the line darker where the pen moved slowly
 ```
 
-Each pen starts where the last stopped. `ink_flow` weights each run of the line
-by how slowly the pen moved there, as a gravity-fed pen does. Both show on the
-screen and in the SVG; the Inks box under Finishing edits them.
+The machine never stops drawing its pattern; what changes is whether the pen
+is down, and which pen. Each pen starts where the last stopped, or a gap after
+it when `ink_advance` says the operator nudged the machine on before
+restarting; a change written `0.3-0.34` has its own gap. A holiday is the pen
+up and down again with no swap. The strip under the render is this plan drawn
+out: drag across it to lift the pen for a stretch, drag a gap's edge to move
+it, double-click a gap to close it, Ctrl-click a band to choose its pen.
+`ink_flow` weights each run of the line by how slowly the pen moved there, as a
+gravity-fed pen does. All of it shows on the screen and in the SVG; the Inks
+box under Finishing edits them. Placed on the paper, a pattern with more than
+one ink takes a plotter pen per ink, chosen by colour, so the plot stops
+between them for the swap.
 
 ## Generators
 
