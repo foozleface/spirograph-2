@@ -683,6 +683,11 @@ _clamp = module(TranslationModule, "start_x = 0\nend_x = 0\nstart_y = 0\nend_y =
 _clamp.set_pipeline_period(__import__("fractions").Fraction(1))
 check("the paper re-clamped: a translation switched part-way jumps by that much",
       np.allclose(_clamp.transform(np.zeros(3, dtype=complex), np.array([0.2, 0.5, 0.9])), [0, 50, 50]))
+_index = module(TempoModule, "mode = stutter\nsteps = 4\ndwell = 1")
+_index.set_pipeline_period(__import__("fractions").Fraction(1))
+_iv = _index.retime(np.linspace(0, 0.999, 400))
+check("a table indexed by hand: dwell 1 holds each of four positions and steps between samples",
+      len(np.unique(np.round(_iv, 9))) == 4 and np.allclose(np.unique(np.round(_iv, 9)), [0, 0.25, 0.5, 0.75]))
 _ink_ini = ("[pipeline]\nmodules = c, p\n[c]\ntype = circle\nradius = 50\ncycles = 3\n[p]\ntype = circle\n"
             "radius = 10\ncycles = 40\n[output]\ninks = #112233, #445566, #778899\nink_changes = 0.3, 0.6\n"
             "%s[sampling]\ninitial_samples = 20000\noutput_samples = 3000\n")

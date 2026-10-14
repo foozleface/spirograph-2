@@ -10,7 +10,9 @@ over, or with a phase shift — whatever the modules after it are.
     reverse    t' = T - t                 the draw runs backwards
     pingpong   there and back             out to the end, then home again
     stutter    n steps with dwells        stop, jump, stop — a Geneva feel
-                                          for any pattern
+                                          for any pattern; dwell = 1 is an
+                                          instant step, a table indexed by
+                                          hand
     speed      t' = rate · t (mod T)      everything after repeats `rate`
                                           times over the draw
     offset     t' = t + phase · T         start part-way round
@@ -74,7 +76,10 @@ class TempoModule(TransformModule):
         self.mode = self._get('mode', 'pingpong').strip().lower()
         self.rate = self._getfloat('rate', 2.0)
         self.steps = max(1, self._getint('steps', 8))
-        self.dwell = min(max(self._getfloat('dwell', 0.5), 0.0), 0.95)
+        # dwell = 1 is the limit: no move at all, the next position taken
+        # between one sample and the next -- a table indexed by hand with
+        # the pen off the paper.
+        self.dwell = min(max(self._getfloat('dwell', 0.5), 0.0), 1.0)
         self.phase = self._getfloat('phase', 0.25)
         self.curve = self._get('curve', 'ease_in_out').strip().lower()
         self.on_at = min(max(self._getfloat('on_at', 0.0), 0.0), 1.0)
@@ -101,8 +106,11 @@ class TempoModule(TransformModule):
             n = self.steps
             k = np.floor(u * n)                  # which step we are in
             f = u * n - k                        # how far through it
-            move = np.clip((f - self.dwell) / max(1.0 - self.dwell, 1e-9), 0.0, 1.0)
-            move = move * move * (3 - 2 * move)  # smoothstep into the next stop
+            if self.dwell >= 1.0:
+                move = np.zeros_like(f)
+            else:
+                move = np.clip((f - self.dwell) / (1.0 - self.dwell), 0.0, 1.0)
+                move = move * move * (3 - 2 * move)  # smoothstep into the next stop
             v = (k + move) / n
         elif self.mode == 'speed':
             v = (u * self.rate) % 1.0

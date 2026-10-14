@@ -404,7 +404,7 @@ MODULE_DEFS = {
             "mode":  {"type": "choice", "choices": ["pingpong", "reverse", "stutter", "speed", "offset", "ease", "motor"], "default": "pingpong", "desc": "How"},
             "rate":  {"type": "float", "default": 2.0, "min": 0.1, "max": 50, "step": 0.5, "desc": "Times over (speed)", "when": "speed"},
             "steps": {"type": "int",   "default": 8,   "min": 1,   "max": 200, "desc": "Stops (stutter)", "when": "stutter"},
-            "dwell": {"type": "float", "default": 0.5, "min": 0,   "max": 0.95, "step": 0.05, "desc": "Time stopped (stutter)", "when": "stutter"},
+            "dwell": {"type": "float", "default": 0.5, "min": 0,   "max": 1, "step": 0.05, "desc": "Time stopped (stutter; 1 = instant steps)", "when": "stutter"},
             "phase": {"type": "float", "default": 0.25, "min": 0,  "max": 1, "step": 0.05, "desc": "Start ahead by (offset)", "when": "offset"},
             "curve": {"type": "choice", "choices": EASING_MODES, "default": "ease_in_out", "desc": "Curve (ease)", "when": "ease"},
             "on_at":  {"type": "float", "default": 0.0, "min": 0, "max": 1, "step": 0.01, "desc": "Switched on at (motor)", "when": "motor"},
