@@ -338,7 +338,10 @@ nib has come over each cell; a stroke that would carry a cell past the limit
 is lifted over the heavy ink and put down again after it. The lift and the
 landing go *inside* the heavy stretch, on the least-inked cell a millimetre or
 so in from its edge, so the mark a fountain pen leaves where it lands hides in
-ink that is already dense. A stretch too short to lift over is drawn through.
+ink that is already dense. A stretch too short to lift over is drawn through,
+and no piece shorter than 6 mm is put down: two lifts with only a crumb between
+them become one longer lift, and a crumb at either end of a line is left off.
+A fountain pen barely inks a dab that short, and each one is another landing.
 The drawn pieces are then counted again from scratch; if the paper would still
 tear, the pen is lifted sooner and lands closer to the edge, and it is all
 simulated again. A few cells one pass over the limit -- twenty at most, a

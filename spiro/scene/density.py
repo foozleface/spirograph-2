@@ -35,7 +35,8 @@ gives it. Pure functions and a grid or two; nothing here knows about Qt.
 import numpy as np
 
 INSETS_MM = (1.0, 0.7, 0.5, 0.3)
-SLACK_CELLS = 20     # cells that may go one pass over the limit: a few, not a band      # how far inside the heavy ink the pen lands, gentlest first
+SLACK_CELLS = 20                       # cells that may go one pass over the limit: a few, not a band
+MIN_PIECE_MM = 6.0                     # the shortest stretch worth putting the pen down for
 MIN_INSET_MM = 0.1                     # never closer to the edge of the heavy ink than this
 INSET_REACH_MM = 1.5                   # how much further in the landing may go, for a lighter cell
 COARSE_CELLS = 20                      # a coarse cell, in fine cells (3 mm at a 0.3 mm nib)
@@ -162,7 +163,8 @@ class InkGrid:
         return at
 
 
-def guard(paths, grid, threshold, inset_mm, candidates=None, reach_mm=INSET_REACH_MM, limit=None):
+def guard(paths, grid, threshold, inset_mm, candidates=None, reach_mm=INSET_REACH_MM, limit=None,
+          min_piece_mm=MIN_PIECE_MM):
     """Draw ``paths`` in order onto ``grid``, lifting the pen inside any
     stretch whose cells have already been come over ``threshold`` times.
 
@@ -171,6 +173,11 @@ def guard(paths, grid, threshold, inset_mm, candidates=None, reach_mm=INSET_REAC
     many times the pen was lifted, and how many pieces each path became. ``candidates`` is a function of points
     saying where lifting can be needed at all (see
     :meth:`InkGrid.candidate_mask`); elsewhere a path is taken as it is.
+
+    No piece shorter than ``min_piece_mm`` is put down: a fountain pen
+    barely inks a dab that short, and each one costs a lift and a landing
+    mark. Two cuts with only a crumb between them become one cut, and a
+    crumb at either end of the path is left off with the cut beside it.
     """
     min_skip = grid.nib
     limit = threshold if limit is None else limit
@@ -244,8 +251,15 @@ def guard(paths, grid, threshold, inset_mm, candidates=None, reach_mm=INSET_REAC
                                 lo=max(s_b - inset_mm - reach_mm, up), hi=min(s_b + inset_mm, total))
             if down - up < min_skip:
                 continue
-            cuts.append((up, down))
+            if cuts and up - cuts[-1][1] < min_piece_mm:
+                cuts[-1] = (cuts[-1][0], down)        # only a crumb between: one longer lift
+            else:
+                cuts.append((up, down))
             last_down = down
+        if cuts and 0.0 < cuts[0][0] < min_piece_mm:
+            cuts[0] = (0.0, cuts[0][1])
+        if cuts and cuts[-1][1] < total and total - cuts[-1][1] < min_piece_mm:
+            cuts[-1] = (cuts[-1][0], total)
         if not cuts:
             pieces.append(np.asarray(path, dtype=complex))
             per_path.append(1)

@@ -296,6 +296,12 @@ _star = [np.linspace(30 + 25j - 20 * np.exp(1j * a), 30 + 25j + 20 * np.exp(1j *
 _pieces, _rep = density.plan(_star, 100, 50, 0.3, 5)
 check("ten lines through one point: the later ones lift over the crossing",
       _rep["ok"] and _rep["max_passes"] == 5 and _rep["lifts"] == 5 and len(_pieces) == 15, _rep)
+_comb = [np.linspace(5 + 25j, 95 + 25j, 900) for _ in range(6)]
+_teeth = [np.linspace(x + 5j, x + 45j, 400) for x in np.arange(10, 90, 2.0) for _ in range(6)]
+_pieces, _rep = density.plan(_comb + _teeth, 100, 50, 0.3, 5)
+_short = [p for p in _pieces if 1e-9 < np.abs(np.diff(p)).sum() < density.MIN_PIECE_MM]
+check("a comb crossed every 2 mm: no crumb shorter than %g mm is put down" % density.MIN_PIECE_MM,
+      _rep["ok"] and not _short, (len(_short), _rep.get("lifts")))
 _dot = [np.linspace(30 + 25j, 30.2 + 25j, 20) for _ in range(6)]
 _pieces, _rep = density.plan(_dot, 100, 50, 0.3, 5)
 check("six touches on a dot too short to lift over: a few cells one over, let through",
