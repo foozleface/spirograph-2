@@ -327,6 +327,27 @@ _lone = _fan + [np.linspace(5 + 45j, 95 + 45j, 300)]
 _pieces, _rep = density.thin(_lone, 100, 50, 0.3, spots=1, fraction=0.3)
 check("a line on its own, away from the spot, is drawn whole",
       _rep["pieces_per_path"][-1] == 1 and len(_pieces) == len(_lone) + _rep["lifts"], _rep)
+# A rim: one line passed three times through a light lattice, limit 2. The old
+# guard cut the third pass and landed on paper only 1.2 passes deep across
+# the dot's footprint; a row of such dots reads as a thick black stroke.
+_lattice = [np.linspace(x + 5j, x + 45j, 400) for x in np.arange(10, 90, 2.0)]
+_rim = [np.linspace(5 + 25j, 95 + 25j, 900) for _ in range(3)]
+_pieces, _rep = density.plan(_lattice + _rim, 100, 50, 0.3, 2)
+_full = density.InkGrid(100, 50, 0.3).count(_lattice + _rim)
+_foot = density._box_mean(_full.counts.reshape(_full.h, _full.w).astype(float), 2).ravel()
+_land = []
+_at = 0
+for _n in _rep["pieces_per_path"]:
+    _mine = _pieces[_at:_at + _n]
+    _at += _n
+    _land += [p[0] for p in _mine[1:]] + [p[-1] for p in _mine[:-1]]
+check("a rim through a light lattice: the pen never lands in ink lighter than a landing mark",
+      not _land or _foot[_full.cells_of(np.array(_land))].min() >= density.DENSE_PASSES, len(_land))
+check("so the limit is not met there, and the report says so",
+      _rep["ok"] is False and _rep["hot_cells"] > 0, _rep)
+_pieces, _rep = density.thin(_lattice + _rim, 100, 50, 0.3, spots=1, fraction=0.5)
+check("nor is a light drawing thinned: there is no spot dense enough",
+      _rep["lifts"] == 0 and _rep["spots"] == [], _rep)
 _sc3 = Scene(paper=Paper.from_axidraw(3))
 _sc3.guard_mode = "limit"
 _sc3.thin_fraction = 0.5

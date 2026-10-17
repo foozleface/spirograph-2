@@ -39,6 +39,8 @@ SLACK_CELLS = 20                       # cells that may go one pass over the lim
 MIN_PIECE_MM = 6.0                     # the shortest stretch worth putting the pen down for
 MIN_SKIP_MM = 1.5                      # the shortest stretch worth lifting the pen over
 CHUNK_MM = 25.0                        # a long path is counted this much at a time
+DENSE_PASSES = 2.0                     # ink, averaged over a landing mark's footprint, that hides it
+DENSE_BLUR_MM = 0.3                    # the footprint: this far each way (a 0.75 mm box at a 0.3 nib)
 MIN_INSET_MM = 0.1                     # never closer to the edge of the heavy ink than this
 INSET_REACH_MM = 1.5                   # how much further in the landing may go, for a lighter cell
 COARSE_CELLS = 20                      # a coarse cell, in fine cells (3 mm at a 0.3 mm nib)
@@ -143,6 +145,18 @@ class InkGrid:
     def hot_cells(self, limit):
         return int(np.count_nonzero(self.counts > limit))
 
+    def dense_mask(self, passes=DENSE_PASSES, blur_mm=DENSE_BLUR_MM):
+        """Where the ink, averaged over a box ``blur_mm`` each way -- the
+        footprint of the mark a fountain pen leaves where it lands -- comes
+        to ``passes`` or more, so the mark falls on paper already that
+        dark; as a function of points."""
+        k = max(1, int(round(blur_mm / self.cell)))
+        dense = _box_mean(self.counts.reshape(self.h, self.w).astype(float), k) >= passes
+
+        def at(points):
+            return dense.ravel()[self.cells_of(points)]
+        return at
+
     def candidate_mask(self, threshold):
         """Which coarse cells hold a fine cell at ``threshold`` or more,
         widened by one coarse cell each way; as a function of points."""
@@ -166,7 +180,7 @@ class InkGrid:
 
 
 def guard(paths, grid, threshold, inset_mm, candidates=None, reach_mm=INSET_REACH_MM, limit=None,
-          min_piece_mm=MIN_PIECE_MM, min_skip_mm=MIN_SKIP_MM, chunk_mm=CHUNK_MM):
+          min_piece_mm=MIN_PIECE_MM, min_skip_mm=MIN_SKIP_MM, chunk_mm=CHUNK_MM, dense=None):
     """Draw ``paths`` in order onto ``grid``, lifting the pen inside any
     stretch whose cells have already been come over ``threshold`` times.
 
@@ -190,6 +204,10 @@ def guard(paths, grid, threshold, inset_mm, candidates=None, reach_mm=INSET_REAC
     whole crumb; on bare paper the crumb is drawn. Nor is the pen lifted
     over less than ``min_skip_mm``: up and straight back down is a landing
     mark for nothing.
+
+    ``dense`` is a function of points saying where the ink is heavy enough
+    to hide a landing mark (see :meth:`InkGrid.dense_mask`); the pen is
+    never lifted or landed anywhere else, whatever that costs the limit.
     """
     min_skip = max(grid.nib, min_skip_mm)
     limit = threshold if limit is None else limit
@@ -217,10 +235,11 @@ def guard(paths, grid, threshold, inset_mm, candidates=None, reach_mm=INSET_REAC
             others, _, _ = grid.visits(pts, ~keep)
             np.add.at(grid.counts, others, 1)
         chunk = np.minimum((s[first] / chunk_mm).astype(np.int64), int(total // chunk_mm))
+        hides = dense(pts) if dense is not None else np.ones(len(pts), dtype=bool)
         cuts = []
         for k in np.unique(chunk):
             mine = chunk == k
-            cuts = _chunk_cuts(cells[mine], first[mine], last[mine], pts, s, grid, cuts,
+            cuts = _chunk_cuts(cells[mine], first[mine], last[mine], pts, s, hides, grid, cuts,
                                threshold, inset_mm, reach_mm, limit, min_skip)
         cuts = [c for c in cuts if not _draw_through(c, pts, s, grid, limit, min_skip)]
         cuts = _no_crumbs(cuts, pts, s, grid, min_piece_mm)
@@ -235,7 +254,7 @@ def guard(paths, grid, threshold, inset_mm, candidates=None, reach_mm=INSET_REAC
     return pieces, lifts, per_path
 
 
-def _chunk_cuts(cells, first, last, pts, s, grid, cuts, threshold, inset_mm, reach_mm,
+def _chunk_cuts(cells, first, last, pts, s, hides, grid, cuts, threshold, inset_mm, reach_mm,
                 limit, min_skip):
     """The path's ``cuts`` so far, with those for one chunk's visits added
     (``cells``, ``first``, ``last`` as :meth:`InkGrid.visits` gives them),
@@ -276,6 +295,7 @@ def _chunk_cuts(cells, first, last, pts, s, grid, cuts, threshold, inset_mm, rea
     i_hi = min(len(s), np.searchsorted(s, runs[-1][1] + 3 * (inset_mm + reach_mm)) + 1)
     sw = s[i_lo:i_hi]
     load = grid.counts[grid.cells_under(pts[i_lo:i_hi])].max(axis=1)
+    hw = hides[i_lo:i_hi]
     new = []
     last_down = cuts[-1][1] if cuts else -1.0
     for s_a, s_b in runs:
@@ -291,13 +311,17 @@ def _chunk_cuts(cells, first, last, pts, s, grid, cuts, threshold, inset_mm, rea
         if at_start:
             up = 0.0
         else:
-            up = _landing(load, sw, s_a, limit, inset_mm, reach_mm, inward=+1,
+            up = _landing(load, hw, sw, s_a, limit, inset_mm, reach_mm, inward=+1,
                           lo=max(last_down, s_a - inset_mm), hi=min(s_a + inset_mm + reach_mm, s_b))
         if at_end:
             down = total
+        elif up is None:
+            down = None
         else:
-            down = _landing(load, sw, s_b, limit, inset_mm, reach_mm, inward=-1,
+            down = _landing(load, hw, sw, s_b, limit, inset_mm, reach_mm, inward=-1,
                             lo=max(s_b - inset_mm - reach_mm, up), hi=min(s_b + inset_mm, total))
+        if up is None or down is None:
+            continue                      # no dense ink to lift or land in: drawn through
         shortest = grid.nib if at_start or at_end else min_skip
         if down - up < shortest:
             i0, i1 = np.searchsorted(sw, up, side="left"), np.searchsorted(sw, down, side="right")
@@ -306,7 +330,7 @@ def _chunk_cuts(cells, first, last, pts, s, grid, cuts, threshold, inset_mm, rea
             # too short to be worth a landing, but drawing it would tear:
             # lift, over as much of the covered ink round it as makes the
             # lift worth one
-            up, down = _widen(load, sw, up, down, shortest, lo=max(last_down, 0.0), hi=total)
+            up, down = _widen(load, hw, sw, up, down, shortest, lo=max(last_down, 0.0), hi=total)
         new.append((up, down))
         last_down = down
     if new:
@@ -343,7 +367,7 @@ def _draw_through(cut, pts, s, grid, limit, min_skip):
     return True
 
 
-def _widen(load, s, up, down, length, lo, hi):
+def _widen(load, hides, s, up, down, length, lo, hi):
     """``(up, down)`` grown evenly towards ``length`` of arc, between ``lo``
     and ``hi``, over points where other ink lies under the nib (``load``
     counts this pass too, so at least 2) -- never onto bare paper."""
@@ -351,12 +375,12 @@ def _widen(load, s, up, down, length, lo, hi):
     i_down = min(np.searchsorted(s, down, side="right") - 1, len(s) - 1)
     while s[i_down] - s[i_up] < length:
         grew = False
-        if i_up > 0 and s[i_up - 1] >= lo and load[i_up - 1] >= 2:
+        if i_up > 0 and s[i_up - 1] >= lo and load[i_up - 1] >= 2 and hides[i_up - 1]:
             i_up -= 1
             grew = True
         if s[i_down] - s[i_up] >= length:
             break
-        if i_down < len(s) - 1 and s[i_down + 1] <= hi and load[i_down + 1] >= 2:
+        if i_down < len(s) - 1 and s[i_down + 1] <= hi and load[i_down + 1] >= 2 and hides[i_down + 1]:
             i_down += 1
             grew = True
         if not grew:
@@ -397,7 +421,7 @@ def _no_crumbs(cuts, pts, s, grid, min_piece_mm):
     return out
 
 
-def _landing(load, s, edge, limit, inset_mm, reach_mm, inward, lo, hi):
+def _landing(load, hides, s, edge, limit, inset_mm, reach_mm, inward, lo, hi):
     """The arc length at which to lift or land beside the edge of a
     saturated stretch at ``edge``.
 
@@ -407,12 +431,13 @@ def _landing(load, s, edge, limit, inset_mm, reach_mm, inward, lo, hi):
     for ``inset_mm`` in. If the very edge is already at the limit the
     pen cannot touch it, so the landing goes outside: the nearest point
     with room, no further than the inset. ``inward`` is +1 when inside
-    lies at greater arc length."""
+    lies at greater arc length. Only where ``hides`` says the ink is dense
+    enough to hide the mark; None when there is no such place."""
     i0, i1 = np.searchsorted(s, lo, side="left"), np.searchsorted(s, hi, side="right")
     if i1 <= i0:
-        return edge
+        return None
     span = s[i0:i1]
-    room = load[i0:i1] < limit
+    room = (load[i0:i1] < limit) & hides[i0:i1]
     depth = (span - edge) * inward              # > 0 inside, < 0 outside
     order = np.argsort(depth)
     inside = order[depth[order] >= 0]
@@ -426,7 +451,9 @@ def _landing(load, s, edge, limit, inset_mm, reach_mm, inward, lo, hi):
     ok = outside[room[outside]]
     if len(ok):
         return float(span[ok[0]])
-    return edge
+    # no room anywhere near: the edge itself, where the ink hides the mark
+    nearest = int(np.argmin(np.abs(span - edge)))
+    return edge if hides[i0:i1][nearest] else None
 
 
 def _lightest(load, s, lo, hi):
@@ -508,6 +535,7 @@ def plan(paths, width_mm, height_mm, nib_mm=0.3, max_passes=5, insets=INSETS_MM,
     tries = 0
     detail = []                   # (threshold, inset, worst, hot cells, lifts) per try
     previous_threshold_best = None
+    dense = before.dense_mask()   # the pen lands only in ink that hides the mark
     for threshold in range(max_passes, 1, -1):
         candidates = before.candidate_mask(threshold)
         threshold_best = None
@@ -515,7 +543,8 @@ def plan(paths, width_mm, height_mm, nib_mm=0.3, max_passes=5, insets=INSETS_MM,
         for inset in insets:
             tries += 1
             grid = InkGrid(width_mm, height_mm, nib_mm)
-            pieces, lifts, per_path = guard(paths, grid, threshold, inset, candidates, limit=max_passes)
+            pieces, lifts, per_path = guard(paths, grid, threshold, inset, candidates, limit=max_passes,
+                                            dense=dense)
             check = InkGrid(width_mm, height_mm, nib_mm).count(pieces)
             result = (check.max_passes(), check.hot_cells(max_passes), pieces, lifts, threshold, inset, per_path)
             detail.append((threshold, inset, result[0], result[1], lifts))
@@ -535,7 +564,7 @@ def plan(paths, width_mm, height_mm, nib_mm=0.3, max_passes=5, insets=INSETS_MM,
             break                     # lifting sooner changed nothing: what is left cannot be lifted over
         previous_threshold_best = threshold_best
     worst, hot, pieces, lifts, threshold, inset, per_path = best
-    report.update(ok=False, lifts=lifts, threshold=threshold, inset_mm=inset,
+    report.update(ok=False, dense_passes=DENSE_PASSES, lifts=lifts, threshold=threshold, inset_mm=inset,
                   max_passes=worst, hot_cells=hot, tries=tries, pieces_per_path=per_path,
                   tries_detail=detail)
     return pieces, report
@@ -577,10 +606,11 @@ def find_spots(grid, n=SPOTS):
     for number in range(1, n + 1):
         y, x = np.unravel_index(int(np.argmax(left)), left.shape)
         peak = blurred[y, x]
-        if peak <= 1.0:
-            break                                    # nothing dense is left
+        if peak < DENSE_PASSES:
+            break                                    # nothing dense enough to hide a mark is left
         near = (yy - y) ** 2 + (xx - x) ** 2
-        mine = (near <= (SPOT_RADIUS_MM / grid.cell) ** 2) & (blurred >= SPOT_EDGE * peak) & (region == 0)
+        edge = max(SPOT_EDGE * peak, DENSE_PASSES)   # the pen lands at the spot's edge: dense there
+        mine = (near <= (SPOT_RADIUS_MM / grid.cell) ** 2) & (blurred >= edge) & (region == 0)
         region[mine] = number
         left[near < (SPOT_SPACING_MM / grid.cell) ** 2] = 0
         spots.append({"x_mm": round(float(x * grid.cell), 1), "y_mm": round(float(y * grid.cell), 1),
@@ -612,9 +642,11 @@ def thin(paths, width_mm, height_mm, nib_mm=0.3, spots=SPOTS, fraction=THIN,
     # every crossing of every spot, in plot order
     crossings = []                 # (spot, path index, s_in, s_out, i_in, i_out)
     sampled = []
+    dense = grid.dense_mask()
     for index, path in enumerate(paths):
         pts, s = resample(path, grid.step)
         sampled.append((pts, s))
+        hides = dense(pts)
         lab = region[grid.cells_of(pts)]
         inside = np.flatnonzero(lab)
         if not len(inside):
@@ -630,7 +662,14 @@ def thin(paths, width_mm, height_mm, nib_mm=0.3, spots=SPOTS, fraction=THIN,
                 merged[-1] = (spot, merged[-1][1], i1)
             else:
                 merged.append((spot, i0, i1))
-        crossings += [(spot, index, s[i0], s[i1], i0, i1) for spot, i0, i1 in merged]
+        # the pen lifts and lands on ink that hides the mark: the cut
+        # starts at the first such point of the crossing and ends at the last
+        for spot, i0, i1 in merged:
+            inside = np.flatnonzero(hides[i0:i1 + 1])
+            if not len(inside):
+                continue
+            i0, i1 = i0 + inside[0], i0 + inside[-1]
+            crossings.append((spot, index, s[i0], s[i1], i0, i1))
     counts = grid.counts.copy()
     cuts = {}
     for number, spot in enumerate(found, start=1):

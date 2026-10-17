@@ -1778,8 +1778,8 @@ def ink_guard_words(report):
     if hot and report.get("ok"):
         words += " %d cell%s go one over, let through." % (hot, "" if hot == 1 else "s")
     elif not report.get("ok"):
-        words += (" %d spot%s are crossings too short to lift over and may still tear."
-                  % (hot, "" if hot == 1 else "s"))
+        words += (" %d spot%s are crossings too short to lift over, or in ink too light "
+                  "to hide a landing mark, and may still tear." % (hot, "" if hot == 1 else "s"))
     return words
 
 

@@ -366,7 +366,14 @@ crossings through each, 30% to begin with, spread evenly through the plot.
 Everything else is drawn as it is. The pen lifts where a crossing enters the
 spot and lands where it leaves, at the edge of ink already heavy enough to
 hide the marks; a crossing that alone marks some stretch of paper is never left
-off, nor one too short to be worth a lift. spiro_cascade: 304 lifts instead
+off, nor one too short to be worth a lift.
+
+Either way, **the pen lands only in dense ink.** A fountain pen leaves a dot
+where it lands, and a row of them along a lightly-drawn rim reads as a thick
+black stroke. So a lift or a landing is allowed only where the ink across the
+dot's own footprint (a 0.75 mm box) already averages two passes; a stretch
+that cannot be lifted over on those terms is drawn through, and the report
+says so rather than landing on light paper to meet the limit. spiro_cascade: 304 lifts instead
 of 1,659, 95% of the line drawn, the worst spot from 35 passes to 28. The
 status line names the spots and what was left off.
 
