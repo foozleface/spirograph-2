@@ -67,10 +67,16 @@ class Scene:
     # The pen on the machine, and what the paper will take from it: a
     # fountain pen's nib width, and how many passes over one spot before
     # the wet paper tears. The plot lifts the pen over heavier ink than
-    # that (see spiro.scene.density); the screen draws every line.
+    # that (see spiro.scene.density); the screen draws every line. Two
+    # ways to guard: "spots" thins the few densest spots -- the only
+    # places that tear -- by a share of their crossings; "limit" holds
+    # every cell of the paper to max_passes, lifting wherever it must.
     nib_mm: float = 0.3
     max_passes: int = 5
     guard_ink: bool = True
+    guard_mode: str = "spots"
+    thin_spots: int = 3
+    thin_fraction: float = 0.3
 
     # -- items ---------------------------------------------------------------- #
 
@@ -253,9 +259,13 @@ class Scene:
         strokes = self.plot_strokes(pens, only)
         if not self.guard_ink:
             return strokes, {"ok": None, "guarded": False, "lifts": 0}
-        pieces, report = density.plan([path for _, _, path in strokes],
-                                      self.paper.width_mm, self.paper.height_mm,
-                                      self.nib_mm, self.max_passes)
+        paths = [path for _, _, path in strokes]
+        if self.guard_mode == "spots":
+            pieces, report = density.thin(paths, self.paper.width_mm, self.paper.height_mm,
+                                          self.nib_mm, self.thin_spots, self.thin_fraction)
+        else:
+            pieces, report = density.plan(paths, self.paper.width_mm, self.paper.height_mm,
+                                          self.nib_mm, self.max_passes)
         report["guarded"] = True
         if not report["lifts"]:
             return strokes, report
@@ -364,7 +374,8 @@ class Scene:
         already on the paper?". Any change to the geometry, the pens or the
         paper gives a different answer."""
         parts = ["%g x %g" % (self.paper.width_mm, self.paper.height_mm)]
-        parts.append("ink %g %d %d" % (self.nib_mm, self.max_passes, self.guard_ink))
+        parts.append("ink %g %d %d %s %d %g" % (self.nib_mm, self.max_passes, self.guard_ink,
+                                                self.guard_mode, self.thin_spots, self.thin_fraction))
         parts += ["pen %s %s %d" % (pen.color, pen.label, pen.include)
                   for pen in self.pens]
         for item in self.plot_items(only):
@@ -401,7 +412,8 @@ class Scene:
                           "label": self.paper.label},
                 "pens": [p.to_dict() for p in self.pens],
                 "ink": {"nib_mm": self.nib_mm, "max_passes": self.max_passes,
-                        "guard": self.guard_ink},
+                        "guard": self.guard_ink, "mode": self.guard_mode,
+                        "spots": self.thin_spots, "fraction": self.thin_fraction},
                 "items": [i.to_dict() for i in self.items]}
         if extra:
             data.update(extra)
@@ -453,6 +465,9 @@ class Scene:
         self.nib_mm = float(ink.get("nib_mm", self.nib_mm))
         self.max_passes = int(ink.get("max_passes", self.max_passes))
         self.guard_ink = bool(ink.get("guard", self.guard_ink))
+        self.guard_mode = "limit" if ink.get("mode") == "limit" else "spots"
+        self.thin_spots = int(ink.get("spots", self.thin_spots))
+        self.thin_fraction = float(ink.get("fraction", self.thin_fraction))
         self.items = [PlacedItem.from_dict(entry, drawing)
                       for entry, drawing in zip(data["items"], drawings)]
         self.ensure_pens(max((i.pen for i in self.items), default=-1) + 1)

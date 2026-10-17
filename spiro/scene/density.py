@@ -541,6 +541,140 @@ def plan(paths, width_mm, height_mm, nib_mm=0.3, max_passes=5, insets=INSETS_MM,
     return pieces, report
 
 
+# -- thinning the densest spots ------------------------------------------------- #
+
+SPOTS = 3                 # how many of the densest spots are thinned
+THIN = 0.30               # the share of the crossings left off in each
+SPOT_SPACING_MM = 12.0    # spots nearer than this are one spot
+SPOT_RADIUS_MM = 10.0     # how far a spot reaches from its centre, at most
+SPOT_BLUR_MM = 1.0        # density is judged over a box this far each way
+SPOT_EDGE = 0.5           # a spot is where the ink is at least this share of its peak
+
+
+def _box_mean(a, k):
+    """The mean of ``a`` over a (2k+1)-square box round each cell."""
+    cs = np.pad(np.cumsum(np.cumsum(a, 0), 1), ((1, 0), (1, 0)))
+    h, w = a.shape
+    y, x = np.arange(h), np.arange(w)
+    y0, y1 = np.clip(y - k, 0, h), np.clip(y + k + 1, 0, h)
+    x0, x1 = np.clip(x - k, 0, w), np.clip(x + k + 1, 0, w)
+    total = cs[y1][:, x1] - cs[y0][:, x1] - cs[y1][:, x0] + cs[y0][:, x0]
+    return total / ((y1 - y0)[:, None] * (x1 - x0)[None, :])
+
+
+def find_spots(grid, n=SPOTS):
+    """The ``n`` densest spots of the paper: ``(spots, region)``, each spot
+    a dict with its centre in mm and its passes (mean over the blur box,
+    and the worst cell), and ``region`` a flat array over the grid's cells
+    numbering the cells of spot k as k + 1 (0 elsewhere)."""
+    counts = grid.counts.reshape(grid.h, grid.w).astype(float)
+    k = max(1, int(round(SPOT_BLUR_MM / grid.cell)))
+    blurred = _box_mean(counts, k)
+    region = np.zeros(counts.shape, dtype=np.int32)
+    yy, xx = np.indices(counts.shape)
+    left = blurred.copy()
+    spots = []
+    for number in range(1, n + 1):
+        y, x = np.unravel_index(int(np.argmax(left)), left.shape)
+        peak = blurred[y, x]
+        if peak <= 1.0:
+            break                                    # nothing dense is left
+        near = (yy - y) ** 2 + (xx - x) ** 2
+        mine = (near <= (SPOT_RADIUS_MM / grid.cell) ** 2) & (blurred >= SPOT_EDGE * peak) & (region == 0)
+        region[mine] = number
+        left[near < (SPOT_SPACING_MM / grid.cell) ** 2] = 0
+        spots.append({"x_mm": round(float(x * grid.cell), 1), "y_mm": round(float(y * grid.cell), 1),
+                      "mean_passes": round(float(peak), 1), "worst": int(counts[mine].max())})
+    return spots, region.ravel()
+
+
+def thin(paths, width_mm, height_mm, nib_mm=0.3, spots=SPOTS, fraction=THIN,
+         min_skip_mm=MIN_SKIP_MM, min_piece_mm=MIN_PIECE_MM):
+    """Leave off ``fraction`` of the crossings of each of the ``spots``
+    densest spots on the paper -- the only places the ink is heavy enough
+    to tear it -- and draw everything else as it is: the pieces to draw,
+    and a report.
+
+    A crossing is one passage of a path through a spot; a path that steps
+    out and back in within ``min_piece_mm`` is still crossing it. The
+    crossings to leave off are spread evenly through the plot, never one
+    shorter than ``min_skip_mm`` (a lift for nothing), and never one whose
+    ink is all that marks some stretch of it: what is left off must lie
+    under the other crossings' ink, so no white is opened up. The pen lifts
+    where the crossing enters the spot and lands where it leaves -- at the
+    spot's edge, where the ink is already heavy enough to hide the marks.
+    """
+    paths = [np.asarray(p, dtype=complex) for p in paths if len(p) >= 2]
+    grid = InkGrid(width_mm, height_mm, nib_mm).count(paths)
+    report = {"nib_mm": nib_mm, "mode": "spots", "fraction": fraction,
+              "before": grid.max_passes()}
+    found, region = find_spots(grid, spots)
+    # every crossing of every spot, in plot order
+    crossings = []                 # (spot, path index, s_in, s_out, i_in, i_out)
+    sampled = []
+    for index, path in enumerate(paths):
+        pts, s = resample(path, grid.step)
+        sampled.append((pts, s))
+        lab = region[grid.cells_of(pts)]
+        inside = np.flatnonzero(lab)
+        if not len(inside):
+            continue
+        # runs of one spot's label; a short step outside does not end one
+        breaks = np.flatnonzero((np.diff(inside) > 1) | (np.diff(lab[inside]) != 0))
+        starts = np.concatenate([[0], breaks + 1])
+        ends = np.concatenate([breaks, [len(inside) - 1]])
+        runs = [(int(lab[inside[a]]), inside[a], inside[b]) for a, b in zip(starts, ends)]
+        merged = []
+        for spot, i0, i1 in runs:
+            if merged and merged[-1][0] == spot and s[i0] - s[merged[-1][2]] < min_piece_mm:
+                merged[-1] = (spot, merged[-1][1], i1)
+            else:
+                merged.append((spot, i0, i1))
+        crossings += [(spot, index, s[i0], s[i1], i0, i1) for spot, i0, i1 in merged]
+    counts = grid.counts.copy()
+    cuts = {}
+    for number, spot in enumerate(found, start=1):
+        mine = [c for c in crossings if c[0] == number]
+        spot["crossings"] = len(mine)
+        spot["left_off"] = 0
+        owed = 0.0
+        for _, index, s_in, s_out, i_in, i_out in mine:
+            owed += fraction
+            if owed < 1.0 - 1e-9 or s_out - s_in < min_skip_mm:
+                continue                         # (the epsilon: 0.3 ten times is not quite 3)
+            pts = sampled[index][0][i_in:i_out + 1]
+            cells, _, _ = grid.visits(pts)
+            np.subtract.at(counts, cells, 1)
+            # still ink under the nib all along, from the other crossings?
+            if counts[grid.cells_under(pts)].max(axis=1).min() < 1:
+                np.add.at(counts, cells, 1)
+                continue                         # it alone marks some of it: drawn
+            cuts.setdefault(index, []).append((s_in, s_out))
+            spot["left_off"] += 1
+            owed -= 1.0
+    pieces, per_path, lifts = [], [], 0
+    for index, path in enumerate(paths):
+        mine = sorted(cuts.get(index, []))
+        if not mine:
+            pieces.append(path)
+            per_path.append(1)
+            continue
+        out = []
+        for up, down in mine:                    # crossings of two spots may touch
+            if out and up <= out[-1][1]:
+                out[-1] = (out[-1][0], max(out[-1][1], down))
+            else:
+                out.append((up, down))
+        lifts += len(out)
+        cut = _cut(path, out)
+        pieces.extend(cut)
+        per_path.append(len(cut))
+    after = InkGrid(width_mm, height_mm, nib_mm).count(pieces)
+    report.update(ok=True, lifts=lifts, spots=found, max_passes=after.max_passes(),
+                  pieces_per_path=per_path)
+    return pieces, report
+
+
 # -- a picture of what the guard did ----------------------------------------------- #
 
 def preview_svg(strokes, report, width_mm, height_mm, nib_mm=0.3, limit=5, before=None):

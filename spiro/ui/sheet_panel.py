@@ -93,9 +93,33 @@ class SheetPanel(QWidget):
         self.guard.setToolTip("Off: every line is plotted however many times the pen "
                               "crosses it.")
         self.guard.toggled.connect(self._ink_changed)
+        self.guard_mode = QComboBox()
+        self.guard_mode.addItem("Thin the densest spots", "spots")
+        self.guard_mode.addItem("Hold every spot to the limit", "limit")
+        self.guard_mode.setToolTip(
+            "Thin: only the few densest spots tear, so a share of the crossings "
+            "through each is left off and everything else is drawn as it is. "
+            "Hold: every cell of the paper is kept within the passes it takes, "
+            "lifting wherever it must -- far more lifts.")
+        self.guard_mode.currentIndexChanged.connect(self._ink_changed)
+        self.spots = QSpinBox()
+        self.spots.setRange(1, 20)
+        self.spots.setToolTip("How many of the densest spots are thinned.")
+        self.spots.valueChanged.connect(self._ink_changed)
+        self.fraction = QSpinBox()
+        self.fraction.setRange(5, 90)
+        self.fraction.setSingleStep(5)
+        self.fraction.setSuffix(" %")
+        self.fraction.setToolTip("The share of each spot's crossings left off, spread "
+                                 "evenly through the plot; the pen lifts at the spot's edge.")
+        self.fraction.valueChanged.connect(self._ink_changed)
         layout.addWidget(row(QLabel("Nib"), 1, self.nib))
-        layout.addWidget(row(QLabel("Passes the paper takes"), 1, self.passes))
         layout.addWidget(self.guard)
+        layout.addWidget(self.guard_mode)
+        self.spots_row = row(QLabel("Spots"), 1, self.spots, QLabel("thinned by"), self.fraction)
+        layout.addWidget(self.spots_row)
+        self.passes_row = row(QLabel("Passes the paper takes"), 1, self.passes)
+        layout.addWidget(self.passes_row)
 
         # -- items ------------------------------------------------------------ #
         layout.addWidget(theme.hline())
@@ -301,7 +325,17 @@ class SheetPanel(QWidget):
         self.scene.nib_mm = float(self.nib.value())
         self.scene.max_passes = int(self.passes.value())
         self.scene.guard_ink = bool(self.guard.isChecked())
+        self.scene.guard_mode = self.guard_mode.currentData()
+        self.scene.thin_spots = int(self.spots.value())
+        self.scene.thin_fraction = self.fraction.value() / 100.0
+        self._show_guard_rows()
         self.sceneChanged.emit()
+
+    def _show_guard_rows(self):
+        """Only the knobs of the chosen way of guarding are shown."""
+        thinning = self.guard_mode.currentData() == "spots"
+        self.spots_row.setVisible(thinning)
+        self.passes_row.setVisible(not thinning)
 
     # -- items --------------------------------------------------------------------- #
 
@@ -311,6 +345,10 @@ class SheetPanel(QWidget):
             self.nib.setValue(float(self.scene.nib_mm))
             self.passes.setValue(int(self.scene.max_passes))
             self.guard.setChecked(bool(self.scene.guard_ink))
+            self.guard_mode.setCurrentIndex(0 if self.scene.guard_mode == "spots" else 1)
+            self.spots.setValue(int(self.scene.thin_spots))
+            self.fraction.setValue(int(round(self.scene.thin_fraction * 100)))
+            self._show_guard_rows()
             self._refresh_items(select)
             self._refresh_pens()
         finally:

@@ -1755,6 +1755,18 @@ def ink_guard_words(report):
     """One line on what the ink guard did to a plot job."""
     if not report.get("guarded"):
         return "Ink guard off: every line is drawn, however many times the pen crosses it."
+    if report.get("mode") == "spots":
+        spots = report.get("spots") or []
+        if not spots or not report.get("lifts"):
+            return "Ink: nothing dense enough to thin; every line is drawn."
+        where = ", ".join("(%g, %g)" % (s["x_mm"], s["y_mm"]) for s in spots)
+        return ("Ink: thinned the %d densest spot%s at %s mm by %d%%: %d of %d crossings "
+                "left off, %d lift%s; the worst spot now gets %d passes (was %d)."
+                % (len(spots), "" if len(spots) == 1 else "s", where,
+                   round(100 * report.get("fraction", 0)),
+                   sum(s["left_off"] for s in spots), sum(s["crossings"] for s in spots),
+                   report["lifts"], "" if report["lifts"] == 1 else "s",
+                   report["max_passes"], report["before"]))
     if not report.get("lifts"):
         return ("Ink: at most %d pass%s over any spot, within the paper's %d."
                 % (report["max_passes"], "" if report["max_passes"] == 1 else "es", report["limit"]))

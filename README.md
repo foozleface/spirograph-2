@@ -356,6 +356,20 @@ handful of touches, not a band -- are let through rather than cutting the plot
 at every crossing to clear them. What it did is one line in the status bar when the job is
 built, and anything it could not fix is said there too.
 
+That is the "hold every spot to the limit" way, and it lifts a great deal: a
+spirograph whose heart has thirty passes gets cut at every crossing of it. The
+paper tears, though, only in the few densest spots, so the sheet's other way --
+**thin the densest spots**, the default -- finds the three densest places on the
+paper (ink blurred over a millimetre, spots at least 12 mm apart, each reaching
+out to where the ink falls to half its peak) and leaves off a share of the
+crossings through each, 30% to begin with, spread evenly through the plot.
+Everything else is drawn as it is. The pen lifts where a crossing enters the
+spot and lands where it leaves, at the edge of ink already heavy enough to
+hide the marks; a crossing that alone marks some stretch of paper is never left
+off, nor one too short to be worth a lift. spiro_cascade: 304 lifts instead
+of 1,659, 95% of the line drawn, the worst spot from 35 passes to 28. The
+status line names the spots and what was left off.
+
 The Sheet tab has the nib width (a Kakuno fine is 0.3 mm), the passes the paper
 takes, and a switch for the guard; a sheet file keeps them. The screen draws
 every line; only the plot is lifted. `spiro/scene/density.py` is the whole of

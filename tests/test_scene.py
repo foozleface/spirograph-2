@@ -309,7 +309,35 @@ check("six touches on a dot too short to lift over: the sixth, which would tear,
       and _rep["pieces_per_path"] == [1, 1, 1, 1, 1, 0], _rep)
 _pieces, _rep = density.plan(_dot, 100, 50, 0.3, 5, slack_cells=0)
 check("and so with no slack at all", _rep["ok"] and _rep["max_passes"] == 5, _rep)
+_fan = [np.linspace(50 + 25j - 20 * np.exp(1j * a), 50 + 25j + 20 * np.exp(1j * a), 300)
+        for a in np.linspace(0, np.pi, 20, endpoint=False)]
+_pieces, _rep = density.thin(_fan, 100, 50, 0.3, spots=1, fraction=0.3)
+_spot = _rep["spots"][0]
+check("twenty lines through one point: the spot is found there",
+      len(_rep["spots"]) == 1 and abs(_spot["x_mm"] - 50) < 1.5 and abs(_spot["y_mm"] - 25) < 1.5, _spot)
+check("and 30% of the crossings are left off, spread through the plot",
+      _spot["crossings"] == 20 and _spot["left_off"] == 6 and _rep["lifts"] == 6
+      and _rep["pieces_per_path"][:4] == [1, 1, 1, 2], _rep)
+_h = density.InkGrid(100, 50, 0.3).count(_pieces)
+check("the lines that stay still cover the centre; nothing is white",
+      _h.counts[_h.cells_of(np.array([50 + 25j]))][0] >= 10
+      and all(_h.counts[_h.cells_under(p)].max(axis=1).min() >= 1
+              for p in [density.resample(q, 0.075)[0] for q in _fan]), _h.max_passes())
+_lone = _fan + [np.linspace(5 + 45j, 95 + 45j, 300)]
+_pieces, _rep = density.thin(_lone, 100, 50, 0.3, spots=1, fraction=0.3)
+check("a line on its own, away from the spot, is drawn whole",
+      _rep["pieces_per_path"][-1] == 1 and len(_pieces) == len(_lone) + _rep["lifts"], _rep)
+_sc3 = Scene(paper=Paper.from_axidraw(3))
+_sc3.guard_mode = "limit"
+_sc3.thin_fraction = 0.5
+_sc3.thin_spots = 2
+_back = Scene.from_dict(_sc3.to_dict(), [])
+check("the way of guarding, the spots and the share survive the sheet file",
+      _back.guard_mode == "limit" and _back.thin_fraction == 0.5 and _back.thin_spots == 2)
+check("an older sheet file with no mode thins the spots",
+      Scene.from_dict({"items": [], "ink": {"nib_mm": 0.3}}, []).guard_mode == "spots")
 _sc2 = Scene(paper=Paper.from_axidraw(3))
+_sc2.guard_mode = "limit"
 _sc2.max_passes = 2
 for _ in range(4):
     _it = _sc2.add(drawing(), name="same", pen=0)
