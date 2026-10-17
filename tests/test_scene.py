@@ -304,12 +304,11 @@ check("a comb crossed every 2 mm: no crumb shorter than %g mm is put down" % den
       _rep["ok"] and not _short, (len(_short), _rep.get("lifts")))
 _dot = [np.linspace(30 + 25j, 30.2 + 25j, 20) for _ in range(6)]
 _pieces, _rep = density.plan(_dot, 100, 50, 0.3, 5)
-check("six touches on a dot too short to lift over: a few cells one over, let through",
-      _rep["ok"] and _rep["max_passes"] == 6 and 0 < _rep["hot_cells"] <= density.SLACK_CELLS
-      and _rep["lifts"] == 0 and len(_pieces) == 6, _rep)
+check("six touches on a dot too short to lift over: the sixth, which would tear, is left off",
+      _rep["ok"] and _rep["max_passes"] == 5 and _rep["hot_cells"] == 0
+      and _rep["pieces_per_path"] == [1, 1, 1, 1, 1, 0], _rep)
 _pieces, _rep = density.plan(_dot, 100, 50, 0.3, 5, slack_cells=0)
-check("with no slack the same dot is said to tear",
-      _rep["ok"] is False and _rep["max_passes"] == 6 and _rep["hot_cells"] > 0, _rep)
+check("and so with no slack at all", _rep["ok"] and _rep["max_passes"] == 5, _rep)
 _sc2 = Scene(paper=Paper.from_axidraw(3))
 _sc2.max_passes = 2
 for _ in range(4):

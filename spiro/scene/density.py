@@ -37,6 +37,8 @@ import numpy as np
 INSETS_MM = (1.0, 0.7, 0.5, 0.3)
 SLACK_CELLS = 20                       # cells that may go one pass over the limit: a few, not a band
 MIN_PIECE_MM = 6.0                     # the shortest stretch worth putting the pen down for
+MIN_SKIP_MM = 1.5                      # the shortest stretch worth lifting the pen over
+CHUNK_MM = 25.0                        # a long path is counted this much at a time
 MIN_INSET_MM = 0.1                     # never closer to the edge of the heavy ink than this
 INSET_REACH_MM = 1.5                   # how much further in the landing may go, for a lighter cell
 COARSE_CELLS = 20                      # a coarse cell, in fine cells (3 mm at a 0.3 mm nib)
@@ -164,22 +166,32 @@ class InkGrid:
 
 
 def guard(paths, grid, threshold, inset_mm, candidates=None, reach_mm=INSET_REACH_MM, limit=None,
-          min_piece_mm=MIN_PIECE_MM):
+          min_piece_mm=MIN_PIECE_MM, min_skip_mm=MIN_SKIP_MM, chunk_mm=CHUNK_MM):
     """Draw ``paths`` in order onto ``grid``, lifting the pen inside any
     stretch whose cells have already been come over ``threshold`` times.
 
     Returns ``(pieces, lifts, per_path)``: the paths as the machine should
     draw them -- each cut into the pieces drawn with the pen down -- how
-    many times the pen was lifted, and how many pieces each path became. ``candidates`` is a function of points
-    saying where lifting can be needed at all (see
-    :meth:`InkGrid.candidate_mask`); elsewhere a path is taken as it is.
+    many times the pen was lifted, and how many pieces each path became.
+    ``candidates`` is a function of points saying where lifting can be
+    needed at all (see :meth:`InkGrid.candidate_mask`); elsewhere a path
+    is taken as it is.
 
-    No piece shorter than ``min_piece_mm`` is put down: a fountain pen
-    barely inks a dab that short, and each one costs a lift and a landing
-    mark. Two cuts with only a crumb between them become one cut, and a
-    crumb at either end of the path is left off with the cut beside it.
+    A long path is walked ``chunk_mm`` at a time, so that the ink it lays
+    down is counted as it goes: a pass the path itself left off never
+    counts towards lifting over a later stretch, which is what left white
+    gaps in a drawing that is one long line.
+
+    No piece shorter than ``min_piece_mm`` is put down where it can be
+    helped: a fountain pen barely inks a dab that short, and each one costs
+    a lift and a landing mark. Two cuts with only a crumb between them
+    become one cut, and a crumb at either end of the path is left off with
+    the cut beside it -- but only where other ink already lies under the
+    whole crumb; on bare paper the crumb is drawn. Nor is the pen lifted
+    over less than ``min_skip_mm``: up and straight back down is a landing
+    mark for nothing.
     """
-    min_skip = grid.nib
+    min_skip = max(grid.nib, min_skip_mm)
     limit = threshold if limit is None else limit
     pieces, lifts, per_path = [], 0, []
     for path in paths:
@@ -192,90 +204,197 @@ def guard(paths, grid, threshold, inset_mm, candidates=None, reach_mm=INSET_REAC
         if keep is not None and not keep.any():
             # nowhere near heavy ink: drawn whole, counted whole
             cells, _, _ = grid.visits(pts)
-            grid.counts += np.bincount(cells, minlength=len(grid.counts)).astype(np.int32)
+            np.add.at(grid.counts, cells, 1)
             pieces.append(np.asarray(path, dtype=complex))
             per_path.append(1)
             continue
-        cells, first, last = grid.visits(pts, keep)
-        # A visit is hot when the cell has had `threshold` visits before it:
-        # from earlier paths, plus this path's own earlier visits of the
-        # same cell. The visits come sorted by cell, so the rank within a
-        # cell's group is the count of earlier ones in this path.
-        group_start = np.concatenate([[True], cells[1:] != cells[:-1]])
-        rank = np.arange(len(cells)) - np.maximum.accumulate(np.where(group_start, np.arange(len(cells)), 0))
-        hot = grid.counts[cells] + rank >= threshold
-        if keep is not None:
-            # the part of the path outside the candidate regions is counted plainly
-            others, _, _ = grid.visits(pts, ~keep)
-            grid.counts += np.bincount(others, minlength=len(grid.counts)).astype(np.int32)
-        grid.counts += np.bincount(cells, minlength=len(grid.counts)).astype(np.int32)
-        if not hot.any():
-            pieces.append(np.asarray(path, dtype=complex))
-            per_path.append(1)
-            continue
-        # the hot visits as arc-length stretches, merged into runs
-        a = s[first[hot]]
-        b = s[last[hot]]
-        order = np.argsort(a, kind="stable")
-        a, b = a[order], b[order]
-        # merge overlapping stretches: a new run starts where a stretch
-        # begins after everything before it has ended
-        reach = np.maximum.accumulate(b)
-        starts = np.concatenate([[True], a[1:] > reach[:-1] + grid.step])
-        run_first = np.flatnonzero(starts)
-        run_last = np.concatenate([run_first[1:] - 1, [len(a) - 1]])
-        runs = list(zip(a[run_first], reach[run_last]))
         total = s[-1]
-        load = grid.counts[grid.cells_under(pts)].max(axis=1)     # ink under the nib, per point
+        # every visit of the path, found once; each is decided in the chunk
+        # where it begins, against what is drawn by then
+        cells, first, last = grid.visits(pts, keep)
+        if keep is not None:
+            # the part outside the candidate regions is counted plainly
+            others, _, _ = grid.visits(pts, ~keep)
+            np.add.at(grid.counts, others, 1)
+        chunk = np.minimum((s[first] / chunk_mm).astype(np.int64), int(total // chunk_mm))
         cuts = []
-        last_down = -1.0
-        for s_a, s_b in runs:
-            at_start = s_a <= grid.step
-            at_end = s_b >= total - grid.step
-            # Where to lift and where to land: a spot the paper can still
-            # take one more pass on, as near the edge of the saturated
-            # stretch as there is one -- inside it for choice, since that
-            # is where a landing mark hides, else just outside, where the
-            # ink is one pass short of the limit and still dense to the
-            # eye. The marks of the loops that cross one band then spread
-            # along the band's edge instead of piling onto its first cell.
-            if at_start:
-                up = 0.0
-            else:
-                up = _landing(load, s, s_a, limit, inset_mm, reach_mm, inward=+1,
-                              lo=max(last_down, s_a - inset_mm), hi=min(s_a + inset_mm + reach_mm, s_b))
-            if at_end:
-                down = total
-            else:
-                down = _landing(load, s, s_b, limit, inset_mm, reach_mm, inward=-1,
-                                lo=max(s_b - inset_mm - reach_mm, up), hi=min(s_b + inset_mm, total))
-            if down - up < min_skip:
-                continue
-            if cuts and up - cuts[-1][1] < min_piece_mm:
-                cuts[-1] = (cuts[-1][0], down)        # only a crumb between: one longer lift
-            else:
-                cuts.append((up, down))
-            last_down = down
-        if cuts and 0.0 < cuts[0][0] < min_piece_mm:
-            cuts[0] = (0.0, cuts[0][1])
-        if cuts and cuts[-1][1] < total and total - cuts[-1][1] < min_piece_mm:
-            cuts[-1] = (cuts[-1][0], total)
+        for k in np.unique(chunk):
+            mine = chunk == k
+            cuts = _chunk_cuts(cells[mine], first[mine], last[mine], pts, s, grid, cuts,
+                               threshold, inset_mm, reach_mm, limit, min_skip)
+        cuts = [c for c in cuts if not _draw_through(c, pts, s, grid, limit, min_skip)]
+        cuts = _no_crumbs(cuts, pts, s, grid, min_piece_mm)
         if not cuts:
             pieces.append(np.asarray(path, dtype=complex))
             per_path.append(1)
             continue
-        # what is skipped is not drawn: give those cells their visits back,
-        # in one go -- a visit is skipped when it lies within a cut
-        ups = np.array([u for u, _ in cuts])
-        downs = np.array([d for _, d in cuts])
-        which = np.searchsorted(ups, s[first], side="right") - 1
-        inside = (which >= 0) & (s[last] <= downs[np.clip(which, 0, len(downs) - 1)])
-        grid.counts -= np.bincount(cells[inside], minlength=len(grid.counts)).astype(np.int32)
         lifts += len(cuts)
         cut = _cut(path, cuts)
         pieces.extend(cut)
         per_path.append(len(cut))
     return pieces, lifts, per_path
+
+
+def _chunk_cuts(cells, first, last, pts, s, grid, cuts, threshold, inset_mm, reach_mm,
+                limit, min_skip):
+    """The path's ``cuts`` so far, with those for one chunk's visits added
+    (``cells``, ``first``, ``last`` as :meth:`InkGrid.visits` gives them),
+    and the visits that are drawn counted onto ``grid``. A visit inside a
+    cut already made is not drawn and not counted."""
+    if cuts:
+        ups = np.array([u for u, _ in cuts])
+        downs = np.array([d for _, d in cuts])
+        which = np.searchsorted(ups, s[first], side="right") - 1
+        gone = (which >= 0) & (s[last] <= downs[np.clip(which, 0, len(downs) - 1)])
+        cells, first, last = cells[~gone], first[~gone], last[~gone]
+    if not len(cells):
+        return cuts
+    # A visit is hot when the cell has had `threshold` visits before it:
+    # what is drawn already, plus this chunk's own earlier visits of the
+    # same cell. The visits come sorted by cell, so the rank within a
+    # cell's group is the count of earlier ones in the chunk.
+    group_start = np.concatenate([[True], cells[1:] != cells[:-1]])
+    rank = np.arange(len(cells)) - np.maximum.accumulate(np.where(group_start, np.arange(len(cells)), 0))
+    hot = grid.counts[cells] + rank >= threshold
+    np.add.at(grid.counts, cells, 1)
+    if not hot.any():
+        return cuts
+    # the hot visits as arc-length stretches, merged into runs: a new run
+    # starts where a stretch begins after everything before it has ended
+    a = s[first[hot]]
+    b = s[last[hot]]
+    order = np.argsort(a, kind="stable")
+    a, b = a[order], b[order]
+    reach = np.maximum.accumulate(b)
+    starts = np.concatenate([[True], a[1:] > reach[:-1] + grid.step])
+    run_first = np.flatnonzero(starts)
+    run_last = np.concatenate([run_first[1:] - 1, [len(a) - 1]])
+    runs = list(zip(a[run_first], reach[run_last]))
+    total = s[-1]
+    # ink under the nib, per point, near the runs
+    i_lo = max(0, np.searchsorted(s, runs[0][0] - 3 * (inset_mm + reach_mm)) - 1)
+    i_hi = min(len(s), np.searchsorted(s, runs[-1][1] + 3 * (inset_mm + reach_mm)) + 1)
+    sw = s[i_lo:i_hi]
+    load = grid.counts[grid.cells_under(pts[i_lo:i_hi])].max(axis=1)
+    new = []
+    last_down = cuts[-1][1] if cuts else -1.0
+    for s_a, s_b in runs:
+        at_start = s_a <= grid.step
+        at_end = s_b >= total - grid.step
+        # Where to lift and where to land: a spot the paper can still take
+        # one more pass on, as near the edge of the saturated stretch as
+        # there is one -- inside it for choice, since that is where a
+        # landing mark hides, else just outside, where the ink is one pass
+        # short of the limit and still dense to the eye. The marks of the
+        # loops that cross one band then spread along the band's edge
+        # instead of piling onto its first cell.
+        if at_start:
+            up = 0.0
+        else:
+            up = _landing(load, sw, s_a, limit, inset_mm, reach_mm, inward=+1,
+                          lo=max(last_down, s_a - inset_mm), hi=min(s_a + inset_mm + reach_mm, s_b))
+        if at_end:
+            down = total
+        else:
+            down = _landing(load, sw, s_b, limit, inset_mm, reach_mm, inward=-1,
+                            lo=max(s_b - inset_mm - reach_mm, up), hi=min(s_b + inset_mm, total))
+        shortest = grid.nib if at_start or at_end else min_skip
+        if down - up < shortest:
+            i0, i1 = np.searchsorted(sw, up, side="left"), np.searchsorted(sw, down, side="right")
+            if load[i0:i1].max(initial=0) <= limit:
+                continue                  # drawn through: the paper takes it
+            # too short to be worth a landing, but drawing it would tear:
+            # lift, over as much of the covered ink round it as makes the
+            # lift worth one
+            up, down = _widen(load, sw, up, down, shortest, lo=max(last_down, 0.0), hi=total)
+        new.append((up, down))
+        last_down = down
+    if new:
+        # what is skipped is not drawn: give those cells their visits back,
+        # in one go -- a visit is skipped when it lies within a cut
+        ups = np.array([u for u, _ in new])
+        downs = np.array([d for _, d in new])
+        which = np.searchsorted(ups, s[first], side="right") - 1
+        inside = (which >= 0) & (s[last] <= downs[np.clip(which, 0, len(downs) - 1)])
+        np.subtract.at(grid.counts, cells[inside], 1)
+    out = list(cuts)
+    for up, down in new:
+        if out and up <= out[-1][1] + grid.step:
+            out[-1] = (out[-1][0], max(out[-1][1], down))     # overlaps the last cut: one cut
+        else:
+            out.append((up, down))
+    return out
+
+
+def _draw_through(cut, pts, s, grid, limit, min_skip):
+    """True for a lift too short to be worth its landing -- a stub left at
+    a chunk edge -- whose stretch the paper can take after all; its visits
+    are then put on the grid."""
+    up, down = cut
+    if up <= 0 or down >= s[-1] or down - up >= min_skip:
+        return False
+    i0, i1 = np.searchsorted(s, up, side="left"), np.searchsorted(s, down, side="right")
+    if i1 - i0 < 1:
+        return True
+    cells, _, _ = grid.visits(pts[i0:i1])
+    if grid.counts[cells].max(initial=0) + 1 > limit:
+        return False
+    np.add.at(grid.counts, cells, 1)
+    return True
+
+
+def _widen(load, s, up, down, length, lo, hi):
+    """``(up, down)`` grown evenly towards ``length`` of arc, between ``lo``
+    and ``hi``, over points where other ink lies under the nib (``load``
+    counts this pass too, so at least 2) -- never onto bare paper."""
+    i_up = np.searchsorted(s, up, side="left")
+    i_down = min(np.searchsorted(s, down, side="right") - 1, len(s) - 1)
+    while s[i_down] - s[i_up] < length:
+        grew = False
+        if i_up > 0 and s[i_up - 1] >= lo and load[i_up - 1] >= 2:
+            i_up -= 1
+            grew = True
+        if s[i_down] - s[i_up] >= length:
+            break
+        if i_down < len(s) - 1 and s[i_down + 1] <= hi and load[i_down + 1] >= 2:
+            i_down += 1
+            grew = True
+        if not grew:
+            break
+    return min(up, float(s[i_up])), max(down, float(s[i_down]))
+
+
+def _no_crumbs(cuts, pts, s, grid, min_piece_mm):
+    """``cuts`` with the crumbs between them, and at the path's ends, left
+    off too -- where the ink already on the paper covers the whole crumb.
+    A crumb left off gives its cells their visits back."""
+    total = s[-1]
+
+    def bare_or_drop(lo, hi):
+        """True (and the crumb's visits taken off the grid) when ink lies
+        under the whole crumb besides its own pass."""
+        i0, i1 = np.searchsorted(s, lo, side="left"), np.searchsorted(s, hi, side="right")
+        if i1 - i0 < 2:
+            return True
+        under = grid.counts[grid.cells_under(pts[i0:i1])].max(axis=1)
+        if (under < 2).any():                   # nothing but its own pass under the nib: white paper
+            return False
+        cells, _, _ = grid.visits(pts[i0:i1])
+        np.subtract.at(grid.counts, cells, 1)
+        return True
+
+    out = []
+    for up, down in cuts:
+        if out and up - out[-1][1] < min_piece_mm and bare_or_drop(out[-1][1], up):
+            out[-1] = (out[-1][0], down)
+        else:
+            out.append((up, down))
+    if out and 0.0 < out[0][0] < min_piece_mm and bare_or_drop(0.0, out[0][0]):
+        out[0] = (0.0, out[0][1])
+    if out and out[-1][1] < total and total - out[-1][1] < min_piece_mm \
+            and bare_or_drop(out[-1][1], total):
+        out[-1] = (out[-1][0], total)
+    return out
 
 
 def _landing(load, s, edge, limit, inset_mm, reach_mm, inward, lo, hi):
