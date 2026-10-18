@@ -67,13 +67,15 @@ class Scene:
     # The pen on the machine, and what the paper will take from it: a
     # fountain pen's nib width, and how many passes over one spot before
     # the wet paper tears. The plot lifts the pen over heavier ink than
-    # that (see spiro.scene.density); the screen draws every line. Two
-    # ways to guard: "spots" thins the few densest spots -- the only
-    # places that tear -- by a share of their crossings; "limit" holds
-    # every cell of the paper to max_passes, lifting wherever it must.
+    # that (see spiro.scene.density); the screen draws every line. The
+    # guard is off unless the sheet switches it on: a pen that is lifted
+    # leaves marks of its own, and most sheets never get dense enough to
+    # tear. Two ways to guard: "spots" thins the few densest spots -- the
+    # only places that tear -- by a share of their crossings; "limit"
+    # holds every cell of the paper to max_passes, lifting wherever it must.
     nib_mm: float = 0.3
     max_passes: int = 5
-    guard_ink: bool = True
+    guard_ink: bool = False
     guard_mode: str = "spots"
     thin_spots: int = 3
     thin_fraction: float = 0.3

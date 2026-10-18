@@ -357,7 +357,11 @@ check("the way of guarding, the spots and the share survive the sheet file",
       _back.guard_mode == "limit" and _back.thin_fraction == 0.5 and _back.thin_spots == 2)
 check("an older sheet file with no mode thins the spots",
       Scene.from_dict({"items": [], "ink": {"nib_mm": 0.3}}, []).guard_mode == "spots")
+check("and an older sheet file that never said is left with the guard off",
+      Scene.from_dict({"items": [], "ink": {"nib_mm": 0.3}}, []).guard_ink is False)
 _sc2 = Scene(paper=Paper.from_axidraw(3))
+check("a new sheet has the guard off: nothing is lifted unless asked for", _sc2.guard_ink is False)
+_sc2.guard_ink = True
 _sc2.guard_mode = "limit"
 _sc2.max_passes = 2
 for _ in range(4):
