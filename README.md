@@ -296,14 +296,20 @@ steps and the shaft stays where it was. On anything else the value jumps.
 ### Runs, not one line
 
 James Nolan Gandy's drawings are mostly several runs: a set of loops, the table
-turned by hand, another set. The pieces are a `tempo` in `stutter` mode with
-`dwell = 1` (the table indexed by hand, the next position taken between one
-sample and the next), a `rotation` after it for the positions to lie round, a
-`scale` with `scope = 1` oscillating once per run for the loop's swell, and a
-threshold `pen_lift` to cut the line where the pen was lifted. Sample in time
-(`use_arc_length = false`) so the jump stays one long step for the lift to
-find. `gandy-9175-v15.ini` is the worked example; "Runs by hand" under
-Surprise me builds one.
+turned by hand, another set. The pieces are a `lift` step (`steps = 13`: the
+pen comes up, everything after it jumps to the next of thirteen positions,
+the pen goes down), a `rotation` after it for the positions to lie round, and
+a `scale` with `scope = 1` oscillating once per run for the loop's swell. The
+lift is an event the engine knows about: the line is cut exactly where the
+pen was up, whatever the sampling, with no threshold pen lift guessing from
+the length of a jump. A `tempo` in `stutter` mode is the other thing: a
+Geneva or a ratchet moving the table with the pen still on the paper.
+
+A value changed by hand part-way (`switch_<name>`, the ✋ row) can lift the
+pen the same way: `lift_on_switch = true` on that step cuts the line at each
+change, as when a pin is moved to another slot with the machine stopped.
+`gandy-9175-v16.ini` is the worked example; "Runs by hand" under Surprise me
+builds one.
 
 ### Inks
 

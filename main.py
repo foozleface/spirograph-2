@@ -87,6 +87,9 @@ class TransformModule(ABC):
         # A carriage path may turn what it carries to face along its track.
         # See heading() and run_pipeline.
         self.follow = self._getboolean('follow', False)
+        # The pen off the paper while a by-hand change (switch_<name>) is
+        # made: the line is cut at each one. See lift_at() and run_pipeline.
+        self.lift_on_switch = self._getboolean('lift_on_switch', False)
     
     def set_pipeline_period(self, period: Fraction):
         """Set the combined pipeline period (called by main after computing period)."""
@@ -172,6 +175,25 @@ class TransformModule(ABC):
                                  % (self.section, param_name, item.strip()))
             out.append((float(parts[0]), float(parts[1])))
         return sorted(out)
+
+    def lift_at(self, t):
+        """Where this step lifts the pen: True at every sample the pen lands
+        on after being up. With ``lift_on_switch`` that is the first sample
+        after each ``switch_<name>`` moment -- the machine stopped, the pin
+        moved, the pen put back; otherwise nowhere. A clock that moves the
+        table by hand (``lift``) overrides this with its own answer."""
+        t = np.asarray(t, dtype=float)
+        up = np.zeros(t.shape, dtype=bool)
+        if not self.lift_on_switch or not t.ndim or len(t) < 2:
+            return up
+        t_norm = np.asarray(self._normalize_t(t), dtype=float)
+        for key in self.config.options(self.section):
+            if not key.startswith('switch_'):
+                continue
+            for at, _value in self._switch_schedule(key[len('switch_'):]):
+                after = t_norm >= at
+                up[1:] |= after[1:] != after[:-1]
+        return up
 
     def _switched(self, start, t_norm, schedule):
         """A value changed by hand part-way through the draw: ``start``
@@ -406,7 +428,7 @@ def compute_pipeline_period(modules: List[TransformModule]) -> Fraction:
     return result
 
 
-def run_pipeline(modules: List[TransformModule], t, start=0j, stages=None):
+def run_pipeline(modules: List[TransformModule], t, start=0j, stages=None, lifts=None):
     """
     Fold the pipeline over every sample at once.
 
@@ -438,6 +460,11 @@ def run_pipeline(modules: List[TransformModule], t, start=0j, stages=None):
                 appended to it — the drawing as it stands after step k, which
                 is what the window's stage thumbnails and the linkage
                 scrubber are built from
+        lifts:  If a list is given, every step that lifts the pen (a
+                ``lift`` step, or any step with ``lift_on_switch``: see
+                ``TransformModule.lift_at``) appends a boolean array the
+                shape of t, True at each sample the pen lands on after
+                being up
 
     Returns:
         Final positions, the same shape as t
@@ -448,6 +475,13 @@ def run_pipeline(modules: List[TransformModule], t, start=0j, stages=None):
     bases = []                     # where the pen was before each arm
     for module in modules:
         scope = getattr(module, 'scope', 'all')
+        if lifts is not None and t.ndim and hasattr(module, 'lift_at'):
+            # The pen off the paper: a clock moving the table on by hand, or
+            # any step at its by-hand changes. Read at the time this step
+            # sees, before a clock re-times it for the steps after.
+            up = module.lift_at(t)
+            if up is not None and np.any(up):
+                lifts.append(np.asarray(up, dtype=bool))
         if getattr(module, 'is_clock', False):
             # A clock changes the time every later module sees; the pen
             # stays where it is.
@@ -479,7 +513,7 @@ def run_pipeline(modules: List[TransformModule], t, start=0j, stages=None):
 
 def dense_sample(modules: List[TransformModule], num_samples: int,
                  period: Fraction = Fraction(1, 1), start: complex = 0j,
-                 scroll_repeats: float = 1.0, stages=None) -> np.ndarray:
+                 scroll_repeats: float = 1.0, stages=None, lifts=None) -> np.ndarray:
     """
     Generate dense samples from the pipeline, in one vectorised pass.
 
@@ -489,14 +523,14 @@ def dense_sample(modules: List[TransformModule], num_samples: int,
         period: Overall period of the pattern (samples t from 0 to period)
         start: Initial starting point
         scroll_repeats: Number of full periods to draw (>1 for scroll mode)
-        stages: see run_pipeline
+        stages, lifts: see run_pipeline
 
     Returns:
         Complex array of sampled points
     """
     t_max = float(period) * scroll_repeats
     t_values = np.linspace(0, t_max, num_samples, endpoint=False)
-    return np.asarray(run_pipeline(modules, t_values, start, stages), dtype=complex)
+    return np.asarray(run_pipeline(modules, t_values, start, stages, lifts), dtype=complex)
 
 
 def compute_arc_lengths(points: np.ndarray) -> np.ndarray:
@@ -861,7 +895,8 @@ def run_single_pipeline(config: configparser.ConfigParser,
                         start_point: complex = 0j,
                         label: str = "",
                         scroll_repeats: float = 1.0,
-                        want_stages: bool = False):
+                        want_stages: bool = False,
+                        want_lifts: bool = False):
     """
     Run a single pipeline and return resampled points.
 
@@ -876,12 +911,20 @@ def run_single_pipeline(config: configparser.ConfigParser,
         scroll_repeats: Number of full periods to draw (>1 for scroll mode)
         want_stages: Also return, per output point, the t it was drawn at and
             the position after every module — see run_pipeline
+        want_lifts: Also return, per output point, whether the pen was up
+            on the way to it (a ``lift`` step moved the table by hand
+            between the point before and this one). Output points that fall
+            inside such a move -- which arc-length resampling puts along
+            the jump -- are left out of every array returned.
 
     Returns:
         Resampled complex point array; with want_stages, the tuple
         ``(points, t_values, stages, modules)`` where stages[k][i] is output
         point i as it stood after module k and modules are the instances
-        that drew it (the window asks them what a table move does)
+        that drew it (the window asks them what a table move does). With
+        want_lifts, the boolean ``lifts`` array is appended to whichever
+        of those comes back: ``(points, lifts)`` or
+        ``(points, t_values, stages, modules, lifts)``.
     """
     prefix = f"[{label}] " if label else ""
 
@@ -903,33 +946,78 @@ def run_single_pipeline(config: configparser.ConfigParser,
     # Generate dense samples
     print(f"{prefix}Generating {initial_samples:,} dense samples...")
     stages = [] if want_stages else None
+    lifted = [] if want_lifts else None
     points = dense_sample(modules, initial_samples, period, start_point,
-                          scroll_repeats=scroll_repeats, stages=stages)
+                          scroll_repeats=scroll_repeats, stages=stages, lifts=lifted)
     t_values = np.linspace(0, float(period) * scroll_repeats, initial_samples,
                            endpoint=False)
+    # Each lift is the pen up between two dense samples: an open span of t.
+    moves = []
+    if lifted:
+        up = np.zeros(len(points), dtype=bool)
+        for mask in lifted:
+            up |= mask
+        up[0] = False
+        moves = [(t_values[i - 1], t_values[i]) for i in np.flatnonzero(up)]
+    carry = want_stages or bool(moves)
 
     # Arc length reparameterization
     if use_arc_length:
         print(f"{prefix}Reparameterizing to {output_samples:,} arc-length samples...")
-        if want_stages:
-            points, extra = resample_by_arc_length(points, output_samples,
-                                                   companions=[t_values] + stages)
-            t_values, stages = extra[0], extra[1:]
+        if carry:
+            points, extra = resample_by_arc_length(
+                points, output_samples, companions=[t_values] + (stages or []))
+            t_values, stages = extra[0], (extra[1:] if want_stages else stages)
         else:
             points = resample_by_arc_length(points, output_samples)
     else:
         indices = np.linspace(0, len(points) - 1, output_samples, dtype=int)
         points = points[indices]
-        if want_stages:
+        if carry:
             t_values = t_values[indices]
-            stages = [s[indices] for s in stages]
+            if want_stages:
+                stages = [s[indices] for s in stages]
+
+    lifts = np.zeros(len(points), dtype=bool)
+    if moves:
+        # An output point drawn while the pen was up (arc-length sampling
+        # puts some along the jump) is dropped; the first point after the
+        # move is where the pen lands, and the line is cut before it.
+        drop = np.zeros(len(points), dtype=bool)
+        for a, b in moves:
+            lo = int(np.searchsorted(t_values, a, side='right'))
+            hi = int(np.searchsorted(t_values, b, side='left'))
+            drop[lo:hi] = True
+            if hi < len(points):
+                lifts[hi] = True
+        if drop.any():
+            keep = ~drop
+            points, t_values, lifts = points[keep], t_values[keep], lifts[keep]
+            if want_stages:
+                stages = [s[keep] for s in stages]
+        lifts[0] = False
 
     arc_lengths = compute_arc_lengths(points)
     print(f"{prefix}Path length: {arc_lengths[-1]:.2f} units")
 
+    if want_stages and want_lifts:
+        return points, t_values, stages, modules, lifts
     if want_stages:
         return points, t_values, stages, modules
+    if want_lifts:
+        return points, lifts
     return points
+
+
+def split_at_lifts(points: np.ndarray, lifts=None) -> List[np.ndarray]:
+    """One curve cut into the runs the pen drew: a new piece starts at every
+    point ``lifts`` marks True (see run_single_pipeline). A piece of a
+    single point is nothing drawn and is left out."""
+    if lifts is None or not np.any(lifts):
+        return [points]
+    cuts = np.flatnonzero(lifts)
+    pieces = np.split(points, cuts)
+    return [p for p in pieces if len(p) >= 2]
 
 
 def ink_plan(inks, changes="", holidays="", advance=0.0):
@@ -996,7 +1084,7 @@ def ink_plan(inks, changes="", holidays="", advance=0.0):
 
 
 def ink_styles(points: np.ndarray, t_values: np.ndarray,
-               config: configparser.ConfigParser):
+               config: configparser.ConfigParser, lifts=None):
     """The pen changes and the ink weight of one finished curve, as a list
     of pieces and a style per piece -- or (``[points]``, None) when the
     file asks for neither.
@@ -1014,6 +1102,10 @@ def ink_styles(points: np.ndarray, t_values: np.ndarray,
     line where it moves slowly and thins it where it moves fast: the ink
     per unit length goes as (median speed / speed) ** ink_flow, kept
     between 0.25 and 1, read in runs of INK_RUN points.
+
+    ``lifts`` marks the points the pen landed on after a ``lift`` step
+    moved the table by hand (see :func:`run_single_pipeline`): the line
+    is cut before each of them, whatever the pen plan says.
     """
     has = config.has_section('output')
     raw = config.get('output', 'inks', fallback='') if has else ''
@@ -1023,29 +1115,34 @@ def ink_styles(points: np.ndarray, t_values: np.ndarray,
     holidays = config.get('output', 'holidays', fallback='') if has else ''
     advance = config.getfloat('output', 'ink_advance', fallback=0.0) if has else 0.0
     if len(inks) < 2 and flow <= 0 and not holidays.strip():
-        return [points], None
+        return split_at_lifts(points, lifts), None
     n = len(points)
     plan = ink_plan(inks, changes, holidays, advance)
+    cuts = np.flatnonzero(lifts) if lifts is not None else np.zeros(0, dtype=int)
     pieces, styles = [], []
     for t0, t1, k in plan:
         lo = int(round(t0 * (n - 1)))
         hi = int(round(t1 * (n - 1))) + 1
         color = inks[k] if len(inks) >= 2 else None
-        if hi - lo < 2:
-            continue
-        if flow > 0 and t_values is not None:
-            seg_pts, seg_t = points[lo:hi], t_values[lo:hi]
-            for a in range(0, len(seg_pts) - 1, INK_RUN):
-                b = min(a + INK_RUN + 1, len(seg_pts))
-                if b - a < 2:
-                    continue
-                dt = float(seg_t[b - 1] - seg_t[a])
-                length = float(np.sum(np.abs(np.diff(seg_pts[a:b]))))
-                pieces.append(seg_pts[a:b])
-                styles.append({"color": color, "speed": length / dt if dt > 0 else np.inf})
-        else:
-            pieces.append(points[lo:hi])
-            styles.append({"color": color, "opacity": 1.0})
+        # The pen's span, cut again wherever it was lifted inside it.
+        inside = cuts[(cuts > lo) & (cuts < hi)]
+        bounds = [lo] + [int(c) for c in inside] + [hi]
+        for lo, hi in zip(bounds[:-1], bounds[1:]):
+            if hi - lo < 2:
+                continue
+            if flow > 0 and t_values is not None:
+                seg_pts, seg_t = points[lo:hi], t_values[lo:hi]
+                for a in range(0, len(seg_pts) - 1, INK_RUN):
+                    b = min(a + INK_RUN + 1, len(seg_pts))
+                    if b - a < 2:
+                        continue
+                    dt = float(seg_t[b - 1] - seg_t[a])
+                    length = float(np.sum(np.abs(np.diff(seg_pts[a:b]))))
+                    pieces.append(seg_pts[a:b])
+                    styles.append({"color": color, "speed": length / dt if dt > 0 else np.inf})
+            else:
+                pieces.append(points[lo:hi])
+                styles.append({"color": color, "opacity": 1.0})
     if flow > 0:
         speeds = np.array([s["speed"] for s in styles if "speed" in s])
         finite = speeds[np.isfinite(speeds) & (speeds > 0)]
@@ -1267,21 +1364,22 @@ def main(config_path: str = "config.ini"):
             layer_arc = config.getboolean(section, 'use_arc_length', fallback=use_arc_length)
             layer_scroll = config.getfloat(section, 'scroll_repeats', fallback=scroll_repeats)
 
-            points = run_single_pipeline(config, module_names,
-                                         layer_initial, layer_output,
-                                         layer_arc, start_point,
-                                         label=layer_name,
-                                         scroll_repeats=layer_scroll)
-            all_path_arrays.append(points)
+            points, lifts = run_single_pipeline(config, module_names,
+                                                layer_initial, layer_output,
+                                                layer_arc, start_point,
+                                                label=layer_name,
+                                                scroll_repeats=layer_scroll,
+                                                want_lifts=True)
+            all_path_arrays.extend(split_at_lifts(points, lifts))
 
     else:
         # Single pipeline mode
         module_names = [m.strip() for m in config.get('pipeline', 'modules').split(',')]
-        points, t_values, _stages, _modules = run_single_pipeline(
+        points, t_values, _stages, _modules, lifts = run_single_pipeline(
             config, module_names, initial_samples, output_samples,
             use_arc_length, start_point, scroll_repeats=scroll_repeats,
-            want_stages=True)
-        all_path_arrays, styles = ink_styles(points, t_values, config)
+            want_stages=True, want_lifts=True)
+        all_path_arrays, styles = ink_styles(points, t_values, config, lifts)
 
     # Pen lift, symmetry, tile, clip — the one finishing chain
     all_path_arrays, styles = apply_finishing(all_path_arrays, config, styles or [None] * len(all_path_arrays))

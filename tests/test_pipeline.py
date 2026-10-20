@@ -312,6 +312,55 @@ _stut = _tpts([_single({"type": "tempo", "mode": "stutter", "steps": 4, "dwell":
 check("tempo stutter stops the pen: many samples sit on four spots",
       len(np.unique(np.round(_stut, 6))) < len(_stut) * 0.5)
 
+# -- the lift: the pen up while the table is moved on by hand ---------------- #
+
+print("lift:")
+# A small circle drawn round a point 100 out, four times; the lift holds
+# the rotation after it still through each circle and turns it 90 degrees
+# with the pen up between circles.
+_lift_ini = build_ini(steps=[_single({"type": "translation", "start_x": 100, "end_x": 100,
+                                      "start_y": 0, "end_y": 0}),
+                             _single({"type": "circle", "radius": 10, "cycles": 4}),
+                             _single({"type": "lift", "steps": 4}),
+                             _single({"type": "rotation", "total_degrees": 360})],
+                      sampling=dict(_S, use_arc_length=False))
+_lifted = run(_lift_ini)
+check("a lift of four runs cuts the line into four pieces, no threshold asked for",
+      len(_lifted.paths) == 4, len(_lifted.paths))
+check("each piece is one circle round its own centre: the rotation is frozen through a run",
+      all(abs(np.abs(p.mean()) - 100) < 1.0 and np.ptp(np.abs(p - p.mean())) < 1.0
+          for p in _lifted.paths))
+check("the runs land 90 degrees apart, the pen up between them",
+      np.allclose(sorted(np.angle(np.array([p.mean() for p in _lifted.paths]), deg=True) % 360),
+                  [0, 90, 180, 270], atol=1.0),
+      sorted(np.angle(np.array([p.mean() for p in _lifted.paths]), deg=True) % 360))
+check("a lift has no styles when the file asks for no inks", _lifted.styles is None)
+_arc = run(_lift_ini.replace("use_arc_length = false", "use_arc_length = true"))
+check("sampled by arc length, the points along the jump are dropped, not drawn",
+      len(_arc.paths) == 4 and all(np.abs(np.diff(p)).max() < 5.0 for p in _arc.paths),
+      [float(np.abs(np.diff(p)).max()) for p in _arc.paths])
+check("the stages and t values lose the same points, so point i is still point i",
+      _arc.t_values is not None and all(len(st) == len(_arc.t_values) for st in _arc.stages)
+      and sum(len(p) for p in _arc.paths) == len(_arc.t_values))
+_inked_lift = run(_lift_ini.replace("[output]\n", "[output]\ninks = #112233, #445566\nink_changes = 0.5\n", 1))
+check("a lift cuts inside each ink's span too: two inks, four runs, four pieces",
+      len(_inked_lift.paths) == 4 and [st["color"] for st in _inked_lift.styles]
+      == ["#112233", "#112233", "#445566", "#445566"],
+      [st["color"] for st in (_inked_lift.styles or [])])
+_sw_ini = build_ini(steps=[_single({"type": "circle", "radius": 40, "cycles": 2}),
+                           _single({"type": "scale", "scope": 1, "start_scale": 1, "end_scale": 1,
+                                    "switch_start_scale": "0.25 2, 0.75 1", "lift_on_switch": True,
+                                    "origin_x": 0, "origin_y": 0})],
+                    sampling=dict(_S, use_arc_length=False))
+_sw = run(_sw_ini)
+check("lift_on_switch cuts the line at each by-hand change: two switches, three pieces",
+      len(_sw.paths) == 3, len(_sw.paths))
+check("without it the change is drawn as a jump in one line",
+      len(run(_sw_ini.replace("lift_on_switch = true", "lift_on_switch = false")).paths) == 1)
+check("the lift step is in the module table as a clock with a runs count",
+      MODULE_DEFS["lift"]["category"] == "clock" and "steps" in MODULE_DEFS["lift"]["params"]
+      and "lift_on_switch" in valid_keys("circle"))
+
 # -- the pintograph ----------------------------------------------------------- #
 
 print("pintograph:")

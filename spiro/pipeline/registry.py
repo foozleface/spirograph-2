@@ -45,6 +45,11 @@ EASING_MODES = ["linear", "ease_in", "ease_out", "ease_in_out", "sine"]
 COMMON_PARAMS = {
     "easing": {"type": "choice", "choices": EASING_MODES, "default": "linear",
                "desc": "Timing curve", "advanced": True},
+    "lift_on_switch": {"type": "bool", "default": False, "desc": "Pen up at each by-hand change",
+                       "help": "The machine stopped and the pen lifted while a value is changed by "
+                               "hand (a ✋ row), so the line is cut there rather than dragged across. "
+                               "Off, the pen stays down and the change is drawn as a jump.",
+                       "advanced": True},
 }
 
 # Read by the base class for every transform. 'all' acts on everything drawn
@@ -404,9 +409,9 @@ MODULE_DEFS = {
             "mode":  {"type": "choice", "choices": ["pingpong", "reverse", "stutter", "speed", "offset", "ease", "motor"], "default": "pingpong", "desc": "How"},
             "rate":  {"type": "float", "default": 2.0, "min": 0.1, "max": 50, "step": 0.5, "desc": "Times over (speed)", "when": "speed"},
             "steps": {"type": "int",   "default": 8,   "min": 1,   "max": 200, "desc": "Stops (stutter)", "when": "stutter",
-                      "help": "How many positions the later steps stop at. With dwell 1 this is a table turned "
-                              "by hand between runs: put it before a rotation of 360 and the runs land that many "
-                              "times round; cut the line between them with a threshold pen lift."},
+                      "help": "How many positions the later steps stop at, the pen on the paper throughout: "
+                              "a Geneva or a ratchet. For a table turned by hand with the pen lifted "
+                              "between runs, use a Lift step instead."},
             "dwell": {"type": "float", "default": 0.5, "min": 0,   "max": 1, "step": 0.05, "desc": "Time stopped (stutter; 1 = instant steps)", "when": "stutter"},
             "phase": {"type": "float", "default": 0.25, "min": 0,  "max": 1, "step": 0.05, "desc": "Start ahead by (offset)", "when": "offset"},
             "curve": {"type": "choice", "choices": EASING_MODES, "default": "ease_in_out", "desc": "Curve (ease)", "when": "ease"},
@@ -426,6 +431,19 @@ MODULE_DEFS = {
                                  "unsteady_wanders slow swings over the draw: a hand on the crank. 0 is steady.",
                          "advanced": True},
             "unsteady_wanders": {"type": "float", "default": 6.0, "min": 0.25, "max": 200, "step": 0.25, "desc": "Swings over the draw", "advanced": True},
+        },
+    },
+    "lift": {
+        "category": "clock",
+        "label": "Lift",
+        "desc": "Pen up, the table moved on by hand to the next of N positions, pen down: runs, not one line",
+        "params": {
+            "steps": {"type": "int", "default": 8, "min": 1, "max": 200, "desc": "Runs",
+                      "help": "How many runs the draw is made of. Everything after this step stands still "
+                              "through each run and jumps to the next position between runs, with the pen "
+                              "off the paper, so the line is cut there: put a rotation of 360 after it and "
+                              "the runs land that many times round. A scale with scope 1 oscillating this "
+                              "many times before it gives each run its own swell."},
         },
     },
     "rotation": {

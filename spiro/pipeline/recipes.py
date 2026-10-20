@@ -817,8 +817,8 @@ def _spiral_noise(r):
 @recipe("Runs by hand — a set of loops, the table turned, another set")
 def _runs_by_hand(r):
     """Gandy's way: not one geared run but several, the table turned by hand
-    between them. The stutter clock with dwell 1 is the hand on the table;
-    each run is one swell of the loop, small to large to small."""
+    between them. The lift step is the hand on the table, the pen up while
+    it turns; each run is one swell of the loop, small to large to small."""
     runs = r.pick([7, 9, 11, 13])
     per_run = r.i(20, 36)
     return {"steps": [
@@ -827,10 +827,9 @@ def _runs_by_hand(r):
                radius_y=r.f(100, 140), rotation=r.f(0, 30), cycles=runs * per_run),
         single("scale", scope=1, start_scale=0.3, end_scale=1.0,
                osc_start_scale="%d,0" % runs, origin_x=0, origin_y=0),
-        single("tempo", mode="stutter", steps=runs, dwell=1),
+        single("lift", steps=runs),
         rot(360)],
         "stroke_width": 0.1, "symmetry": 1,
-        "extras": {"pen_lift": {"mode": "threshold", "threshold": 40}},
         "sampling": {"use_arc_length": False}}
 
 

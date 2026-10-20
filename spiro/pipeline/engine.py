@@ -129,7 +129,7 @@ def run(ini_text, reload_generators=False):
     import importlib
     if reload_generators and "main" in sys.modules:
         importlib.reload(sys.modules["main"])
-    from main import run_single_pipeline, expand_moire_config, apply_finishing, ink_styles
+    from main import run_single_pipeline, expand_moire_config, apply_finishing, ink_styles, split_at_lifts
 
     config = configparser.ConfigParser()
     config.read_string(ini_text)
@@ -157,19 +157,21 @@ def run(ini_text, reload_generators=False):
     if layers:
         for section in layers:
             names = [m.strip() for m in config.get(section, "modules").split(",")]
-            paths.append(run_single_pipeline(
+            pts, lifts = run_single_pipeline(
                 config, names,
                 config.getint(section, "initial_samples", fallback=initial),
                 config.getint(section, "output_samples", fallback=output),
                 config.getboolean(section, "use_arc_length", fallback=arc_len),
                 start, label=section.split(".", 1)[1],
-                scroll_repeats=config.getfloat(section, "scroll_repeats", fallback=scroll)))
+                scroll_repeats=config.getfloat(section, "scroll_repeats", fallback=scroll),
+                want_lifts=True)
+            paths.extend(split_at_lifts(pts, lifts))
     else:
         names = [m.strip() for m in config.get("pipeline", "modules").split(",")]
-        points, t_values, stages, modules = run_single_pipeline(
+        points, t_values, stages, modules, lifts = run_single_pipeline(
             config, names, initial, output, arc_len, start,
-            scroll_repeats=scroll, want_stages=True)
-        paths, styles = ink_styles(points, t_values, config)
+            scroll_repeats=scroll, want_stages=True, want_lifts=True)
+        paths, styles = ink_styles(points, t_values, config, lifts)
 
     if styles is not None:
         paths, styles = apply_finishing(paths, config, styles)
