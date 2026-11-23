@@ -35,9 +35,12 @@ fifteen; and the Turn box on the right takes an exact angle down to a tenth. A s
 Anything that reaches past the drawable area turns red and says so before you
 plot it.
 
-On first run the script builds `.venv/` and installs PySide6, NumPy and the
-[AxiDraw API](https://cdn.evilmadscientist.com/dl/ad/public/AxiDraw_API.zip);
-without the last one the app still runs and the plotter controls say why not.
+On first run the script builds `.venv/` and installs PySide6, NumPy, the
+[AxiDraw API](https://cdn.evilmadscientist.com/dl/ad/public/AxiDraw_API.zip)
+and the `axiplot` engine. Without the AxiDraw API the app still runs and the
+plotter controls say why not. `axiplot` is required: it is a separate local
+package, installed editable from the directory in `$AXIPLOT_SRC` (default
+`~/axiplot`), and the script stops with a message if that directory is missing.
 
 ### What it does
 
@@ -198,9 +201,11 @@ spiro/pipeline/    the mathematics: the module table, INI <-> a pipeline
 spiro/scene/       the sheet, in millimetres: paper, a placed item's box and
                    the one transform that places it, pens, and the SVG.
 spiro/ui/          the window: canvas, panels, and the two worker threads.
-axiplot/           the pen plotter, standalone — the in-process AxiDraw
-                   driver, the layer loop, path optimisation, notifications.
-                   Vendored from busy-python; see axiplot/VENDOR.md.
+axiplot            (not in this repo) the pen plotter engine — the in-process
+                   AxiDraw driver, the layer loop, path optimisation,
+                   notifications. A separate package, installed into .venv
+                   from $AXIPLOT_SRC (default ~/axiplot); its own tests live
+                   there.
 *.py at the root   the generators themselves (arc, harmonograph, rose, ...).
 ```
 
@@ -448,6 +453,9 @@ See `complete.ini` for documentation of every parameter.
 - Python 3.8+
 - NumPy
 - PySide6 (for the app; `run_gui.sh` installs it)
+- The `axiplot` engine package (needs Python 3.10+), installed into `.venv`:
+  `.venv/bin/python -m pip install -e ~/axiplot`. `run_gui.sh` does this from
+  `$AXIPLOT_SRC` (default `~/axiplot`) and fails if it is not there
 - The [AxiDraw API](https://cdn.evilmadscientist.com/dl/ad/public/AxiDraw_API.zip)
   for plotting; without it everything but the machine works
 - Optional: `cairosvg` for PNG export from the command line

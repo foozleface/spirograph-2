@@ -244,7 +244,7 @@ class NotifyPanel(QWidget):
                 named.append(("MQTT", notify.MqttNotifier(
                     self.mqtt_host.text().strip(), self.mqtt_user.text(),
                     self.mqtt_pass.text(), self.mqtt_topic.text().strip(),
-                    level=self.mqtt_level.currentText())))
+                    level=self.mqtt_level.currentText(), client_id="busy")))
             if self.hook_enabled.isChecked():
                 named.append(("webhook", notify.WebhookNotifier(self.hook_url.text().strip())))
             if named:
@@ -292,7 +292,7 @@ class NotifyPanel(QWidget):
             transports.append(("MQTT", notify.MqttNotifier(
                 self.mqtt_host.text().strip(), self.mqtt_user.text(),
                 self.mqtt_pass.text(), self.mqtt_topic.text().strip(),
-                level=self.mqtt_level.currentText())))
+                level=self.mqtt_level.currentText(), client_id="busy")))
         if self.hook_enabled.isChecked():
             transports.append(("Webhook",
                                notify.WebhookNotifier(self.hook_url.text().strip())))
